@@ -21,6 +21,9 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+    // ↓↓↓ 新增：把环境变量暴露给 Java/Kotlin BuildConfig ↓↓↓
+        buildConfigField "String", "WULILI_GH_TOKEN", "\"${System.getenv("WULILI_GH_TOKEN") ?: ""}\""
     }
     signingConfigs {
         debug {
