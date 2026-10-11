@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar, View, Text } from 'react-native';
+import { StatusBar, View, Text, ScrollView } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import TrackPlayer from 'react-native-track-player';
+import { NativeModules } from 'react-native';
 
 import RootNavigator from '@/navigation/RootNavigator';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -22,7 +23,7 @@ import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { fetchRemoteDialogues } from '@/api/githubDialogues';
-import { toGitHubApiError } from '@/api/githubClient';
+import { toGitHubApiError, setGitHubToken } from '@/api/githubClient';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,9 +39,24 @@ void TrackPlayer.setupPlayer({
   autoHandleInterruptions: true,
 }).catch(() => undefined);
 
+function readEmbeddedToken(): string | null {
+  try {
+    const buildConfig = NativeModules?.BuildConfig as
+      | { WULILI_GH_TOKEN?: string }
+      | undefined;
+    if (buildConfig?.WULILI_GH_TOKEN && buildConfig.WULILI_GH_TOKEN.length > 0) {
+      return buildConfig.WULILI_GH_TOKEN;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
   const [ready, setReady] = useState<boolean>(false);
+  const [bootError, setBootError] = useState<string | null>(null);
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
@@ -66,23 +82,39 @@ function AppInner(): React.JSX.Element {
   useEffect(() => {
     let mounted = true;
     void (async () => {
+      const fails: string[] = [];
+      const run = async (name: string, fn: () => Promise<unknown>) => {
+        try {
+          await fn();
+        } catch (e) {
+          fails.push(`${name}: ${e instanceof Error ? e.message : 'unknown'}`);
+        }
+      };
+
+      await run('settings', hydrateSettings);
+      await run('wulili', hydrateWulili);
+      await run('dialogues', hydrateDialogues);
+      await run('config', hydrateConfig);
+      await run('inventory', hydrateInventory);
+      await run('shop', hydrateShop);
+      await run('minigame', hydrateMinigame);
+      await run('update', hydrateUpdate);
+
+      const embedded = readEmbeddedToken();
+      if (embedded) {
+        setGitHubToken(embedded);
+      }
       try {
-        await Promise.all([
-          hydrateSettings(),
-          hydrateWulili(),
-          hydrateDialogues(),
-          hydrateConfig(),
-          hydrateInventory(),
-          hydrateShop(),
-          hydrateMinigame(),
-          hydrateUpdate(),
-        ]);
         await loadToken();
       } catch {
-        // ignore hydrate errors
-      } finally {
-        if (mounted) setReady(true);
+        // ignore
       }
+
+      if (fails.length > 0) {
+        setBootError(fails.join('\n'));
+      }
+
+      if (mounted) setReady(true);
     })();
     return () => {
       mounted = false;
@@ -109,11 +141,7 @@ function AppInner(): React.JSX.Element {
         }
       } catch (error) {
         const apiError = toGitHubApiError(error);
-        if (
-          !cancelled &&
-          apiError.status !== 0 &&
-          apiError.status !== 404
-        ) {
+        if (!cancelled && apiError.status !== 404) {
           Toast.show({
             type: 'error',
             text1: '无法同步线上内容',
@@ -146,6 +174,13 @@ function AppInner(): React.JSX.Element {
         <Text className="text-xs text-muted dark:text-dark-muted mt-2">
           正在准备…
         </Text>
+        {bootError ? (
+          <ScrollView
+            style={{ maxHeight: 200, marginTop: 16, paddingHorizontal: 24 }}
+          >
+            <Text className="text-[10px] text-danger">{bootError}</Text>
+          </ScrollView>
+        ) : null}
       </View>
     );
   }
