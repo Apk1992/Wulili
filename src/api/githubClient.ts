@@ -1,4 +1,10 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
+
+let cachedToken: string | null =
+  EMBEDDED_GH_TOKEN && EMBEDDED_GH_TOKEN !== '__WULILI_GH_TOKEN__'
+    ? EMBEDDED_GH_TOKEN
+    : null;
 import {
   GITHUB_ACCEPT,
   GITHUB_API_BASE,
