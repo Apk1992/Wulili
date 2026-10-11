@@ -34,23 +34,14 @@ export function RootNavigator(): React.JSX.Element {
 
   const headerBg = isDark ? '#0F172A' : '#F8FAFC';
   const headerText = isDark ? '#F1F5F9' : '#0F172A';
-  const headerBorder = isDark ? '#334155' : '#E2E8F0';
   const iconColor = isDark ? '#F1F5F9' : '#0F172A';
 
   const defaultScreenOptions = {
-    headerStyle: {
-      backgroundColor: headerBg,
-    },
+    headerStyle: { backgroundColor: headerBg },
     headerTintColor: headerText,
-    headerTitleStyle: {
-      fontWeight: '600' as const,
-      fontSize: 17,
-    },
+    headerTitleStyle: { fontWeight: '600' as const, fontSize: 17 },
     headerShadowVisible: false,
-    headerBottomBorderColor: headerBorder,
-    contentStyle: {
-      backgroundColor: isDark ? '#0F172A' : '#F8FAFC',
-    },
+    contentStyle: { backgroundColor: isDark ? '#0F172A' : '#F8FAFC' },
   };
 
   return (
@@ -59,119 +50,39 @@ export function RootNavigator(): React.JSX.Element {
         name="Tabs"
         component={TabNavigator}
         options={({ navigation }) => ({
-          headerShown: false,
-          title: '雾璃',
+          headerShown: true,
+          title: '雾璃专属',
           headerRight: () => (
             <Pressable
               onPress={() => navigation.navigate('Settings')}
-              className="p-2 mr-2 rounded-full active:opacity-60"
-              accessibilityLabel="设置"
+              style={{ padding: 8, marginRight: 8 }}
+              hitSlop={8}
             >
               <Ionicons name="settings-outline" size={22} color={iconColor} />
             </Pressable>
           ),
         })}
       />
-      <Stack.Screen
-        name="Feed"
-        component={FeedScreen}
-        options={{ title: '投喂' }}
-      />
-      <Stack.Screen
-        name="Entertain"
-        component={EntertainScreen}
-        options={{ title: '娱乐' }}
-      />
-      <Stack.Screen
-        name="Stream"
-        component={StreamScreen}
-        options={{ title: '直播' }}
-      />
-      <Stack.Screen
-        name="Exercise"
-        component={ExerciseScreen}
-        options={{ title: '运动' }}
-      />
-      <Stack.Screen
-        name="Medicine"
-        component={MedicineScreen}
-        options={{ title: '药房' }}
-      />
-      <Stack.Screen
-        name="Shop"
-        component={ShopScreen}
-        options={{ title: '衣柜' }}
-      />
-      <Stack.Screen
-        name="MusicPlayer"
-        component={MusicPlayerScreen}
-        options={{ title: '音乐' }}
-      />
-      <Stack.Screen
-        name="VideoPlayer"
-        component={VideoPlayerScreen}
-        options={{ title: '视频' }}
-      />
-      <Stack.Screen
-        name="NoteReader"
-        component={NoteReaderScreen}
-        options={{ title: '笔记' }}
-      />
-      <Stack.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{ title: '设置' }}
-      />
-      <Stack.Screen
-        name="GitHubToken"
-        component={GitHubTokenScreen}
-        options={{ title: 'GitHub Token' }}
-      />
-      <Stack.Screen
-        name="About"
-        component={AboutScreen}
-        options={{ title: '关于' }}
-      />
-      <Stack.Screen
-        name="DeveloperConsole"
-        component={DeveloperConsoleScreen}
-        options={{ title: '开发者控制台' }}
-      />
-      <Stack.Screen
-        name="DialogueEditor"
-        component={DialogueEditorScreen}
-        options={{ title: '台词编辑器' }}
-      />
-      <Stack.Screen
-        name="FoodEditor"
-        component={FoodEditorScreen}
-        options={{ title: '食物编辑器' }}
-      />
-      <Stack.Screen
-        name="MedicineEditor"
-        component={MedicineEditorScreen}
-        options={{ title: '药品编辑器' }}
-      />
-      <Stack.Screen
-        name="OutfitEditor"
-        component={OutfitEditorScreen}
-        options={{ title: '服装编辑器' }}
-      />
-      <Stack.Screen
-        name="AccessoryEditor"
-        component={AccessoryEditorScreen}
-        options={{ title: '配饰编辑器' }}
-      />
-      <Stack.Screen
-        name="MinigameEditor"
-        component={MinigameEditorScreen}
-        options={{ title: '小游戏编辑器' }}
-      />
-      <Stack.Screen
-        name="MemoryManager"
-        component={MemoryManagerScreen}
-        options={{ title: '回忆管理' }}
-      />
+      <Stack.Screen name="Feed" component={FeedScreen} options={{ title: '投喂' }} />
+      <Stack.Screen name="Entertain" component={EntertainScreen} options={{ title: '娱乐' }} />
+      <Stack.Screen name="Stream" component={StreamScreen} options={{ title: '直播' }} />
+      <Stack.Screen name="Exercise" component={ExerciseScreen} options={{ title: '运动' }} />
+      <Stack.Screen name="Medicine" component={MedicineScreen} options={{ title: '药房' }} />
+      <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '衣柜' }} />
+      <Stack.Screen name="MusicPlayer" component={MusicPlayerScreen} options={{ title: '音乐' }} />
+      <Stack.Screen name="VideoPlayer" component={VideoPlayerScreen} options={{ title: '视频' }} />
+      <Stack.Screen name="NoteReader" component={NoteReaderScreen} options={{ title: '笔记' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '设置' }} />
+      <Stack.Screen name="GitHubToken" component={GitHubTokenScreen} options={{ title: 'GitHub Token' }} />
+      <Stack.Screen name="About" component={AboutScreen} options={{ title: '关于' }} />
+      <Stack.Screen name="DeveloperConsole" component={DeveloperConsoleScreen} options={{ title: '开发者控制台' }} />
+      <Stack.Screen name="DialogueEditor" component={DialogueEditorScreen} options={{ title: '台词编辑器' }} />
+      <Stack.Screen name="FoodEditor" component={FoodEditorScreen} options={{ title: '食物编辑器' }} />
+      <Stack.Screen name="MedicineEditor" component={MedicineEditorScreen} options={{ title: '药品编辑器' }} />
+      <Stack.Screen name="OutfitEditor" component={OutfitEditorScreen} options={{ title: '服装编辑器' }} />
+      <Stack.Screen name="AccessoryEditor" component={AccessoryEditorScreen} options={{ title: '配饰编辑器' }} />
+      <Stack.Screen name="MinigameEditor" component={MinigameEditorScreen} options={{ title: '小游戏编辑器' }} />
+      <Stack.Screen name="MemoryManager" component={MemoryManagerScreen} options={{ title: '回忆管理' }} />
     </Stack.Navigator>
   );
 }
