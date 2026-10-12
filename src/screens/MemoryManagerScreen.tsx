@@ -1,11 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { pick, types as documentTypes } from '@react-native-documents/picker';
@@ -20,7 +14,6 @@ import { toGitHubApiError } from '@/api/githubClient';
 import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { UPLOAD_SIZE_LIMIT } from '@/types/config';
-import { base64Encode } from '@/utils/base64';
 import { detectMemoryKind, getKindLabel } from '@/utils/mediaType';
 import { formatFileSize, humanizeFileName } from '@/utils/format';
 import type { GitHubContentItem } from '@/types/github';
@@ -34,7 +27,7 @@ type FolderKey = 'music' | 'videos' | 'notes';
 const FOLDERS: Array<{ key: FolderKey; label: string }> = [
   { key: 'music', label: '音乐' },
   { key: 'videos', label: '视频' },
-  { key: 'notes', label: '笔记' },
+  { key: 'notes', label: '读文' },
 ];
 
 export function MemoryManagerScreen({}: Props): React.JSX.Element {
@@ -77,12 +70,7 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
     try {
       const path = `${GITHUB_PATHS[activeFolder]}/${fileName}`;
       const existingSha = await getFileSha(path);
-      await putBinaryFile(
-        path,
-        base64,
-        `上传 ${fileName}`,
-        existingSha,
-      );
+      await putBinaryFile(path, base64, `上传 ${fileName}`, existingSha);
       Alert.alert('上传成功', `${fileName} 已保存到仓库。`);
       void query.refetch();
     } catch (error) {
@@ -238,7 +226,10 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
           <Text className="text-xs text-muted dark:text-dark-muted">
             现有文件 · {items.length}
           </Text>
-          <Pressable onPress={() => void query.refetch()} className="flex-row items-center">
+          <Pressable
+            onPress={() => void query.refetch()}
+            className="flex-row items-center"
+          >
             <Text className="text-xs text-primary">刷新</Text>
           </Pressable>
         </View>
