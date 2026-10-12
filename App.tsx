@@ -16,6 +16,7 @@ import { useInventoryStore } from '@/store/useInventoryStore';
 import { useShopStore } from '@/store/useShopStore';
 import { useMinigameStore } from '@/store/useMinigameStore';
 import { useUpdateStore } from '@/store/useUpdateStore';
+import { useStreamStore } from '@/store/useStreamStore';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useGitHubToken } from '@/hooks/useGitHubToken';
@@ -41,44 +42,11 @@ void TrackPlayer.setupPlayer({
 
 const PLACEHOLDER = '__WULILI_GH_TOKEN__';
 
-type TokenStatus = 'embedded' | 'keychain' | 'none';
-
-interface TokenInfo {
-  status: TokenStatus;
-  length: number;
-  preview: string;
-}
-
-function inspectToken(): TokenInfo {
-  const embedded =
-    typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
-  if (embedded.length > 0 && embedded !== PLACEHOLDER) {
-    return {
-      status: 'embedded',
-      length: embedded.length,
-      preview: `${embedded.slice(0, 10)}…${embedded.slice(-4)}`,
-    };
-  }
-  const current = getGitHubToken();
-  if (current && current.length > 0) {
-    return {
-      status: 'keychain',
-      length: current.length,
-      preview: `${current.slice(0, 10)}…${current.slice(-4)}`,
-    };
-  }
-  return { status: 'none', length: 0, preview: '（空）' };
-}
-
 function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
   const [ready, setReady] = useState<boolean>(false);
   const [bootError, setBootError] = useState<string | null>(null);
-  const [tokenInfo, setTokenInfo] = useState<TokenInfo>({
-    status: 'none',
-    length: 0,
-    preview: '',
-  });
+  const [hasToken, setHasToken] = useState<boolean>(false);
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
@@ -88,6 +56,7 @@ function AppInner(): React.JSX.Element {
   const hydrateShop = useShopStore((s) => s.hydrate);
   const hydrateMinigame = useMinigameStore((s) => s.hydrate);
   const hydrateUpdate = useUpdateStore((s) => s.hydrate);
+  const hydrateStream = useStreamStore((s) => s.hydrate);
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
   const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
@@ -121,30 +90,25 @@ function AppInner(): React.JSX.Element {
       await run('shop', hydrateShop);
       await run('minigame', hydrateMinigame);
       await run('update', hydrateUpdate);
-
-      // Token 优先级：embedded > keychain > 无
-      // githubClient 在模块加载时已经从 EMBEDDED_GH_TOKEN 初始化了 cachedToken
-      // 我们只需要在 embedded 无效时才 fallback 到 keychain
+      await run('stream', hydrateStream);
 
       const embedded =
         typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
       const embeddedValid = embedded.length > 0 && embedded !== PLACEHOLDER;
 
-      if (!embeddedValid) {
-        // embedded 无效 → 尝试 keychain
+      if (embeddedValid) {
+        setGitHubToken(embedded);
+        setHasToken(true);
+      } else {
         try {
           const fromKeychain = await loadToken();
           if (fromKeychain && fromKeychain.length > 0) {
             setGitHubToken(fromKeychain);
+            setHasToken(true);
           }
         } catch {
           // ignore
         }
-      }
-      // 如果 embedded 有效 → 不做任何事，cachedToken 已经是真值
-
-      if (mounted) {
-        setTokenInfo(inspectToken());
       }
 
       if (fails.length > 0) {
@@ -212,9 +176,7 @@ function AppInner(): React.JSX.Element {
           正在准备…
         </Text>
         {bootError ? (
-          <ScrollView
-            style={{ maxHeight: 200, marginTop: 16 }}
-          >
+          <ScrollView style={{ maxHeight: 200, marginTop: 16 }}>
             <Text className="text-[10px] text-danger">{bootError}</Text>
           </ScrollView>
         ) : null}
@@ -230,7 +192,7 @@ function AppInner(): React.JSX.Element {
       />
       <RootNavigator />
       <Toast />
-      {tokenInfo.status === 'none' ? (
+      {!hasToken ? (
         <View
           pointerEvents="none"
           style={{
