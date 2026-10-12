@@ -9,8 +9,11 @@ import StatBar from '@/components/StatBar';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
+import { useSeason } from '@/hooks/useSeason';
+import { computeStreamLevel } from '@/data/streamConfig';
+import { aggregateBonus, describeAggregated } from '@/utils/equipmentBonus';
 import { formatCoins, formatNumber, formatWeight } from '@/utils/format';
-import { formatRelativeTime } from '@/utils/time';
+import { formatRelativeTime, formatDuration } from '@/utils/time';
 import { ILLNESS_LABELS } from '@/components/constants';
 import type { RootStackParamList } from '@/types/navigation';
 
@@ -21,6 +24,7 @@ export function StatusScreen({}: Props): React.JSX.Element {
   const { affinity, level, levelLabel, progressToNext } = useAffinity();
   const getOutfitById = useAppConfigStore((s) => s.getOutfitById);
   const getAccessoryById = useAppConfigStore((s) => s.getAccessoryById);
+  const { season, label: seasonLabel, emoji: seasonEmoji, description: seasonDescription } = useSeason();
 
   const currentOutfitName = useMemo(() => {
     if (!state.currentOutfit) return '未穿戴';
@@ -33,6 +37,26 @@ export function StatusScreen({}: Props): React.JSX.Element {
     const accessory = getAccessoryById(state.currentAccessory);
     return accessory ? accessory.name : '未佩戴';
   }, [state.currentAccessory, getAccessoryById]);
+
+  const equippedBonus = useMemo(() => {
+    const outfit = state.currentOutfit
+      ? getOutfitById(state.currentOutfit)
+      : null;
+    const accessory = state.currentAccessory
+      ? getAccessoryById(state.currentAccessory)
+      : null;
+    return aggregateBonus(outfit, accessory);
+  }, [state.currentOutfit, state.currentAccessory, getOutfitById, getAccessoryById]);
+
+  const equippedBonusLines = useMemo(
+    () => describeAggregated(equippedBonus),
+    [equippedBonus],
+  );
+
+  const streamLevelInfo = useMemo(
+    () => computeStreamLevel(state.totalStreamSeconds),
+    [state.totalStreamSeconds],
+  );
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
@@ -55,6 +79,23 @@ export function StatusScreen({}: Props): React.JSX.Element {
             <StatBar icon="happy" label="心情" value={state.stats.mood} color="success" />
             <StatBar icon="heart" label="健康" value={state.stats.health} color="danger" />
             <StatBar icon="flash" label="精力" value={state.stats.energy} color="warning" />
+          </View>
+        </Card>
+
+        <Card className="mt-3">
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-3">
+            当前季节
+          </Text>
+          <View className="flex-row items-center mb-2">
+            <Text className="text-3xl mr-2">{seasonEmoji}</Text>
+            <View className="flex-1">
+              <Text className="text-sm font-semibold text-text dark:text-dark-text">
+                {seasonLabel} · {season}
+              </Text>
+              <Text className="text-[10px] text-muted dark:text-dark-muted mt-0.5">
+                {seasonDescription}
+              </Text>
+            </View>
           </View>
         </Card>
 
@@ -101,22 +142,63 @@ export function StatusScreen({}: Props): React.JSX.Element {
 
         <Card className="mt-3">
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-3">
-            财产
+            直播等级 · Lv.{streamLevelInfo.level}
           </Text>
-          <InfoRow label="金币" value={formatCoins(state.coins)} icon="cash" />
+          <View className="w-full rounded-full overflow-hidden h-2 bg-border dark:bg-dark-border">
+            <View
+              className="h-2 bg-primary"
+              style={{ width: `${Math.round(streamLevelInfo.progressToNext * 100)}%` }}
+            />
+          </View>
           <InfoRow
-            label="累计直播收入"
+            label="累计直播"
+            value={formatDuration(state.totalStreamSeconds * 1000)}
+            icon="time"
+            compact
+          />
+          <InfoRow
+            label="累计收入"
             value={formatCoins(state.totalStreamEarnings)}
             icon="trending-up"
+            compact
+          />
+          <InfoRow
+            label="收入加成"
+            value={`+${Math.round(streamLevelInfo.bonusRate * 100)}%`}
+            icon="flash"
+            compact
           />
         </Card>
 
         <Card className="mt-3">
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-3">
-            穿戴
+            穿戴 · 加成
           </Text>
           <InfoRow label="服装" value={currentOutfitName} icon="shirt" />
           <InfoRow label="配饰" value={currentAccessoryName} icon="glasses" />
+          {equippedBonusLines.length > 0 ? (
+            <View className="mt-2 pt-2 border-t border-border dark:border-dark-border">
+              {equippedBonusLines.map((line) => (
+                <Text
+                  key={line}
+                  className="text-xs text-success py-0.5"
+                >
+                  · {line}
+                </Text>
+              ))}
+            </View>
+          ) : (
+            <Text className="text-xs text-muted dark:text-dark-muted mt-2">
+              无加成
+            </Text>
+          )}
+        </Card>
+
+        <Card className="mt-3">
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-3">
+            财产
+          </Text>
+          <InfoRow label="金币" value={formatCoins(state.coins)} icon="cash" />
         </Card>
 
         <Card className="mt-3">
@@ -171,8 +253,8 @@ function InfoRow({
         <Text className="text-xs text-muted dark:text-dark-muted">{label}</Text>
       </View>
       <Text
-        className="text-xs font-medium"
-        style={{ color: valueColor ?? '#0F172A' }}
+        className="text-xs font-medium text-text dark:text-dark-text"
+        style={{ color: valueColor }}
       >
         {value}
       </Text>
