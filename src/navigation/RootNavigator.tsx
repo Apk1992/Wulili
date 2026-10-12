@@ -10,6 +10,7 @@ import StreamScreen from '@/screens/StreamScreen';
 import ExerciseScreen from '@/screens/ExerciseScreen';
 import MedicineScreen from '@/screens/MedicineScreen';
 import ShopScreen from '@/screens/ShopScreen';
+import StatusScreen from '@/screens/StatusScreen';
 import MusicPlayerScreen from '@/screens/MusicPlayerScreen';
 import VideoPlayerScreen from '@/screens/VideoPlayerScreen';
 import NoteReaderScreen from '@/screens/NoteReaderScreen';
@@ -69,9 +70,10 @@ export function RootNavigator(): React.JSX.Element {
       <Stack.Screen name="Exercise" component={ExerciseScreen} options={{ title: '运动' }} />
       <Stack.Screen name="Medicine" component={MedicineScreen} options={{ title: '药房' }} />
       <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '衣柜' }} />
+      <Stack.Screen name="Status" component={StatusScreen} options={{ title: '雾璃的状态' }} />
       <Stack.Screen name="MusicPlayer" component={MusicPlayerScreen} options={{ title: '音乐' }} />
       <Stack.Screen name="VideoPlayer" component={VideoPlayerScreen} options={{ title: '视频' }} />
-      <Stack.Screen name="NoteReader" component={NoteReaderScreen} options={{ title: '笔记' }} />
+      <Stack.Screen name="NoteReader" component={NoteReaderScreen} options={{ title: '读文' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '设置' }} />
       <Stack.Screen name="GitHubToken" component={GitHubTokenScreen} options={{ title: 'GitHub Token' }} />
       <Stack.Screen name="About" component={AboutScreen} options={{ title: '关于' }} />
