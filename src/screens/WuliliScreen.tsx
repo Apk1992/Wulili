@@ -5,7 +5,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
-import StatusPanel from '@/components/StatusPanel';
 import WuliliAvatar from '@/components/WuliliAvatar';
 import DialogueBubble from '@/components/DialogueBubble';
 import Card from '@/components/Card';
@@ -14,8 +13,9 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useTheme } from '@/hooks/useTheme';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
-import { getTimeOfDayLabel } from '@/utils/time';
-import { getTimeOfDay } from '@/utils/time';
+import { useAffinity } from '@/hooks/useAffinity';
+import { getTimeOfDayLabel, getTimeOfDay } from '@/utils/time';
+import { formatNumber } from '@/utils/format';
 import type { Mood } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
@@ -25,13 +25,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const { isDark } = useTheme();
   const { speak } = useDialogue();
+  const { levelLabel } = useAffinity();
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
   const mood = computeMood();
   const timeOfDay = getTimeOfDay();
-  const stats = useWuliliStore((s) => s.state.stats);
   const illness = useWuliliStore((s) => s.state.illness);
+  const coins = useWuliliStore((s) => s.state.coins);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
 
   useFocusEffect(
@@ -86,7 +87,13 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
               雾璃
             </Text>
             <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
-              {getTimeOfDayLabel(timeOfDay)} · INFJ 主播
+              {getTimeOfDayLabel(timeOfDay)} · {levelLabel}
+            </Text>
+          </View>
+          <View className="flex-row items-center">
+            <Ionicons name="cash-outline" size={14} color={isDark ? '#94A3B8' : '#64748B'} />
+            <Text className="ml-1 text-sm font-semibold text-text dark:text-dark-text">
+              {formatNumber(coins)}
             </Text>
           </View>
         </View>
@@ -100,10 +107,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             autoDismissMs={10000}
           />
         ) : null}
-
-        <View className="mt-4">
-          <StatusPanel />
-        </View>
 
         {illness.type !== 'none' ? (
           <Card className="mt-3">
@@ -129,52 +132,43 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           <ActionButton
             icon="restaurant"
             label="投喂"
-            color="#2563EB"
             onPress={() => navigation.navigate('Feed')}
           />
           <ActionButton
             icon="game-controller"
             label="娱乐"
-            color="#10B981"
             onPress={() => navigation.navigate('Entertain')}
           />
           <ActionButton
             icon="videocam"
             label="直播"
-            color="#F59E0B"
             onPress={() => navigation.navigate('Stream')}
           />
           <ActionButton
             icon="bicycle"
             label="运动"
-            color="#8B5CF6"
             onPress={() => navigation.navigate('Exercise')}
           />
           <ActionButton
             icon="medkit"
             label="药房"
-            color="#EF4444"
             onPress={() => navigation.navigate('Medicine')}
           />
           <ActionButton
             icon="shirt"
             label="衣柜"
-            color="#EC4899"
             onPress={() => navigation.navigate('Shop')}
           />
         </View>
 
-        <View className="mt-4">
-          <Card>
-            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-              今日状态
-            </Text>
-            <SummaryLine icon="restaurant-outline" label="饱食度" value={`${Math.round(stats.hunger)}/100`} isDark={isDark} />
-            <SummaryLine icon="happy-outline" label="心情" value={`${Math.round(stats.mood)}/100`} isDark={isDark} />
-            <SummaryLine icon="heart-outline" label="健康" value={`${Math.round(stats.health)}/100`} isDark={isDark} />
-            <SummaryLine icon="flash-outline" label="精力" value={`${Math.round(stats.energy)}/100`} isDark={isDark} />
-            <SummaryLine icon="scale-outline" label="体重" value={`${stats.weight.toFixed(1)} kg`} isDark={isDark} />
-          </Card>
+        <View className="mt-5">
+          <Button
+            label="查看雾璃的状态"
+            icon="heart-circle"
+            variant="primary"
+            size="lg"
+            onPress={() => navigation.navigate('Status')}
+          />
         </View>
       </ScrollView>
     </ScreenContainer>
@@ -194,14 +188,12 @@ function computeMood(): Mood {
 interface ActionButtonProps {
   icon: string;
   label: string;
-  color: string;
   onPress: () => void;
 }
 
 function ActionButton({
   icon,
   label,
-  color,
   onPress,
 }: ActionButtonProps): React.JSX.Element {
   return (
@@ -213,30 +205,6 @@ function ActionButton({
         size="md"
         onPress={onPress}
       />
-    </View>
-  );
-}
-
-interface SummaryLineProps {
-  icon: string;
-  label: string;
-  value: string;
-  isDark: boolean;
-}
-
-function SummaryLine({
-  icon,
-  label,
-  value,
-  isDark,
-}: SummaryLineProps): React.JSX.Element {
-  return (
-    <View className="flex-row items-center justify-between py-1.5 border-b border-border dark:border-dark-border">
-      <View className="flex-row items-center">
-        <Ionicons name={icon} size={14} color={isDark ? '#94A3B8' : '#64748B'} />
-        <Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text>
-      </View>
-      <Text className="text-xs font-medium text-text dark:text-dark-text">{value}</Text>
     </View>
   );
 }
