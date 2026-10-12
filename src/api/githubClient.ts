@@ -12,8 +12,6 @@ import {
 } from './githubConfig';
 import type { GitHubApiError, GitHubErrorBody } from '@/types/github';
 
-let cachedToken: string | null = null;
-
 export function setGitHubToken(token: string | null): void {
   cachedToken = token;
 }
