@@ -27,7 +27,7 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   const setUseRemoteImages = useSettingsStore((s) => s.setUseRemoteImages);
   const resetSettings = useSettingsStore((s) => s.resetSettings);
 
-  const { hasToken, clearToken, isLoading: tokenLoading } = useGitHubToken();
+  const { hasToken, hasEmbedded, clearToken, isLoading: tokenLoading } = useGitHubToken();
   const { isEnabled: developerMode, handleSecretTap, disable } = useDeveloperMode();
   const { info, isChecking, check } = useAppUpdate();
 
