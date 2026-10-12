@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -13,8 +13,10 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useTheme } from '@/hooks/useTheme';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
+import { useStreamStore } from '@/store/useStreamStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { getTimeOfDayLabel, getTimeOfDay } from '@/utils/time';
+import { formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import type { Mood } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
@@ -28,12 +30,22 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const { levelLabel } = useAffinity();
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [now, setNow] = useState<number>(Date.now());
 
   const mood = computeMood();
   const timeOfDay = getTimeOfDay();
   const illness = useWuliliStore((s) => s.state.illness);
   const coins = useWuliliStore((s) => s.state.coins);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
+
+  const isStreaming = useStreamStore((s) => s.state.isStreaming);
+  const streamStartedAt = useStreamStore((s) => s.state.startedAt);
+
+  useEffect(() => {
+    if (!isStreaming) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isStreaming]);
 
   useFocusEffect(
     useCallback(() => {
@@ -71,6 +83,9 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     setRefreshing(false);
   };
 
+  const streamElapsedMs =
+    isStreaming && streamStartedAt ? now - streamStartedAt : 0;
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <ScrollView
@@ -97,6 +112,25 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Text>
           </View>
         </View>
+
+        {isStreaming ? (
+          <Pressable
+            onPress={() => navigation.navigate('Stream')}
+            className="mb-3 rounded-2xl p-3 flex-row items-center active:opacity-80"
+            style={{ backgroundColor: '#EF4444' }}
+          >
+            <Ionicons name="radio" size={20} color="#FFFFFF" />
+            <View className="ml-2 flex-1">
+              <Text className="text-white text-sm font-semibold">
+                正在直播中
+              </Text>
+              <Text className="text-white/80 text-[10px] mt-0.5">
+                已播 {formatDuration(streamElapsedMs)} · 点此查看
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
 
         <WuliliAvatar mood={mood} size={220} className="my-3" />
 
