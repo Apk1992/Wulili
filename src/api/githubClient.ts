@@ -1,3 +1,4 @@
+
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
 import {
@@ -7,10 +8,29 @@ import {
 } from './githubConfig';
 import type { GitHubApiError, GitHubErrorBody } from '@/types/github';
 
-let cachedToken: string | null =
-  EMBEDDED_GH_TOKEN && EMBEDDED_GH_TOKEN !== '__WULILI_GH_TOKEN__'
-    ? EMBEDDED_GH_TOKEN
-    : null;
+const PLACEHOLDER = '__WULILI_GH_TOKEN__';
+
+function resolveEmbeddedToken(): string | null {
+  if (typeof EMBEDDED_GH_TOKEN !== 'string') return null;
+  const trimmed = EMBEDDED_GH_TOKEN.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed === PLACEHOLDER) return null;
+  return trimmed;
+}
+
+const initialToken = resolveEmbeddedToken();
+
+if (__DEV__) {
+  if (initialToken) {
+    console.log(
+      `[Wulili] embedded token loaded (length=${initialToken.length})`,
+    );
+  } else {
+    console.warn('[Wulili] embedded token missing or placeholder');
+  }
+}
+
+let cachedToken: string | null = initialToken;
 
 export function setGitHubToken(token: string | null): void {
   cachedToken = token;
@@ -18,6 +38,10 @@ export function setGitHubToken(token: string | null): void {
 
 export function getGitHubToken(): string | null {
   return cachedToken;
+}
+
+export function hasEmbeddedToken(): boolean {
+  return initialToken !== null;
 }
 
 function buildHeaders(accept: string): Record<string, string> {
