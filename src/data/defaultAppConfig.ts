@@ -291,6 +291,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'casual_tee.png',
       moodBonus: 0,
       affinityBonus: 0,
+      bonus: {},
     },
     {
       id: 'hoodie',
@@ -300,6 +301,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'hoodie.png',
       moodBonus: 4,
       affinityBonus: 1,
+      bonus: {
+        moodDecayRate: 0.94,
+      },
     },
     {
       id: 'sweater',
@@ -309,6 +313,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'sweater.png',
       moodBonus: 5,
       affinityBonus: 2,
+      bonus: {
+        moodDecayRate: 0.91,
+      },
     },
     {
       id: 'school_uniform',
@@ -318,6 +325,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'school_uniform.png',
       moodBonus: 6,
       affinityBonus: 2,
+      bonus: {
+        affinityGain: 1.2,
+      },
     },
     {
       id: 'hanfu',
@@ -327,6 +337,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'hanfu.png',
       moodBonus: 10,
       affinityBonus: 4,
+      bonus: {
+        affinityGain: 2.2,
+        streamIncomeRate: 1.11,
+      },
     },
     {
       id: 'maid_dress',
@@ -336,6 +350,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'maid_dress.png',
       moodBonus: 8,
       affinityBonus: 3,
+      bonus: {
+        streamIncomeRate: 1.18,
+        moodRecoveryRate: 1.08,
+      },
     },
     {
       id: 'lolita',
@@ -345,6 +363,11 @@ export const defaultAppConfig: AppConfig = {
       image: 'lolita.png',
       moodBonus: 12,
       affinityBonus: 5,
+      bonus: {
+        affinityGain: 2.6,
+        moodRecoveryRate: 1.13,
+        moodDecayRate: 0.9,
+      },
     },
     {
       id: 'suit',
@@ -354,6 +377,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'suit.png',
       moodBonus: 8,
       affinityBonus: 3,
+      bonus: {
+        streamIncomeRate: 1.2,
+        energyCostRate: 0.95,
+      },
     },
     {
       id: 'pajamas',
@@ -363,6 +390,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'pajamas.png',
       moodBonus: 6,
       affinityBonus: 2,
+      bonus: {
+        energyCostRate: 0.92,
+        moodRecoveryRate: 1.05,
+      },
     },
     {
       id: 'idol_stage',
@@ -372,6 +403,11 @@ export const defaultAppConfig: AppConfig = {
       image: 'idol_stage.png',
       moodBonus: 16,
       affinityBonus: 8,
+      bonus: {
+        streamIncomeRate: 1.5,
+        affinityGain: 4,
+        energyCostRate: 0.95,
+      },
     },
   ],
   accessories: [
@@ -383,6 +419,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'glasses.png',
       moodBonus: 3,
       affinityBonus: 1,
+      bonus: {
+        moodDecayRate: 0.98,
+      },
     },
     {
       id: 'hairpin',
@@ -392,6 +431,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'hairpin.png',
       moodBonus: 3,
       affinityBonus: 1,
+      bonus: {
+        affinityGain: 0.3,
+      },
     },
     {
       id: 'ribbon',
@@ -401,6 +443,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'ribbon.png',
       moodBonus: 4,
       affinityBonus: 1,
+      bonus: {
+        moodRecoveryRate: 1.03,
+      },
     },
     {
       id: 'headphones',
@@ -410,6 +455,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'headphones.png',
       moodBonus: 6,
       affinityBonus: 3,
+      bonus: {
+        streamIncomeRate: 1.08,
+        energyCostRate: 0.96,
+      },
     },
     {
       id: 'necklace',
@@ -419,6 +468,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'necklace.png',
       moodBonus: 5,
       affinityBonus: 2,
+      bonus: {
+        affinityGain: 0.8,
+      },
     },
     {
       id: 'scarf',
@@ -428,6 +480,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'scarf.png',
       moodBonus: 5,
       affinityBonus: 2,
+      bonus: {
+        illnessResistance: 0.15,
+      },
     },
     {
       id: 'earrings',
@@ -437,6 +492,9 @@ export const defaultAppConfig: AppConfig = {
       image: 'earrings.png',
       moodBonus: 4,
       affinityBonus: 2,
+      bonus: {
+        affinityGain: 0.5,
+      },
     },
     {
       id: 'cat_ears',
@@ -446,6 +504,10 @@ export const defaultAppConfig: AppConfig = {
       image: 'cat_ears.png',
       moodBonus: 8,
       affinityBonus: 3,
+      bonus: {
+        streamIncomeRate: 1.1,
+        moodRecoveryRate: 1.05,
+      },
     },
   ],
   exercises: [
