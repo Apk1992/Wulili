@@ -16,7 +16,14 @@ interface StreamStore {
   hydrated: boolean;
   hydrate: () => Promise<void>;
   start: () => void;
-  tick: (deltaMs: number, earningsPerSecond: number, energyCostPerSec: number, moodCostPerSec: number, applyCosts: (energyCost: number, moodCost: number) => void) => void;
+  tick: (
+    deltaMs: number,
+    earningsPerSecond: number,
+    energyCostPerSec: number,
+    moodCostPerSec: number,
+    applyCosts: (energyCost: number, moodCost: number) => void,
+    onSecondsAccumulated?: (deltaSeconds: number) => void,
+  ) => void;
   addEarnings: (coins: number) => void;
   stop: () => number;
   reset: () => void;
@@ -63,7 +70,14 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     persist(next);
   },
 
-  tick: (deltaMs, earningsPerSecond, energyCostPerSec, moodCostPerSec, applyCosts) => {
+  tick: (
+    deltaMs,
+    earningsPerSecond,
+    energyCostPerSec,
+    moodCostPerSec,
+    applyCosts,
+    onSecondsAccumulated,
+  ) => {
     const current = get().state;
     if (!current.isStreaming) return;
 
@@ -75,6 +89,10 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     const moodCost = moodCostPerSec * deltaSec;
 
     applyCosts(energyCost, moodCost);
+
+    if (onSecondsAccumulated) {
+      onSecondsAccumulated(deltaSec);
+    }
 
     const next: StreamState = {
       ...current,
