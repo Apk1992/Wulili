@@ -208,7 +208,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         {/* 底部大按钮 */}
         <View
           className="absolute left-4 right-4"
-          style={{ bottom: 20 }}
+          style={{ bottom: 24 }}
           pointerEvents="box-none"
         >
           <Button
