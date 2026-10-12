@@ -39,22 +39,36 @@ function clampStat(key: keyof WuliliStats, value: number): number {
   return clamp(value, limits.min, limits.max);
 }
 
+function isStreamingNow(): boolean {
+  // 延迟 import，避免循环依赖
+  try {
+    const { useStreamStore } = require('@/store/useStreamStore');
+    return useStreamStore.getState().state.isStreaming === true;
+  } catch {
+    return false;
+  }
+}
+
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
+  const streaming = isStreamingNow();
+
   const hungerDecay = 3.2 * hours;
-  const energyDecay = 2.6 * hours;
-  const moodDecayBase = 1.6 * hours;
+  const energyDecay = streaming ? 0 : 2.6 * hours;
+  const moodDecayBase = streaming ? 0 : 1.6 * hours;
 
   let moodDecay = moodDecayBase;
-  if (state.stats.hunger < 30) moodDecay += 1.4 * hours;
-  if (state.stats.health < 40) moodDecay += 1.2 * hours;
-  if (state.illness.type !== 'none') moodDecay += 1.6 * hours;
+  if (!streaming) {
+    if (state.stats.hunger < 30) moodDecay += 1.4 * hours;
+    if (state.stats.health < 40) moodDecay += 1.2 * hours;
+    if (state.illness.type !== 'none') moodDecay += 1.6 * hours;
+  }
 
   let healthDecay = 0.5 * hours;
   if (state.stats.hunger < 20) healthDecay += 1.6 * hours;
-  if (state.stats.energy < 15) healthDecay += 1.2 * hours;
+  if (state.stats.energy < 15 && !streaming) healthDecay += 1.2 * hours;
 
   const newStats: WuliliStats = {
     hunger: clampStat('hunger', state.stats.hunger - hungerDecay),
@@ -125,7 +139,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   applyTimeDecay: () => {
     const current = get().state;
     const elapsed = (Date.now() - current.lastTickAt) / HOUR_MS;
-    if (elapsed < 0.02) return;
+    if (elapsed < 0.0005) return;
     const next = applyDecayToStats(current, elapsed);
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
