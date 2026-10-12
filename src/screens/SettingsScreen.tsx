@@ -27,7 +27,12 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   const setUseRemoteImages = useSettingsStore((s) => s.setUseRemoteImages);
   const resetSettings = useSettingsStore((s) => s.resetSettings);
 
-  const { hasToken, hasEmbedded, clearToken, isLoading: tokenLoading } = useGitHubToken();
+  const {
+    hasToken,
+    hasEmbedded,
+    clearToken,
+    isLoading: tokenLoading,
+  } = useGitHubToken();
   const { isEnabled: developerMode, handleSecretTap, disable } = useDeveloperMode();
   const { info, isChecking, check } = useAppUpdate();
 
@@ -35,12 +40,10 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
 
   const handleVersionTap = useCallback(() => {
     if (developerMode) return;
+    handleSecretTap();
     setVersionTapCount((prev) => {
       const next = prev + 1;
-      if (next >= 7) {
-        handleSecretTap();
-        return 0;
-      }
+      if (next >= 7) return 0;
       return next;
     });
   }, [developerMode, handleSecretTap]);
@@ -49,20 +52,6 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
     const result = await check({ silent: false });
     if (result && !result.hasUpdate) {
       Alert.alert('已是最新版本', `当前版本 ${result.currentVersion}`);
-    } else if (result && result.hasUpdate && result.apkUrl) {
-      Alert.alert(
-        '发现新版本',
-        `${result.latestVersion ?? ''}`,
-        [
-          { text: '稍后', style: 'cancel' },
-          {
-            text: '去下载',
-            onPress: () => {
-              navigation.navigate('About');
-            },
-          },
-        ],
-      );
     }
   };
 
@@ -148,7 +137,7 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
           }
           onPress={() => navigation.navigate('GitHubToken')}
         />
-        {hasToken ? (
+        {hasToken && !hasEmbedded ? (
           <SettingRow
             icon="trash"
             label="清除 Token"
@@ -189,10 +178,7 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
           }
           onPress={() => {
             Alert.alert('选择主题', undefined, [
-              {
-                text: '跟随系统',
-                onPress: () => setThemePreference('system'),
-              },
+              { text: '跟随系统', onPress: () => setThemePreference('system') },
               { text: '浅色', onPress: () => setThemePreference('light') },
               { text: '深色', onPress: () => setThemePreference('dark') },
               { text: '取消', style: 'cancel' },
@@ -273,9 +259,14 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
             size="sm"
             onPress={handleVersionTap}
           />
-          {versionTapCount > 0 && !developerMode ? (
+          {!developerMode && versionTapCount > 0 ? (
             <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
               再点击 {7 - versionTapCount} 次可开启开发者模式
+            </Text>
+          ) : null}
+          {developerMode ? (
+            <Text className="text-[10px] text-primary mt-1">
+              开发者模式已开启
             </Text>
           ) : null}
         </Card>
