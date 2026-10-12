@@ -84,7 +84,7 @@ export function getKindLabel(kind: MemoryKind): string {
     case 'video':
       return '视频';
     case 'note':
-      return '笔记';
+      return '读文';
     default:
       return '未知';
   }
