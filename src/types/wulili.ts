@@ -21,6 +21,8 @@ export type ActionType =
   | 'medicine'
   | 'idle';
 
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+
 export interface FoodEffect {
   hunger: number;
   mood: number;
@@ -50,6 +52,15 @@ export interface Medicine {
   moodRestore: number;
 }
 
+export interface EquipmentBonus {
+  moodDecayRate?: number;
+  energyCostRate?: number;
+  affinityGain?: number;
+  streamIncomeRate?: number;
+  moodRecoveryRate?: number;
+  illnessResistance?: number;
+}
+
 export interface Outfit {
   id: string;
   name: string;
@@ -58,6 +69,7 @@ export interface Outfit {
   image: string;
   moodBonus: number;
   affinityBonus: number;
+  bonus?: EquipmentBonus;
 }
 
 export interface Accessory {
@@ -68,6 +80,7 @@ export interface Accessory {
   image: string;
   moodBonus: number;
   affinityBonus: number;
+  bonus?: EquipmentBonus;
 }
 
 export interface ExerciseOption {
@@ -113,6 +126,7 @@ export interface WuliliState {
   lastMedicineAt: number | null;
   lastInteractionAt: number | null;
   totalStreamEarnings: number;
+  totalStreamSeconds: number;
   consecutiveJunkFood: number;
   consecutiveHealthyFood: number;
   consecutiveDaysLoggedIn: number;
@@ -164,6 +178,7 @@ export const INITIAL_WULILI_STATE: WuliliState = {
   lastMedicineAt: null,
   lastInteractionAt: null,
   totalStreamEarnings: 0,
+  totalStreamSeconds: 0,
   consecutiveJunkFood: 0,
   consecutiveHealthyFood: 0,
   consecutiveDaysLoggedIn: 1,
