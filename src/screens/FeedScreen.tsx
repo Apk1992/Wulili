@@ -1,5 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, RefreshControl, SectionList, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  Text,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -12,17 +19,43 @@ import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { formatCoins } from '@/utils/format';
-import type { Food } from '@/types/wulili';
+import type { Food, FoodCategory } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Feed'>;
 
-export function FeedScreen({ navigation }: Props): React.JSX.Element {
+interface FoodTab {
+  key: FoodCategory;
+  label: string;
+  icon: string;
+  activeColor: string;
+  inactiveColor: string;
+}
+
+const FOOD_TABS: FoodTab[] = [
+  {
+    key: 'healthy',
+    label: '营养',
+    icon: 'leaf',
+    activeColor: '#10B981',
+    inactiveColor: '#94A3B8',
+  },
+  {
+    key: 'junk',
+    label: '放纵',
+    icon: 'fast-food',
+    activeColor: '#EF4444',
+    inactiveColor: '#94A3B8',
+  },
+];
+
+export function FeedScreen({}: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const { gain } = useAffinity();
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<FoodCategory>('healthy');
 
   const foods = useAppConfigStore((s) => s.config.foods);
   const coins = useWuliliStore((s) => s.state.coins);
@@ -31,8 +64,19 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
   const addStats = useWuliliStore((s) => s.addStats);
   const addCoins = useWuliliStore((s) => s.addCoins);
 
-  const healthyFoods = foods.filter((f) => f.category === 'healthy');
-  const junkFoods = foods.filter((f) => f.category === 'junk');
+  const healthyCount = useMemo(
+    () => foods.filter((f) => f.category === 'healthy').length,
+    [foods],
+  );
+  const junkCount = useMemo(
+    () => foods.filter((f) => f.category === 'junk').length,
+    [foods],
+  );
+
+  const visibleFoods = useMemo(
+    () => foods.filter((f) => f.category === activeTab),
+    [foods, activeTab],
+  );
 
   useEffect(() => {
     if (foods.length === 0) {
@@ -71,9 +115,7 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
       if (food.effect.health < 0) {
         const risk = Math.abs(food.effect.health) * 0.02;
         if (Math.random() < risk) {
-          useWuliliStore
-            .getState()
-            .setIllness('rhinitis', 1);
+          useWuliliStore.getState().setIllness('rhinitis', 1);
           setTimeout(() => {
             Alert.alert('注意', '雾璃的鼻炎好像又犯了……');
           }, 800);
@@ -89,20 +131,45 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
     setRefreshing(false);
   };
 
-  const sections = [
-    { title: '营养 · 养身体', data: healthyFoods },
-    { title: '放纵 · 好心情', data: junkFoods },
-  ].filter((section) => section.data.length > 0);
-
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View className="px-4 pt-3 pb-2 flex-row items-center justify-between">
-        <Text className="text-sm text-muted dark:text-dark-muted">
-          当前金币
-        </Text>
+        <Text className="text-sm text-muted dark:text-dark-muted">当前金币</Text>
         <Text className="text-base font-bold text-text dark:text-dark-text">
           {formatCoins(coins)}
         </Text>
+      </View>
+
+      <View className="px-4 mb-2">
+        <View className="flex-row rounded-2xl p-1 bg-border dark:bg-dark-border">
+          {FOOD_TABS.map((tab) => {
+            const isActive = tab.key === activeTab;
+            const count = tab.key === 'healthy' ? healthyCount : junkCount;
+            const iconColor = isActive ? tab.activeColor : tab.inactiveColor;
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => setActiveTab(tab.key)}
+                className={[
+                  'flex-1 flex-row items-center justify-center py-2 rounded-xl',
+                  isActive ? 'bg-card dark:bg-dark-card' : 'bg-transparent',
+                ].join(' ')}
+              >
+                <Ionicons name={tab.icon} size={14} color={iconColor} />
+                <Text
+                  className={[
+                    'ml-1 text-xs font-medium',
+                    isActive
+                      ? 'text-text dark:text-dark-text'
+                      : 'text-muted dark:text-dark-muted',
+                  ].join(' ')}
+                >
+                  {tab.label} · {count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       {foods.length === 0 ? (
@@ -112,23 +179,18 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
           icon="restaurant-outline"
           fullScreen
         />
+      ) : visibleFoods.length === 0 ? (
+        <EmptyView
+          title={activeTab === 'healthy' ? '暂无营养食物' : '暂无放纵食物'}
+          message="去开发者控制台添加一些吧。"
+          icon="restaurant-outline"
+          fullScreen
+        />
       ) : (
-        <SectionList
-          sections={sections}
+        <FlatList
+          data={visibleFoods}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-          renderSectionHeader={({ section }) => (
-            <View className="py-2 mt-2 flex-row items-center">
-              <Ionicons
-                name={section.title.startsWith('营养') ? 'leaf' : 'fast-food'}
-                size={14}
-                color={section.title.startsWith('营养') ? '#10B981' : '#EF4444'}
-              />
-              <Text className="ml-1.5 text-xs font-semibold text-muted dark:text-dark-muted">
-                {section.title}
-              </Text>
-            </View>
-          )}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
           renderItem={({ item }) => (
             <FoodItem
               food={item}
@@ -140,7 +202,6 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
           showsVerticalScrollIndicator={false}
-          stickySectionHeadersEnabled={false}
         />
       )}
 
