@@ -13,6 +13,7 @@ export type RootStackParamList = {
   Exercise: undefined;
   Medicine: undefined;
   Shop: undefined;
+  Status: undefined;
   MusicPlayer: undefined;
   VideoPlayer: undefined;
   NoteReader: {
