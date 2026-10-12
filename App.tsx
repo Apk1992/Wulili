@@ -1,6 +1,5 @@
-
 import React, { useEffect, useState } from 'react';
-import { StatusBar, View, Text, ScrollView, NativeModules } from 'react-native';
+import { StatusBar, View, Text, ScrollView } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -24,6 +23,7 @@ import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { fetchRemoteDialogues } from '@/api/githubDialogues';
 import { toGitHubApiError, setGitHubToken, getGitHubToken } from '@/api/githubClient';
+import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,24 +39,46 @@ void TrackPlayer.setupPlayer({
   autoHandleInterruptions: true,
 }).catch(() => undefined);
 
-function readEmbeddedToken(): string | null {
-  try {
-    const buildConfig = NativeModules?.BuildConfig as
-      | { WULILI_GH_TOKEN?: string }
-      | undefined;
-    if (buildConfig?.WULILI_GH_TOKEN && buildConfig.WULILI_GH_TOKEN.length > 0) {
-      return buildConfig.WULILI_GH_TOKEN;
-    }
-  } catch {
-    // ignore
+const PLACEHOLDER = '__WULILI_GH_TOKEN__';
+
+type TokenStatus = 'embedded' | 'keychain' | 'none';
+
+interface TokenInfo {
+  status: TokenStatus;
+  length: number;
+  preview: string;
+}
+
+function inspectToken(): TokenInfo {
+  const embedded =
+    typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
+  if (embedded.length > 0 && embedded !== PLACEHOLDER) {
+    return {
+      status: 'embedded',
+      length: embedded.length,
+      preview: `${embedded.slice(0, 10)}…${embedded.slice(-4)}`,
+    };
   }
-  return null;
+  const current = getGitHubToken();
+  if (current && current.length > 0) {
+    return {
+      status: 'keychain',
+      length: current.length,
+      preview: `${current.slice(0, 10)}…${current.slice(-4)}`,
+    };
+  }
+  return { status: 'none', length: 0, preview: '（空）' };
 }
 
 function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
   const [ready, setReady] = useState<boolean>(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo>({
+    status: 'none',
+    length: 0,
+    preview: '',
+  });
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
@@ -100,24 +122,29 @@ function AppInner(): React.JSX.Element {
       await run('minigame', hydrateMinigame);
       await run('update', hydrateUpdate);
 
-      // Token 优先级：embedded > keychain
-      // 1. 先尝试 BuildConfig 里的（打包时注入）
-      const embeddedFromBuildConfig = readEmbeddedToken();
-      if (embeddedFromBuildConfig) {
-        setGitHubToken(embeddedFromBuildConfig);
-      } else {
-        // 2. embedded.ts 里的（sed 替换后的 JS 常量）
-        const embeddedFromJs = getGitHubToken();
-        if (embeddedFromJs && embeddedFromJs !== '__WULILI_GH_TOKEN__') {
-          // 已经有值（githubClient 初始化时读的 embedded.ts），不用动
-        } else {
-          // 3. 兜底：读 keychain（用户手动输入过的）
-          try {
-            await loadToken();
-          } catch {
-            // ignore
+      // Token 优先级：embedded > keychain > 无
+      // githubClient 在模块加载时已经从 EMBEDDED_GH_TOKEN 初始化了 cachedToken
+      // 我们只需要在 embedded 无效时才 fallback 到 keychain
+
+      const embedded =
+        typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
+      const embeddedValid = embedded.length > 0 && embedded !== PLACEHOLDER;
+
+      if (!embeddedValid) {
+        // embedded 无效 → 尝试 keychain
+        try {
+          const fromKeychain = await loadToken();
+          if (fromKeychain && fromKeychain.length > 0) {
+            setGitHubToken(fromKeychain);
           }
+        } catch {
+          // ignore
         }
+      }
+      // 如果 embedded 有效 → 不做任何事，cachedToken 已经是真值
+
+      if (mounted) {
+        setTokenInfo(inspectToken());
       }
 
       if (fails.length > 0) {
@@ -177,7 +204,7 @@ function AppInner(): React.JSX.Element {
 
   if (!ready) {
     return (
-      <View className="flex-1 bg-background dark:bg-dark-bg items-center justify-center">
+      <View className="flex-1 bg-background dark:bg-dark-bg items-center justify-center px-6">
         <Text className="text-base text-text dark:text-dark-text font-semibold">
           雾璃专属
         </Text>
@@ -186,7 +213,7 @@ function AppInner(): React.JSX.Element {
         </Text>
         {bootError ? (
           <ScrollView
-            style={{ maxHeight: 200, marginTop: 16, paddingHorizontal: 24 }}
+            style={{ maxHeight: 200, marginTop: 16 }}
           >
             <Text className="text-[10px] text-danger">{bootError}</Text>
           </ScrollView>
@@ -203,6 +230,23 @@ function AppInner(): React.JSX.Element {
       />
       <RootNavigator />
       <Toast />
+      {tokenInfo.status === 'none' ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            padding: 8,
+            backgroundColor: '#EF4444',
+          }}
+        >
+          <Text style={{ color: 'white', fontSize: 11, textAlign: 'center' }}>
+            未检测到 GitHub Token · App 将无法读取私有仓库
+          </Text>
+        </View>
+      ) : null}
     </NavigationContainer>
   );
 }
