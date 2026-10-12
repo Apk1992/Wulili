@@ -20,7 +20,7 @@ export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Elemen
   if (query.isLoading) {
     return (
       <ScreenContainer edges={['bottom']}>
-        <LoadingView message="正在加载笔记…" fullScreen />
+        <LoadingView message="正在加载读文…" fullScreen />
       </ScreenContainer>
     );
   }
@@ -30,7 +30,7 @@ export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Elemen
       <ScreenContainer edges={['bottom']}>
         <ErrorView
           title="加载失败"
-          message="无法读取这篇笔记，请检查网络或 Token。"
+          message="无法读取这篇读文，请检查网络或 Token。"
           onRetry={() => query.refetch()}
           fullScreen
         />
