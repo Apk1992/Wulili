@@ -137,7 +137,15 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
         <SettingRow
           icon="key"
           label="GitHub Token"
-          value={tokenLoading ? '读取中…' : hasToken ? '已设置' : '未设置'}
+          value={
+            tokenLoading
+              ? '读取中…'
+              : hasEmbedded
+                ? '已内嵌（无需配置）'
+                : hasToken
+                  ? '已设置'
+                  : '未设置'
+          }
           onPress={() => navigation.navigate('GitHubToken')}
         />
         {hasToken ? (
