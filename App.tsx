@@ -1,12 +1,12 @@
+
 import React, { useEffect, useState } from 'react';
-import { StatusBar, View, Text, ScrollView } from 'react-native';
+import { StatusBar, View, Text, ScrollView, NativeModules } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import TrackPlayer from 'react-native-track-player';
-import { NativeModules } from 'react-native';
 
 import RootNavigator from '@/navigation/RootNavigator';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -23,7 +23,7 @@ import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { fetchRemoteDialogues } from '@/api/githubDialogues';
-import { toGitHubApiError, setGitHubToken } from '@/api/githubClient';
+import { toGitHubApiError, setGitHubToken, getGitHubToken } from '@/api/githubClient';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -100,14 +100,24 @@ function AppInner(): React.JSX.Element {
       await run('minigame', hydrateMinigame);
       await run('update', hydrateUpdate);
 
-      const embedded = readEmbeddedToken();
-      if (embedded) {
-        setGitHubToken(embedded);
-      }
-      try {
-        await loadToken();
-      } catch {
-        // ignore
+      // Token 优先级：embedded > keychain
+      // 1. 先尝试 BuildConfig 里的（打包时注入）
+      const embeddedFromBuildConfig = readEmbeddedToken();
+      if (embeddedFromBuildConfig) {
+        setGitHubToken(embeddedFromBuildConfig);
+      } else {
+        // 2. embedded.ts 里的（sed 替换后的 JS 常量）
+        const embeddedFromJs = getGitHubToken();
+        if (embeddedFromJs && embeddedFromJs !== '__WULILI_GH_TOKEN__') {
+          // 已经有值（githubClient 初始化时读的 embedded.ts），不用动
+        } else {
+          // 3. 兜底：读 keychain（用户手动输入过的）
+          try {
+            await loadToken();
+          } catch {
+            // ignore
+          }
+        }
       }
 
       if (fails.length > 0) {
