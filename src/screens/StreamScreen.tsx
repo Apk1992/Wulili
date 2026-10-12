@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -10,8 +10,10 @@ import DialogueBubble from '@/components/DialogueBubble';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
+import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useAffinity } from '@/hooks/useAffinity';
-import { STREAM_CONFIG } from '@/data/streamConfig';
+import { STREAM_CONFIG, computeStreamLevel } from '@/data/streamConfig';
+import { aggregateBonus, describeAggregated } from '@/utils/equipmentBonus';
 import { formatCoins, formatNumber } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
 import { clamp } from '@/utils/random';
@@ -28,23 +30,20 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
   const startStream = useStreamStore((s) => s.start);
   const stopStream = useStreamStore((s) => s.stop);
 
-  const energy = useWuliliStore((s) => s.state.stats.energy);
-  const health = useWuliliStore((s) => s.state.stats.health);
-  const mood = useWuliliStore((s) => s.state.stats.mood);
-  const coins = useWuliliStore((s) => s.state.coins);
+  const wulili = useWuliliStore((s) => s.state);
   const addCoins = useWuliliStore((s) => s.addCoins);
   const markInteraction = useWuliliStore((s) => s.markInteraction);
+  const getOutfitById = useAppConfigStore((s) => s.getOutfitById);
+  const getAccessoryById = useAppConfigStore((s) => s.getAccessoryById);
 
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [now, setNow] = useState<number>(Date.now());
 
-  // 让页面每秒刷新，实时显示"已播时长/已赚金币"
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 进入页面时，如果当前没在直播，念一句开场白
   useEffect(() => {
     if (!streamState.isStreaming) {
       const startLine = speak({ action: 'stream' });
@@ -53,9 +52,46 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const outfit = wulili.currentOutfit
+    ? getOutfitById(wulili.currentOutfit)
+    : null;
+  const accessory = wulili.currentAccessory
+    ? getAccessoryById(wulili.currentAccessory)
+    : null;
+  const bonus = useMemo(
+    () => aggregateBonus(outfit, accessory),
+    [outfit, accessory],
+  );
+  const bonusLines = useMemo(() => describeAggregated(bonus), [bonus]);
+
+  const levelInfo = useMemo(
+    () => computeStreamLevel(wulili.totalStreamSeconds),
+    [wulili.totalStreamSeconds],
+  );
+
+  const energy = wulili.stats.energy;
+  const health = wulili.stats.health;
+  const mood = wulili.stats.mood;
+  const coins = wulili.coins;
+
   const canStart =
     energy >= STREAM_CONFIG.minEnergyToStart &&
     health >= STREAM_CONFIG.minHealthToStart;
+
+  const moodFactor = clamp(mood / 100, 0.2, 1);
+  const healthFactor = clamp(health / 100, 0.3, 1);
+  const levelMultiplier = 1 + levelInfo.bonusRate;
+  const earningsPerSecond =
+    STREAM_CONFIG.baseEarningPerSecond *
+    moodFactor *
+    healthFactor *
+    bonus.streamIncomeRate *
+    levelMultiplier;
+
+  const energyCostPerSecond =
+    STREAM_CONFIG.energyCostPerSecond * bonus.energyCostRate;
+  const moodCostPerSecond =
+    STREAM_CONFIG.moodCostPerSecond * bonus.moodDecayRate;
 
   const handleStart = () => {
     if (!canStart) {
@@ -75,17 +111,18 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
         style: 'destructive',
         onPress: () => {
           const earned = stopStream();
+          const durationSec = streamState.totalSeconds;
           if (earned > 0) {
             addCoins(earned);
             markInteraction('stream');
-            gain(Math.min(5, Math.max(1, streamState.totalSeconds / 1800)));
+            gain(Math.min(5, Math.max(1, durationSec / 1800)));
           }
           const endLine = speak({ action: 'stream' });
           if (endLine) setDialogue(endLine);
 
           Alert.alert(
             '直播结束',
-            `这次直播 ${formatDuration(streamState.totalSeconds * 1000)}，赚到了 ${formatNumber(earned)} 金币。`,
+            `这次直播 ${formatDuration(durationSec * 1000)}，赚到了 ${formatNumber(earned)} 金币。`,
             [{ text: '好', onPress: () => navigation.goBack() }],
           );
         },
@@ -94,19 +131,9 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const isLive = streamState.isStreaming;
-
-  const elapsedMs = isLive && streamState.startedAt
-    ? now - streamState.startedAt
-    : 0;
-
-  const displayEarned = isLive
-    ? Math.round(streamState.accumulatedCoins)
-    : 0;
-
-  const moodFactor = clamp(mood / 100, 0.2, 1);
-  const healthFactor = clamp(health / 100, 0.3, 1);
-  const earningsPerSecond =
-    STREAM_CONFIG.baseEarningPerSecond * moodFactor * healthFactor;
+  const elapsedMs =
+    isLive && streamState.startedAt ? now - streamState.startedAt : 0;
+  const displayEarned = isLive ? Math.round(streamState.accumulatedCoins) : 0;
 
   return (
     <ScreenContainer edges={['bottom']}>
@@ -172,6 +199,46 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
       <View className="mt-3">
         <Card>
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+            直播等级 · Lv.{levelInfo.level}
+          </Text>
+          <View className="w-full rounded-full overflow-hidden h-2 bg-border dark:bg-dark-border">
+            <View
+              className="h-2 bg-primary"
+              style={{ width: `${Math.round(levelInfo.progressToNext * 100)}%` }}
+            />
+          </View>
+          <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
+            累计直播 {formatDuration(wulili.totalStreamSeconds * 1000)} · 收入加成 +
+            {Math.round(levelInfo.bonusRate * 100)}%
+          </Text>
+        </Card>
+      </View>
+
+      <View className="mt-3">
+        <Card>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+            当前加成
+          </Text>
+          {bonusLines.length > 0 ? (
+            bonusLines.map((line) => (
+              <Text
+                key={line}
+                className="text-xs text-muted dark:text-dark-muted py-0.5"
+              >
+                · {line}
+              </Text>
+            ))
+          ) : (
+            <Text className="text-xs text-muted dark:text-dark-muted">
+              无（去衣柜穿戴服饰/配饰来获得加成）
+            </Text>
+          )}
+        </Card>
+      </View>
+
+      <View className="mt-3">
+        <Card>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
             直播间状态
           </Text>
           <InfoRow label="精力" value={`${Math.round(energy)}/100`} />
@@ -186,11 +253,11 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
               />
               <InfoRow
                 label="精力消耗"
-                value={`${STREAM_CONFIG.energyCostPerSecond.toFixed(4)}/秒`}
+                value={`${energyCostPerSecond.toFixed(4)}/秒`}
               />
               <InfoRow
                 label="心情消耗"
-                value={`${STREAM_CONFIG.moodCostPerSecond.toFixed(4)}/秒`}
+                value={`${moodCostPerSecond.toFixed(4)}/秒`}
               />
             </>
           ) : null}
