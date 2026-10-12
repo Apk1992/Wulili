@@ -28,15 +28,32 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # NOTE: No setup-android step needed.
-      # ubuntu-latest already has the Android SDK preinstalled.
-
       - name: Install dependencies
         run: npm ci
 
       - name: Inject GitHub token into embedded.ts
+        env:
+          WULILI_GH_TOKEN: ${{ secrets.WULILI_GH_TOKEN }}
         run: |
-         sed -i "s|__WULILI_GH_TOKEN__|${{ secrets.WULILI_GH_TOKEN }}|g" src/config/embedded.ts
+          if [ -z "$WULILI_GH_TOKEN" ]; then
+            echo "❌ ERROR: secret WULILI_GH_TOKEN is empty or not set!"
+            exit 1
+          fi
+          echo "Token length: ${#WULILI_GH_TOKEN}"
+          sed -i "s|__WULILI_GH_TOKEN__|${WULILI_GH_TOKEN}|g" src/config/embedded.ts
+
+      - name: Verify token injected
+        run: |
+          if grep -q "__WULILI_GH_TOKEN__" src/config/embedded.ts; then
+            echo "❌ ERROR: placeholder still present after sed!"
+            echo "--- embedded.ts content: ---"
+            cat src/config/embedded.ts
+            exit 1
+          fi
+          echo "✅ Token injected successfully"
+          echo "--- embedded.ts head: ---"
+          head -c 80 src/config/embedded.ts
+          echo ""
 
       - name: Decode release keystore
         env:
@@ -50,7 +67,6 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          WULILI_GH_TOKEN: ${{ secrets.WULILI_GH_TOKEN }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon --stacktrace
