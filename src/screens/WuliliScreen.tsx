@@ -105,7 +105,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   ];
 
   // 左右按钮区的纵向中心：屏幕高度的 62%
-  const buttonAreaTop = screenHeight * 0.5;
+  const buttonAreaTop = screenHeight * 0.38;
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
