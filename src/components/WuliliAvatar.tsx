@@ -1,9 +1,6 @@
 import React from 'react';
 import { View, Text, ImageBackground } from 'react-native';
 import RemoteImage from './RemoteImage';
-import { useAppConfigStore } from '@/store/useAppConfigStore';
-import { useWuliliStore } from '@/store/useWuliliStore';
-import { buildImagePath } from '@/hooks/useGitHubImage';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTheme } from '@/hooks/useTheme';
 import { getGitHubToken } from '@/api/githubClient';
@@ -19,6 +16,8 @@ export interface WuliliAvatarProps {
   fullScreen?: boolean;
 }
 
+const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+
 export function WuliliAvatar({
   mood = 'calm',
   size = 200,
@@ -29,29 +28,19 @@ export function WuliliAvatar({
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
-  const currentOutfit = useWuliliStore((s) => s.state.currentOutfit);
-  const currentAccessory = useWuliliStore((s) => s.state.currentAccessory);
-  const getOutfitById = useAppConfigStore((s) => s.getOutfitById);
-  const getAccessoryById = useAppConfigStore((s) => s.getAccessoryById);
 
   const avatarFile = AVATAR_FILES[mood];
-  const avatarPath = buildImagePath('imagesAvatar', avatarFile);
   const avatarUri =
-    useRemoteImages && avatarPath.length > 0
-      ? `https://raw.githubusercontent.com/yukee520/Wulili_assets/main/${avatarPath}`
+    useRemoteImages && avatarFile
+      ? `${RAW_BASE}/images/avatar/${avatarFile}`
       : null;
-
-  const outfit = currentOutfit ? getOutfitById(currentOutfit) : null;
-  const accessory = currentAccessory ? getAccessoryById(currentAccessory) : null;
 
   const token = getGitHubToken();
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const sceneUri =
-    useRemoteImages && sceneImage
-      ? `https://raw.githubusercontent.com/yukee520/Wulili_assets/main/${sceneImage}`
-      : null;
+    useRemoteImages && sceneImage ? `${RAW_BASE}/${sceneImage}` : null;
 
   const content = (
     <View className="flex-1 items-center justify-center">
@@ -67,20 +56,6 @@ export function WuliliAvatar({
         <Text className="mt-2 text-xs text-white/80">
           当前心情 · {MOOD_LABELS[mood]}
         </Text>
-      ) : null}
-      {outfit || accessory ? (
-        <View className="flex-row mt-2">
-          {outfit ? (
-            <View className="px-2 py-0.5 mr-1 rounded-full bg-black/40">
-              <Text className="text-[10px] text-white">{outfit.name}</Text>
-            </View>
-          ) : null}
-          {accessory ? (
-            <View className="px-2 py-0.5 rounded-full bg-black/40">
-              <Text className="text-[10px] text-white">{accessory.name}</Text>
-            </View>
-          ) : null}
-        </View>
       ) : null}
     </View>
   );
