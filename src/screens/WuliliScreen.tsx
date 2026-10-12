@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -9,7 +9,6 @@ import WuliliAvatar from '@/components/WuliliAvatar';
 import DialogueBubble from '@/components/DialogueBubble';
 import Button from '@/components/Button';
 import { useDialogue } from '@/hooks/useDialogue';
-import { useTheme } from '@/hooks/useTheme';
 import { useSeason } from '@/hooks/useSeason';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
@@ -25,15 +24,20 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
+const SEASON_LABELS: Record<string, string> = {
+  spring: '春',
+  summer: '夏',
+  autumn: '秋',
+  winter: '冬',
+};
+
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
-  const { isDark } = useTheme();
   const { speak } = useDialogue();
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight } = useWindowDimensions();
 
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [now, setNow] = useState<number>(Date.now());
   const [mood, setMood] = useState<Mood>(() => computeMood());
 
@@ -45,10 +49,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const isStreaming = useStreamStore((s) => s.state.isStreaming);
   const streamStartedAt = useStreamStore((s) => s.state.startedAt);
 
-  const scene = useMemo(
-    () => getCurrentScene(timeOfDay),
-    [timeOfDay],
-  );
+  const scene = useMemo(() => getCurrentScene(timeOfDay), [timeOfDay]);
   const sceneImage = useMemo(
     () => getSceneImagePath(scene, season),
     [scene, season],
@@ -89,15 +90,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     }
   }, [dialogue]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    useWuliliStore.getState().applyTimeDecay();
-    setMood(computeMood());
-    const line = speak({ forceCategory: 'idle' });
-    if (line) setDialogue(line);
-    setRefreshing(false);
-  };
-
   const streamElapsedMs =
     isStreaming && streamStartedAt ? now - streamStartedAt : 0;
 
@@ -112,28 +104,27 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
+  // 左右按钮区的纵向中心：屏幕高度的 62%
+  const buttonAreaTop = screenHeight * 0.5;
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1 }}>
-        <WuliliAvatar
-          mood={mood}
-          fullScreen
-          sceneImage={sceneImage}
-        />
+        <WuliliAvatar mood={mood} fullScreen sceneImage={sceneImage} />
 
+        {/* 顶部信息栏 + 台词（绝对定位） */}
         <View
-          className="absolute inset-0 px-4"
+          className="absolute left-0 right-0 px-4"
+          style={{ top: 12 }}
           pointerEvents="box-none"
-          style={{ paddingTop: 12, paddingBottom: 12 }}
         >
-          {/* 顶部信息栏 */}
           <View className="flex-row items-center justify-between mb-2">
-            <View className="rounded-full bg-black/40 px-3 py-1">
+            <View className="rounded-full bg-black/50 px-3 py-1">
               <Text className="text-xs text-white font-medium">
-                {getTimeOfDayLabel(timeOfDay)} · {season}季 · {levelLabel}
+                {getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}
               </Text>
             </View>
-            <View className="rounded-full bg-black/40 px-3 py-1 flex-row items-center">
+            <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center">
               <Ionicons name="cash-outline" size={12} color="#FFFFFF" />
               <Text className="ml-1 text-xs text-white font-medium">
                 {formatNumber(coins)}
@@ -141,7 +132,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </View>
           </View>
 
-          {/* 直播横幅 */}
           {isStreaming ? (
             <Pressable
               onPress={() => navigation.navigate('Stream')}
@@ -159,7 +149,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
-          {/* 病症提示 */}
           {illness.type !== 'none' ? (
             <Pressable
               onPress={() => navigation.navigate('Medicine')}
@@ -173,46 +162,55 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
-          {/* 中间空白区，让出人物显示空间 */}
-          <View className="flex-1" pointerEvents="none" />
-
-          {/* 台词气泡 */}
           {dialogue ? (
-            <View className="mb-3">
-              <DialogueBubble
-                dialogue={dialogue}
-                onDismiss={() => setDialogue(null)}
-                autoDismissMs={10000}
+            <DialogueBubble
+              dialogue={dialogue}
+              onDismiss={() => setDialogue(null)}
+              autoDismissMs={10000}
+            />
+          ) : null}
+        </View>
+
+        {/* 左侧按钮 */}
+        <View
+          className="absolute"
+          style={{ left: 16, top: buttonAreaTop }}
+          pointerEvents="box-none"
+        >
+          {leftButtons.map((btn) => (
+            <View key={btn.label} style={{ marginBottom: 12 }}>
+              <CircleButton
+                icon={btn.icon}
+                label={btn.label}
+                onPress={btn.onPress}
               />
             </View>
-          ) : null}
+          ))}
+        </View>
 
-          {/* 左右按钮区 */}
-          <View className="flex-row justify-between mb-3">
-            <View className="space-y-3">
-              {leftButtons.map((btn) => (
-                <CircleButton
-                  key={btn.label}
-                  icon={btn.icon}
-                  label={btn.label}
-                  onPress={btn.onPress}
-                />
-              ))}
+        {/* 右侧按钮 */}
+        <View
+          className="absolute"
+          style={{ right: 16, top: buttonAreaTop }}
+          pointerEvents="box-none"
+        >
+          {rightButtons.map((btn) => (
+            <View key={btn.label} style={{ marginBottom: 12 }}>
+              <CircleButton
+                icon={btn.icon}
+                label={btn.label}
+                onPress={btn.onPress}
+              />
             </View>
+          ))}
+        </View>
 
-            <View className="space-y-3">
-              {rightButtons.map((btn) => (
-                <CircleButton
-                  key={btn.label}
-                  icon={btn.icon}
-                  label={btn.label}
-                  onPress={btn.onPress}
-                />
-              ))}
-            </View>
-          </View>
-
-          {/* 底部大按钮 */}
+        {/* 底部大按钮 */}
+        <View
+          className="absolute left-4 right-4"
+          style={{ bottom: 20 }}
+          pointerEvents="box-none"
+        >
           <Button
             label="查看雾璃的状态"
             icon="heart-circle"
@@ -255,8 +253,10 @@ function CircleButton({ icon, label, onPress }: CircleButtonProps): React.JSX.El
         borderColor: 'rgba(255,255,255,0.25)',
       }}
     >
-      <Ionicons name={icon} size={26} color="#FFFFFF" />
-      <Text className="text-[10px] text-white mt-0.5 font-medium">{label}</Text>
+      <Ionicons name={icon} size={24} color="#FFFFFF" />
+      <Text className="text-[10px] text-white mt-0.5 font-medium">
+        {label}
+      </Text>
     </Pressable>
   );
 }
