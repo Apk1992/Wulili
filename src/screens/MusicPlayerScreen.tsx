@@ -1,8 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import TrackPlayer from 'react-native-track-player';
+import TrackPlayer, {
+  Event,
+  State as TrackPlayerState,
+  usePlaybackState,
+  useProgress,
+  useTrackPlayerEvents,
+} from 'react-native-track-player';
+import type { Track } from 'react-native-track-player';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import MediaPlayerBar from '@/components/MediaPlayerBar';
@@ -32,6 +39,11 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     duration: 0,
     error: null,
   });
+  const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const queueReadyRef = useRef<boolean>(false);
+
+  const trackPlayerState = usePlaybackState();
+  const progress = useProgress(250);
 
   const items = useMemo(() => {
     const files = query.data ?? [];
@@ -41,21 +53,91 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   useEffect(() => {
     return () => {
       void TrackPlayer.reset().catch(() => undefined);
+      queueReadyRef.current = false;
     };
   }, []);
 
-  const handlePress = useCallback(
-    async (item: MemoryItem) => {
+  // 同步 TrackPlayer 状态到 playback
+  useEffect(() => {
+    if (!playback.current) return;
+    const state = trackPlayerState.state;
+    let status: PlaybackState['status'] = 'idle';
+    if (state === TrackPlayerState.Playing) status = 'playing';
+    else if (state === TrackPlayerState.Paused) status = 'paused';
+    else if (
+      state === TrackPlayerState.Buffering ||
+      state === TrackPlayerState.Loading
+    )
+      status = 'loading';
+    else if (state === TrackPlayerState.Ended) status = 'ended';
+    else if (state === TrackPlayerState.Error) status = 'error';
+    else if (state === TrackPlayerState.Stopped) status = 'ended';
+
+    setPlayback((prev) => ({
+      ...prev,
+      status,
+      position: progress.position,
+      duration: progress.duration || prev.duration,
+    }));
+  }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
+
+  // 监听"当前播放曲目切换"事件
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
+    try {
+      const index = event.index;
+      if (typeof index === 'number' && index >= 0 && index < items.length) {
+        setCurrentIndex(index);
+        const item = items[index];
+        setPlayback((prev) => ({
+          ...prev,
+          current: item,
+          status: 'loading',
+          position: 0,
+          duration: 0,
+          error: null,
+        }));
+      }
+    } catch {
+      // ignore
+    }
+  });
+
+  const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
+    const token = getGitHubToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return musicItems.map((item) => ({
+      id: item.id,
+      url: `${RAW_BASE}/${item.path}`,
+      title: humanizeFileName(item.displayName),
+      artist: '雾璃',
+      headers,
+    }));
+  }, []);
+
+  const ensureQueue = useCallback(
+    async (startIndex: number) => {
+      const token = getGitHubToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      await TrackPlayer.reset();
+      const tracks = buildTracks(items);
+      await TrackPlayer.add(tracks);
+      queueReadyRef.current = true;
+      await TrackPlayer.skip(startIndex);
+      await TrackPlayer.play();
+      setCurrentIndex(startIndex);
+    },
+    [items, buildTracks],
+  );
+
+  const handlePlayAt = useCallback(
+    async (index: number) => {
       try {
-        await TrackPlayer.reset();
-        const token = getGitHubToken();
-        await TrackPlayer.add({
-          id: item.id,
-          url: `${RAW_BASE}/${item.path}`,
-          title: humanizeFileName(item.displayName),
-          artist: '雾璃',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const item = items[index];
+        if (!item) return;
+
         setPlayback({
           current: item,
           status: 'loading',
@@ -63,43 +145,95 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
           duration: 0,
           error: null,
         });
-        await TrackPlayer.play();
-        setPlayback((prev) => ({ ...prev, status: 'playing' }));
+
+        if (!queueReadyRef.current) {
+          await ensureQueue(index);
+        } else {
+          const activeIndex = await TrackPlayer.getActiveTrackIndex();
+          if (activeIndex === index) {
+            const state = (await TrackPlayer.getPlaybackState()).state;
+            if (state === TrackPlayerState.Playing) {
+              await TrackPlayer.pause();
+              setPlayback((prev) => ({ ...prev, status: 'paused' }));
+            } else {
+              await TrackPlayer.play();
+              setPlayback((prev) => ({ ...prev, status: 'playing' }));
+            }
+          } else {
+            await TrackPlayer.skip(index);
+            await TrackPlayer.play();
+            setCurrentIndex(index);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : '播放失败';
-        setPlayback({
-          current: item,
+        setPlayback((prev) => ({
+          ...prev,
           status: 'error',
-          position: 0,
-          duration: 0,
           error: message,
-        });
+        }));
         Alert.alert('播放失败', message);
       }
     },
-    [],
+    [items, ensureQueue],
   );
 
-  const togglePlay = async () => {
+  const handleTogglePlay = useCallback(async () => {
     try {
-      if (playback.status === 'playing') {
+      const state = (await TrackPlayer.getPlaybackState()).state;
+      if (state === TrackPlayerState.Playing) {
         await TrackPlayer.pause();
         setPlayback((prev) => ({ ...prev, status: 'paused' }));
-      } else if (playback.current) {
+      } else {
         await TrackPlayer.play();
         setPlayback((prev) => ({ ...prev, status: 'playing' }));
       }
     } catch {
       // ignore
     }
-  };
+  }, []);
 
-  const stopPlayback = async () => {
+  const handleSeek = useCallback(async (seconds: number) => {
     try {
-      await TrackPlayer.reset();
+      await TrackPlayer.seekTo(seconds);
+      setPlayback((prev) => ({ ...prev, position: seconds }));
     } catch {
       // ignore
     }
+  }, []);
+
+  const handleNext = useCallback(async () => {
+    try {
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      if (typeof activeIndex === 'number' && activeIndex + 1 < items.length) {
+        await TrackPlayer.skipToNext();
+        await TrackPlayer.play();
+      }
+    } catch {
+      // 已在最后一首
+    }
+  }, [items.length]);
+
+  const handlePrevious = useCallback(async () => {
+    try {
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      if (typeof activeIndex === 'number' && activeIndex > 0) {
+        await TrackPlayer.skipToPrevious();
+        await TrackPlayer.play();
+      }
+    } catch {
+      // 已在第一首
+    }
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    try {
+      await TrackPlayer.reset();
+      queueReadyRef.current = false;
+    } catch {
+      // ignore
+    }
+    setCurrentIndex(-1);
     setPlayback({
       current: null,
       status: 'idle',
@@ -107,7 +241,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       duration: 0,
       error: null,
     });
-  };
+  }, []);
 
   if (query.isLoading) {
     return (
@@ -143,15 +277,56 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     );
   }
 
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex >= 0 && currentIndex + 1 < items.length;
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 100 }}
-        renderItem={({ item }) => (
-          <MemoryListItem item={item} onPress={() => void handlePress(item)} />
-        )}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: playback.current ? 220 : 24,
+        }}
+        renderItem={({ item, index }) => {
+          const isCurrent = currentIndex === index;
+          return (
+            <View
+              className={
+                isCurrent
+                  ? 'rounded-2xl border-2 border-primary'
+                  : ''
+              }
+            >
+              <MemoryListItem
+                item={item}
+                onPress={() => void handlePlayAt(index)}
+              />
+              {isCurrent ? (
+                <View className="flex-row items-center mb-2 ml-4">
+                  <Ionicons
+                    name={
+                      playback.status === 'playing'
+                        ? 'musical-notes'
+                        : 'pause-circle'
+                    }
+                    size={12}
+                    color="#2563EB"
+                  />
+                  <Text className="ml-1 text-[10px] text-primary">
+                    {playback.status === 'playing'
+                      ? '正在播放'
+                      : playback.status === 'paused'
+                        ? '已暂停'
+                        : '当前曲目'}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          );
+        }}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <Pressable
@@ -167,8 +342,13 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         <View className="absolute left-4 right-4 bottom-4">
           <MediaPlayerBar
             playback={playback}
-            onTogglePlay={() => void togglePlay()}
-            onStop={() => void stopPlayback()}
+            onTogglePlay={() => void handleTogglePlay()}
+            onSeek={(sec) => void handleSeek(sec)}
+            onPrevious={() => void handlePrevious()}
+            onNext={() => void handleNext()}
+            onStop={() => void handleStop()}
+            hasPrevious={hasPrevious}
+            hasNext={hasNext}
           />
         </View>
       ) : null}
