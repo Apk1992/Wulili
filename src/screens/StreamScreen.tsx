@@ -11,34 +11,46 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { formatCoins, formatNumber } from '@/utils/format';
-import { clamp, randomInt } from '@/utils/random';
+import { formatDuration } from '@/utils/time';
+import { clamp } from '@/utils/random';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Stream'>;
 
-const STREAM_DURATION_MS = 30 * 1000;
+const TICK_MS = 1000;
+
+const ENERGY_COST_PER_SEC = 0.5;
+const MOOD_COST_PER_SEC = 0.2;
+
+const MIN_ENERGY_TO_START = 15;
+const MIN_HEALTH_TO_START = 20;
+
+const AUTO_STOP_ENERGY = 5;
 
 export function StreamScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const { gain } = useAffinity();
+
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [streaming, setStreaming] = useState<boolean>(false);
-  const [elapsed, setElapsed] = useState<number>(0);
-  const [earnings, setEarnings] = useState<number>(0);
+  const [elapsedMs, setElapsedMs] = useState<number>(0);
+  const [earnedCoins, setEarnedCoins] = useState<number>(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef<number>(0);
+  const accumulatedRef = useRef<number>(0);
 
   const energy = useWuliliStore((s) => s.state.stats.energy);
   const health = useWuliliStore((s) => s.state.stats.health);
   const mood = useWuliliStore((s) => s.state.stats.mood);
   const coins = useWuliliStore((s) => s.state.coins);
+
   const addCoins = useWuliliStore((s) => s.addCoins);
   const addStats = useWuliliStore((s) => s.addStats);
   const markInteraction = useWuliliStore((s) => s.markInteraction);
 
-  const canStream = energy >= 15 && health >= 20;
+  const canStart = energy >= MIN_ENERGY_TO_START && health >= MIN_HEALTH_TO_START;
 
   useEffect(() => {
     return () => {
@@ -50,32 +62,44 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
   }, []);
 
   const startStream = () => {
-    if (!canStream) {
+    if (!canStart) {
       Alert.alert('无法直播', '雾璃现在的状态不太适合直播，先照顾一下她吧。');
       return;
     }
 
-    const start = speak({ action: 'stream' });
-    if (start) setDialogue(start);
+    const startLine = speak({ action: 'stream' });
+    if (startLine) setDialogue(startLine);
 
     setStreaming(true);
-    setElapsed(0);
-    setEarnings(0);
+    setElapsedMs(0);
+    setEarnedCoins(0);
+    accumulatedRef.current = 0;
     startRef.current = Date.now();
 
     timerRef.current = setInterval(() => {
-      const now = Date.now() - startRef.current;
-      setElapsed(now);
+      const now = Date.now();
+      const elapsed = now - startRef.current;
+      setElapsedMs(elapsed);
 
-      if (Math.random() < 0.12) {
-        const mid = speak({ action: 'stream' });
-        if (mid) setDialogue(mid);
+      const earnings = computePerSecondEarnings(mood, health);
+      accumulatedRef.current += earnings;
+      setEarnedCoins(accumulatedRef.current);
+
+      addStats({
+        energy: -ENERGY_COST_PER_SEC,
+        mood: -MOOD_COST_PER_SEC,
+      });
+
+      if (Math.random() < 0.02) {
+        const midLine = speak({ action: 'stream' });
+        if (midLine) setDialogue(midLine);
       }
 
-      if (now >= STREAM_DURATION_MS) {
+      const state = useWuliliStore.getState().state;
+      if (state.stats.energy < AUTO_STOP_ENERGY || state.stats.health < 10) {
         endStream(true);
       }
-    }, 1000);
+    }, TICK_MS);
   };
 
   const endStream = (auto: boolean) => {
@@ -84,49 +108,44 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
       timerRef.current = null;
     }
 
-    const durationSeconds = Math.round((Date.now() - startRef.current) / 1000);
-    const moodFactor = mood / 100;
-    const healthFactor = health / 100;
-    const baseEarning = randomInt(10, 20);
-    const total = Math.round(
-      baseEarning * (durationSeconds / 5) * clamp(0.4 + moodFactor * 0.6, 0.4, 1.4) * clamp(0.5 + healthFactor * 0.5, 0.5, 1.2),
+    const durationSec = Math.max(
+      1,
+      Math.round((Date.now() - startRef.current) / 1000),
     );
+    const totalEarnings = Math.round(accumulatedRef.current);
 
-    addCoins(total);
-    addStats({ energy: -15, mood: -4 });
+    addCoins(totalEarnings);
+
+    const endLine = speak({ action: 'stream' });
+    if (endLine) setDialogue(endLine);
+
     markInteraction('stream');
-    gain(1);
+    gain(Math.min(3, Math.max(1, durationSec / 60)));
 
-    setEarnings(total);
     setStreaming(false);
+    setElapsedMs(0);
 
-    const end = speak({ action: 'stream' });
-    if (end) setDialogue(end);
-
-    if (auto) {
-      setTimeout(() => {
-        Alert.alert(
-          '直播结束',
-          `这次赚到了 ${formatNumber(total)} 金币。`,
-          [{ text: '好', onPress: () => navigation.goBack() }],
-        );
-      }, 400);
-    }
+    const title = auto ? '直播自动结束' : '直播结束';
+    const reason = auto
+      ? '\n（雾璃太累了，她撑不住了）'
+      : '';
+    Alert.alert(
+      title,
+      `这次直播 ${formatDuration(durationSec * 1000)}，赚到了 ${formatNumber(totalEarnings)} 金币。${reason}`,
+      [{ text: '好', onPress: () => navigation.goBack() }],
+    );
   };
 
-  const cancelStream = () => {
-    Alert.alert('结束直播', '确定要提前结束吗？', [
+  const requestStop = () => {
+    Alert.alert('结束直播', '确定要下播吗？', [
       { text: '继续', style: 'cancel' },
       {
-        text: '结束',
+        text: '下播',
         style: 'destructive',
         onPress: () => endStream(false),
       },
     ]);
   };
-
-  const progress = Math.min(1, elapsed / STREAM_DURATION_MS);
-  const remaining = Math.max(0, Math.ceil((STREAM_DURATION_MS - elapsed) / 1000));
 
   return (
     <ScreenContainer edges={['bottom']}>
@@ -143,21 +162,43 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
             color="#FFFFFF"
           />
         </View>
+
         <Text className="mt-4 text-lg font-bold text-text dark:text-dark-text">
           {streaming ? '正在直播中' : '准备开播'}
         </Text>
-        <Text className="text-xs text-muted dark:text-dark-muted mt-1">
-          {streaming
-            ? `剩余 ${remaining}s · 预计收入 ${formatNumber(earnings)} 金币`
-            : `本次直播约 ${STREAM_DURATION_MS / 1000} 秒`}
-        </Text>
 
-        <View className="w-full h-1.5 rounded-full overflow-hidden bg-border dark:bg-dark-border mt-4">
-          <View
-            className="h-1.5 bg-primary"
-            style={{ width: `${progress * 100}%` }}
-          />
-        </View>
+        {streaming ? (
+          <>
+            <Text className="text-xs text-muted dark:text-dark-muted mt-1">
+              已播 {formatDuration(elapsedMs)}
+            </Text>
+            <View className="flex-row items-center mt-3">
+              <Ionicons name="cash" size={18} color="#2563EB" />
+              <Text className="ml-1 text-2xl font-bold text-primary">
+                {formatNumber(Math.round(earnedCoins))}
+              </Text>
+            </View>
+            <View className="flex-row items-center mt-2">
+              <Ionicons name="flash" size={12} color="#F59E0B" />
+              <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">
+                精力 {Math.round(energy)}
+              </Text>
+              <Ionicons
+                name="happy"
+                size={12}
+                color="#10B981"
+                style={{ marginLeft: 10 }}
+              />
+              <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">
+                心情 {Math.round(mood)}
+              </Text>
+            </View>
+          </>
+        ) : (
+          <Text className="text-xs text-muted dark:text-dark-muted mt-1">
+            想播多久就播多久 · 精力耗尽会自动结束
+          </Text>
+        )}
 
         <View className="flex-row items-center mt-5 w-full">
           {!streaming ? (
@@ -166,14 +207,14 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
               icon="videocam"
               variant="primary"
               onPress={startStream}
-              disabled={!canStream}
+              disabled={!canStart}
             />
           ) : (
             <Button
-              label="结束直播"
+              label="下播"
               icon="stop"
               variant="danger"
-              onPress={cancelStream}
+              onPress={requestStop}
             />
           )}
         </View>
@@ -187,7 +228,13 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
           <InfoRow label="精力" value={`${Math.round(energy)}/100`} />
           <InfoRow label="健康" value={`${Math.round(health)}/100`} />
           <InfoRow label="心情" value={`${Math.round(mood)}/100`} />
-          <InfoRow label="累计收入" value={formatCoins(coins)} />
+          <InfoRow label="当前金币" value={formatCoins(coins)} />
+          {streaming ? (
+            <InfoRow
+              label="预计收入速率"
+              value={`约 ${computePerSecondEarnings(mood, health).toFixed(2)} 金币/秒`}
+            />
+          ) : null}
         </Card>
       </View>
 
@@ -203,18 +250,38 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
 
       {!streaming ? (
         <View className="mt-3">
-          <Button label="返回" variant="ghost" onPress={() => navigation.goBack()} />
+          <Button
+            label="返回"
+            variant="ghost"
+            onPress={() => navigation.goBack()}
+          />
         </View>
       ) : null}
     </ScreenContainer>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }): React.JSX.Element {
+function computePerSecondEarnings(mood: number, health: number): number {
+  const moodFactor = clamp(mood / 100, 0.2, 1);
+  const healthFactor = clamp(health / 100, 0.3, 1);
+  const base = 0.5;
+  const perSecond = base * moodFactor * healthFactor;
+  return Math.max(0.05, perSecond);
+}
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.JSX.Element {
   return (
     <View className="flex-row items-center justify-between py-1.5">
       <Text className="text-xs text-muted dark:text-dark-muted">{label}</Text>
-      <Text className="text-xs font-medium text-text dark:text-dark-text">{value}</Text>
+      <Text className="text-xs font-medium text-text dark:text-dark-text">
+        {value}
+      </Text>
     </View>
   );
 }
