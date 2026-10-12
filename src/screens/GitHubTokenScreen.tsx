@@ -25,7 +25,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'GitHubToken'>;
 
 export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
   const { isDark } = useTheme();
-  const { hasToken, isLoading, saveToken, clearToken, loadToken } = useGitHubToken();
+  const {
+    hasToken,
+    hasEmbedded,
+    isLoading,
+    saveToken,
+    clearToken,
+    loadToken,
+  } = useGitHubToken();
   const [draft, setDraft] = useState<string>('');
   const [testing, setTesting] = useState<boolean>(false);
   const [showValue, setShowValue] = useState<boolean>(false);
@@ -34,7 +41,7 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
   useEffect(() => {
     void (async () => {
       const token = await loadToken();
-      if (token) setDraft(token);
+      if (token && !hasEmbedded) setDraft(token);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -69,17 +76,21 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handleClear = () => {
-    Alert.alert('清除 Token', '确定吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '清除',
-        style: 'destructive',
-        onPress: async () => {
-          await clearToken();
-          setDraft('');
+    Alert.alert(
+      '清除 Token',
+      '这会移除本机保存的 Token。若内嵌 Token 存在，会自动切回内嵌 Token。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '清除',
+          style: 'destructive',
+          onPress: async () => {
+            await clearToken();
+            setDraft('');
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const openTokenPage = () => {
@@ -107,9 +118,21 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
               color={hasToken ? '#10B981' : '#EF4444'}
             />
             <Text className="ml-2 text-xs text-muted dark:text-dark-muted">
-              {isLoading ? '读取中…' : hasToken ? '已配置 Token' : '尚未配置 Token'}
+              {isLoading
+                ? '读取中…'
+                : hasEmbedded
+                  ? '已通过内嵌 Token 连接（无需手动配置）'
+                  : hasToken
+                    ? '已配置 Token（手动）'
+                    : '尚未配置 Token'}
             </Text>
           </View>
+          {hasEmbedded ? (
+            <Text className="mt-2 text-[10px] text-muted dark:text-dark-muted">
+              内嵌 Token 已在 APK 打包时注入，你不需要在此输入任何东西。
+              若手动输入新 Token，会覆盖内嵌 Token（直到你点"清除"）。
+            </Text>
+          ) : null}
         </Card>
 
         <Card className="mt-3">
@@ -117,12 +140,12 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
             什么是 Token？
           </Text>
           <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
-            为了读取私有的回忆仓库，应用需要一个 GitHub 细粒度访问令牌（Fine-grained PAT）。
-            令牌只保存在本机（加密存储），不会上传到任何服务器。
+            为了读取私有的回忆仓库，应用需要一个 GitHub 细粒度访问令牌（Fine-grained
+            PAT）。若已内嵌，无需手动输入。
           </Text>
           <View className="mt-3">
             <Button
-              label="去 GitHub 创建 Token"
+              label="去 GitHub 创建 Token（可选）"
               variant="ghost"
               size="sm"
               icon="open-outline"
@@ -133,18 +156,18 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
 
         <Card className="mt-3">
           <Text className="text-sm font-semibold text-text dark:text-dark-text">
-            权限设置
+            权限设置（若要手动创建）
           </Text>
           <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
             · Repository access：Only select repositories → {GITHUB_REPO.repo}
             {'\n'}· Permissions → Contents：Read and write
-            {'\n'}· （如果只想阅读，可选 Read-only；但要在 App 内推送台词，需要写权限。）
+            {'\n'}· （只读亦可，但要在 App 内推送台词，需要写权限。）
           </Text>
         </Card>
 
         <Card className="mt-3">
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            粘贴 Token
+            {hasEmbedded ? '覆盖为自定义 Token（可选）' : '粘贴 Token'}
           </Text>
           <View className="flex-row items-center">
             <TextInput
@@ -198,7 +221,7 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
           {hasToken ? (
             <View className="mt-2">
               <Button
-                label="清除 Token"
+                label={hasEmbedded ? '清除并恢复内嵌 Token' : '清除 Token'}
                 variant="danger"
                 size="sm"
                 onPress={handleClear}
