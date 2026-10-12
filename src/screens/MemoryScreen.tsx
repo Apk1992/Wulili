@@ -27,6 +27,12 @@ const FOLDER_BY_KIND: Record<MemoryKind, string> = {
   note: GITHUB_PATHS.notes,
 };
 
+const EMPTY_MESSAGES: Record<MemoryKind, string> = {
+  music: '往仓库的 music/ 文件夹里上传一些音乐吧。',
+  video: '往仓库的 videos/ 文件夹或 Release 里上传一些视频吧。',
+  note: '往仓库的 notes/ 文件夹里上传一些读文吧。',
+};
+
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -138,8 +144,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
         />
       ) : activeItems.length === 0 ? (
         <EmptyView
-          title="暂时还没有内容"
-          message="往你的仓库对应文件夹里添加文件，这里就会自动出现。"
+          title="这里还是空的"
+          message={EMPTY_MESSAGES[activeKind]}
           icon="cloud-outline"
           fullScreen
         />
@@ -187,7 +193,7 @@ function buildItems(files: GitHubContentItem[]): MemoryItem[] {
   return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
 }
 
-function buildReleaseItems(releases: ReturnType<typeof useGitHubReleases>['data'] extends undefined ? never : NonNullable<ReturnType<typeof useGitHubReleases>['data']>): MemoryItem[] {
+function buildReleaseItems(releases: NonNullable<ReturnType<typeof useGitHubReleases>['data']>): MemoryItem[] {
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => ({
     id: `asset-${asset.id}`,
