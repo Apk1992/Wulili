@@ -14,7 +14,7 @@ export interface CategoryTabsProps {
 const TABS: Array<{ key: MemoryKind; label: string; icon: string }> = [
   { key: 'music', label: '音乐', icon: 'musical-notes' },
   { key: 'video', label: '视频', icon: 'videocam' },
-  { key: 'note', label: '笔记', icon: 'document-text' },
+  { key: 'note', label: '读文', icon: 'document-text' },
 ];
 
 export function CategoryTabs({
