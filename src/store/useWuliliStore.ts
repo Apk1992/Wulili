@@ -10,6 +10,7 @@ import { INITIAL_WULILI_STATE, STAT_LIMITS } from '@/types/wulili';
 import { STORAGE_KEYS, storageGet, storageSet } from '@/utils/storage';
 import { clamp, chance, randomFloat } from '@/utils/random';
 import { getDateKey, HOUR_MS } from '@/utils/time';
+import { aggregateBonus, type AggregatedBonus } from '@/utils/equipmentBonus';
 
 interface WuliliStore {
   state: WuliliState;
@@ -20,6 +21,7 @@ interface WuliliStore {
   setStat: (key: keyof WuliliStats, value: number) => void;
   addStats: (delta: Partial<WuliliStats>) => void;
   addCoins: (amount: number) => void;
+  addStreamSeconds: (seconds: number) => void;
   setAffinity: (value: number) => void;
   setIllness: (type: IllnessType, severity: number) => void;
   clearIllness: () => void;
@@ -31,6 +33,7 @@ interface WuliliStore {
   wearAccessory: (id: string | null) => void;
   applyActionFeedback: (feedback: ActionFeedback) => void;
   updateLoginStreak: () => void;
+  getEquipmentBonus: () => AggregatedBonus;
   reset: () => void;
 }
 
@@ -40,7 +43,6 @@ function clampStat(key: keyof WuliliStats, value: number): number {
 }
 
 function isStreamingNow(): boolean {
-  // 延迟 import，避免循环依赖
   try {
     const { useStreamStore } = require('@/store/useStreamStore');
     return useStreamStore.getState().state.isStreaming === true;
@@ -49,15 +51,41 @@ function isStreamingNow(): boolean {
   }
 }
 
+function getBonus(): AggregatedBonus {
+  try {
+    const { useAppConfigStore } = require('@/store/useAppConfigStore');
+    const cfg = useAppConfigStore.getState();
+    const outfit = cfg.getOutfitById
+      ? cfg.getOutfitById(useWuliliStore.getState().state.currentOutfit)
+      : null;
+    const accessory = cfg.getAccessoryById
+      ? cfg.getAccessoryById(useWuliliStore.getState().state.currentAccessory)
+      : null;
+    return aggregateBonus(outfit, accessory);
+  } catch {
+    return {
+      moodDecayRate: 1,
+      energyCostRate: 1,
+      affinityGain: 0,
+      streamIncomeRate: 1,
+      moodRecoveryRate: 1,
+      illnessResistance: 0,
+    };
+  }
+}
+
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
   const streaming = isStreamingNow();
+  const bonus = getBonus();
 
   const hungerDecay = 3.2 * hours;
-  const energyDecay = streaming ? 0 : 2.6 * hours;
-  const moodDecayBase = streaming ? 0 : 1.6 * hours;
+  const energyDecay = streaming ? 0 : 2.6 * hours * bonus.energyCostRate;
+  const moodDecayBase = streaming
+    ? 0
+    : 1.6 * hours * bonus.moodDecayRate;
 
   let moodDecay = moodDecayBase;
   if (!streaming) {
@@ -80,7 +108,8 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let illness = state.illness;
   if (illness.type === 'none') {
-    const rhinitisRisk = computeRhinitisRisk(newStats, hours);
+    const rhinitisRisk =
+      computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
     if (chance(rhinitisRisk)) {
       illness = { type: 'rhinitis', since: Date.now(), severity: 1 };
     }
@@ -89,7 +118,10 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
     if (chance(recoveryChance)) {
       illness = { type: 'none', since: null, severity: 0 };
     } else {
-      illness = { ...illness, severity: clamp(illness.severity + 0.02 * hours, 0, 5) };
+      illness = {
+        ...illness,
+        severity: clamp(illness.severity + 0.02 * hours, 0, 5),
+      };
     }
   }
 
@@ -110,20 +142,28 @@ function computeRhinitisRisk(stats: WuliliStats, hours: number): number {
   return clamp(risk, 0, 0.35);
 }
 
+function migrateState(stored: Partial<WuliliState>): WuliliState {
+  return {
+    ...INITIAL_WULILI_STATE,
+    ...stored,
+    stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
+    illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
+    totalStreamSeconds:
+      typeof stored.totalStreamSeconds === 'number'
+        ? stored.totalStreamSeconds
+        : 0,
+  };
+}
+
 export const useWuliliStore = create<WuliliStore>((set, get) => ({
   state: INITIAL_WULILI_STATE,
   hydrated: false,
 
   hydrate: async () => {
-    const stored = await storageGet<WuliliState>(STORAGE_KEYS.wuliliState);
+    const stored = await storageGet<Partial<WuliliState>>(STORAGE_KEYS.wuliliState);
     if (stored && typeof stored === 'object') {
-      const merged: WuliliState = {
-        ...INITIAL_WULILI_STATE,
-        ...stored,
-        stats: { ...INITIAL_WULILI_STATE.stats, ...stored.stats },
-        illness: { ...INITIAL_WULILI_STATE.illness, ...stored.illness },
-      };
-      const elapsed = (Date.now() - (stored.lastTickAt ?? Date.now())) / HOUR_MS;
+      const merged = migrateState(stored);
+      const elapsed = (Date.now() - (merged.lastTickAt ?? Date.now())) / HOUR_MS;
       const decayed = applyDecayToStats(merged, elapsed);
       set({ state: decayed, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
@@ -156,12 +196,18 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   addStats: (delta) => {
     const current = get().state;
+    const bonus = getBonus();
     const newStats: WuliliStats = { ...current.stats };
     (Object.keys(delta) as Array<keyof WuliliStats>).forEach((key) => {
-      const d = delta[key];
-      if (typeof d === 'number') {
-        newStats[key] = clampStat(key, newStats[key] + d);
+      let d = delta[key];
+      if (typeof d !== 'number') return;
+      if (d < 0) {
+        if (key === 'mood') d = d * bonus.moodDecayRate;
+        if (key === 'energy') d = d * bonus.energyCostRate;
+      } else {
+        if (key === 'mood') d = d * bonus.moodRecoveryRate;
       }
+      newStats[key] = clampStat(key, newStats[key] + d);
     });
     const next = { ...current, stats: newStats };
     set({ state: next });
@@ -171,6 +217,17 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   addCoins: (amount) => {
     const current = get().state;
     const next = { ...current, coins: Math.max(0, current.coins + amount) };
+    set({ state: next });
+    void storageSet(STORAGE_KEYS.wuliliState, next);
+  },
+
+  addStreamSeconds: (seconds) => {
+    if (seconds <= 0) return;
+    const current = get().state;
+    const next = {
+      ...current,
+      totalStreamSeconds: current.totalStreamSeconds + seconds,
+    };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -304,6 +361,8 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
+
+  getEquipmentBonus: () => getBonus(),
 
   reset: () => {
     const fresh: WuliliState = {
