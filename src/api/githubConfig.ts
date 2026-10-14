@@ -1,8 +1,16 @@
 import type { GitHubRepoInfo } from '@/types/settings';
 
+// 素材仓库（读图片、音乐、台词、配置）
 export const GITHUB_REPO: GitHubRepoInfo = {
   owner: 'yukee520',
   repo: 'Wulili_assets',
+  branch: 'main',
+};
+
+// 代码仓库（读 Releases，检查更新、下载 APK）
+export const GITHUB_RELEASE_REPO: GitHubRepoInfo = {
+  owner: 'yukee520',
+  repo: 'Wulili',
   branch: 'main',
 };
 
@@ -60,11 +68,11 @@ export function buildRawUrl(path: string): string {
 }
 
 export function buildReleasesUrl(): string {
-  return `${GITHUB_API_BASE}/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases`;
+  return `${GITHUB_API_BASE}/repos/${GITHUB_RELEASE_REPO.owner}/${GITHUB_RELEASE_REPO.repo}/releases`;
 }
 
 export function buildLatestReleaseUrl(): string {
-  return `${GITHUB_API_BASE}/repos/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/releases/latest`;
+  return `${GITHUB_API_BASE}/repos/${GITHUB_RELEASE_REPO.owner}/${GITHUB_RELEASE_REPO.repo}/releases/latest`;
 }
 
 export function buildCommitUrl(sha: string): string {
