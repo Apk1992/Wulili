@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { View, Text, ImageBackground } from 'react-native';
 import RemoteImage from './RemoteImage';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -7,17 +8,30 @@ import { getGitHubToken } from '@/api/githubClient';
 import type { Mood } from '@/types/wulili';
 import { AVATAR_FILES, MOOD_LABELS } from './constants';
 
+export interface SceneImagePair {
+  primary: string;
+  fallback: string;
+}
+
 export interface WuliliAvatarProps {
   mood?: Mood;
   size?: number;
   showLabel?: boolean;
   className?: string;
-  sceneImage?: string | null;
+  sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
 }
 
 const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+
+function resolveScenePath(
+  scene: string | SceneImagePair | null | undefined,
+): string | null {
+  if (!scene) return null;
+  if (typeof scene === 'string') return scene;
+  return scene.primary;
+}
 
 export function WuliliAvatar({
   mood = 'calm',
@@ -41,8 +55,21 @@ export function WuliliAvatar({
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const primaryPath = resolveScenePath(sceneImage);
+  const fallbackPath =
+    sceneImage && typeof sceneImage === 'object'
+      ? sceneImage.fallback
+      : null;
+
+  const [activeScene, setActiveScene] = useState<string | null>(primaryPath);
+
+  // sceneImage 变化时重置
+  useEffect(() => {
+    setActiveScene(primaryPath);
+  }, [primaryPath]);
+
   const sceneUri =
-    useRemoteImages && sceneImage ? `${RAW_BASE}/${sceneImage}` : null;
+    useRemoteImages && activeScene ? `${RAW_BASE}/${activeScene}` : null;
 
   const character = hideCharacter ? null : (
     <RemoteImage
@@ -72,8 +99,18 @@ export function WuliliAvatar({
         source={{ uri: sceneUri, headers }}
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
+        onError={() => {
+          // 主场景加载失败 → 试 fallback
+          if (fallbackPath && activeScene !== fallbackPath) {
+            setActiveScene(fallbackPath);
+          } else {
+            setActiveScene(null);
+          }
+        }}
       >
-        {hideCharacter ? null : <View className="flex-1 bg-black/10">{content}</View>}
+        {hideCharacter ? null : (
+          <View className="flex-1 bg-black/10">{content}</View>
+        )}
       </ImageBackground>
     );
   }
