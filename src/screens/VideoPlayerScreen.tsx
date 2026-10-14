@@ -1,8 +1,16 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Dimensions, FlatList, Pressable, Text, View } from 'react-native';
+import {
+  Dimensions,
+  FlatList,
+  Modal,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import Video, { type VideoRef } from 'react-native-video';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import MemoryListItem from '@/components/MemoryListItem';
@@ -11,7 +19,10 @@ import ErrorView from '@/components/ErrorView';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { useGitHubFiles } from '@/hooks/useGitHubRepo';
-import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
+import {
+  useGitHubReleases,
+  collectVideoAssets,
+} from '@/hooks/useGitHubReleases';
 import { getGitHubToken } from '@/api/githubClient';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
@@ -24,17 +35,18 @@ type Props = NativeStackScreenProps<RootStackParamList, 'VideoPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const SMALL_VIDEO_HEIGHT = SCREEN_WIDTH * 0.56;
 
 export function VideoPlayerScreen({}: Props): React.JSX.Element {
   const repoQuery = useGitHubFiles({ path: GITHUB_PATHS.videos, depth: 1 });
   const releasesQuery = useGitHubReleases(30);
-  const videoRef = React.useRef<VideoRef>(null);
 
   const [current, setCurrent] = useState<MemoryItem | null>(null);
   const [paused, setPaused] = useState<boolean>(false);
   const [position, setPosition] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState<boolean>(false);
 
   const items = useMemo(() => {
     const repoItems = buildRepoItems(repoQuery.data ?? []);
@@ -42,12 +54,25 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
     return [...releaseItems, ...repoItems];
   }, [repoQuery.data, releasesQuery.data]);
 
+  const videoSource = useMemo(() => {
+    if (!current) return null;
+    const token = getGitHubToken();
+    if (current.source === 'release') {
+      return { uri: current.downloadUrl ?? '' };
+    }
+    return {
+      uri: `${RAW_BASE}/${current.path}`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    };
+  }, [current]);
+
   const handlePress = useCallback((item: MemoryItem) => {
     setCurrent(item);
     setPaused(false);
     setPosition(0);
     setDuration(0);
     setError(null);
+    setFullscreen(false);
   }, []);
 
   const togglePause = () => setPaused((p) => !p);
@@ -58,6 +83,16 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
     setPosition(0);
     setDuration(0);
     setError(null);
+    setFullscreen(false);
+  };
+
+  const openFullscreen = () => {
+    setFullscreen(true);
+    setPaused(false);
+  };
+
+  const closeFullscreen = () => {
+    setFullscreen(false);
   };
 
   if (repoQuery.isLoading || releasesQuery.isLoading) {
@@ -85,22 +120,15 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   }
 
   if (current) {
-    const token = getGitHubToken();
-    const source =
-      current.source === 'release'
-        ? { uri: current.downloadUrl ?? '' }
-        : {
-            uri: `${RAW_BASE}/${current.path}`,
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          };
-
     return (
       <ScreenContainer padded={false} edges={['bottom']}>
-        <View className="bg-black" style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH * 0.56 }}>
+        <View
+          className="bg-black"
+          style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
+        >
           <Video
-            ref={videoRef}
-            source={source}
-            style={{ width: SCREEN_WIDTH, height: SCREEN_WIDTH * 0.56 }}
+            source={videoSource ?? { uri: '' }}
+            style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
             resizeMode="contain"
             paused={paused}
             controls={false}
@@ -112,6 +140,14 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
             onError={() => setError('无法播放该视频')}
             onEnd={closePlayer}
           />
+          <Pressable
+            onPress={openFullscreen}
+            className="absolute top-3 right-3 p-2 rounded-full active:opacity-70"
+            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+            accessibilityLabel="全屏"
+          >
+            <Ionicons name="expand" size={20} color="#FFFFFF" />
+          </Pressable>
           {error ? (
             <View className="absolute inset-0 items-center justify-center bg-black/60">
               <Text className="text-white text-sm">{error}</Text>
@@ -150,14 +186,77 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
         </View>
 
         <View className="px-4 py-2">
-          <Pressable
-            onPress={closePlayer}
-            className="flex-row items-center"
-          >
+          <Pressable onPress={closePlayer} className="flex-row items-center">
             <Ionicons name="chevron-back" size={16} color="#2563EB" />
             <Text className="ml-1 text-xs text-primary">返回列表</Text>
           </Pressable>
         </View>
+
+        {/* 全屏 Modal */}
+        <Modal
+          visible={fullscreen}
+          animationType="fade"
+          transparent={false}
+          onRequestClose={closeFullscreen}
+          statusBarTranslucent
+        >
+          <View className="flex-1 bg-black">
+            <SafeAreaView edges={['top', 'bottom']} className="flex-1">
+              <View className="flex-1 items-center justify-center">
+                <Video
+                  source={videoSource ?? { uri: '' }}
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="contain"
+                  paused={paused}
+                  controls={false}
+                  onLoad={(data) => {
+                    setDuration(data.duration);
+                  }}
+                  onProgress={(data) => setPosition(data.currentTime)}
+                  onError={() => setError('无法播放该视频')}
+                  onEnd={closePlayer}
+                />
+              </View>
+
+              <View className="absolute top-0 left-0 right-0 p-4 flex-row items-center justify-between">
+                <Pressable
+                  onPress={closeFullscreen}
+                  className="p-2 rounded-full active:opacity-70"
+                  style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+                  accessibilityLabel="退出全屏"
+                >
+                  <Ionicons name="contract" size={22} color="#FFFFFF" />
+                </Pressable>
+                <View className="flex-row items-center">
+                  <Pressable
+                    onPress={togglePause}
+                    className="p-2 rounded-full active:opacity-70 mr-2"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+                  >
+                    <Ionicons
+                      name={paused ? 'play' : 'pause'}
+                      size={22}
+                      color="#FFFFFF"
+                    />
+                  </Pressable>
+                  <Pressable
+                    onPress={closePlayer}
+                    className="p-2 rounded-full active:opacity-70"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+                  >
+                    <Ionicons name="close" size={22} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View className="absolute bottom-0 left-0 right-0 p-4">
+                <Text className="text-white text-center text-xs">
+                  {formatDuration(position * 1000)} / {formatDuration(duration * 1000)}
+                </Text>
+              </View>
+            </SafeAreaView>
+          </View>
+        </Modal>
       </ScreenContainer>
     );
   }
@@ -180,7 +279,11 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
       <FlatList
         data={items}
         keyExtractor={(item) => `${item.source}-${item.sha}`}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: 24,
+        }}
         renderItem={({ item }) => (
           <MemoryListItem item={item} onPress={handlePress} />
         )}
@@ -216,7 +319,11 @@ function buildRepoItems(files: GitHubContentItem[]): MemoryItem[] {
   return items;
 }
 
-function buildReleaseItems(releases: ReturnType<typeof useGitHubReleases>['data'] extends undefined ? never : NonNullable<ReturnType<typeof useGitHubReleases>['data']>): MemoryItem[] {
+function buildReleaseItems(
+  releases: NonNullable<
+    ReturnType<typeof useGitHubReleases>['data']
+  >,
+): MemoryItem[] {
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => ({
     id: `asset-${asset.id}`,
