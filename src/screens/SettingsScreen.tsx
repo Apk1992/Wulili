@@ -16,7 +16,7 @@ import { useWuliliStore } from '@/store/useWuliliStore';
 import { storageClearByPrefix } from '@/utils/storage';
 import { getGitHubToken } from '@/api/githubClient';
 import { listReleases } from '@/api/githubReleases';
-import { GITHUB_REPO } from '@/api/githubConfig';
+import { GITHUB_REPO, GITHUB_RELEASE_REPO } from '@/api/githubConfig';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
@@ -283,7 +283,14 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
               value={`${diagnostic.tokenLength}`}
             />
             <DiagnosticLine label="Token 前 10 位" value={diagnostic.tokenPreview} />
-            <DiagnosticLine label="仓库" value={`${GITHUB_REPO.owner}/${GITHUB_REPO.repo}`} />
+            <DiagnosticLine
+              label="素材仓库"
+              value={`${GITHUB_REPO.owner}/${GITHUB_REPO.repo}`}
+            />
+            <DiagnosticLine
+              label="Release 仓库"
+              value={`${GITHUB_RELEASE_REPO.owner}/${GITHUB_RELEASE_REPO.repo}`}
+            />
             <DiagnosticLine
               label="Releases 数量"
               value={`${diagnostic.releasesCount}`}
