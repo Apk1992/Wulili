@@ -14,6 +14,7 @@ export interface WuliliAvatarProps {
   className?: string;
   sceneImage?: string | null;
   fullScreen?: boolean;
+  hideCharacter?: boolean;
 }
 
 const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
@@ -25,6 +26,7 @@ export function WuliliAvatar({
   className = '',
   sceneImage = null,
   fullScreen = false,
+  hideCharacter = false,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
@@ -42,16 +44,20 @@ export function WuliliAvatar({
   const sceneUri =
     useRemoteImages && sceneImage ? `${RAW_BASE}/${sceneImage}` : null;
 
+  const character = hideCharacter ? null : (
+    <RemoteImage
+      uri={avatarUri}
+      width={fullScreen ? 320 : size}
+      height={fullScreen ? 480 : size}
+      resizeMode="contain"
+      fallbackIcon="person"
+      className="bg-transparent dark:bg-transparent"
+    />
+  );
+
   const content = (
     <View className="flex-1 items-center justify-center">
-      <RemoteImage
-        uri={avatarUri}
-        width={fullScreen ? 320 : size}
-        height={fullScreen ? 480 : size}
-        resizeMode="contain"
-        fallbackIcon="person"
-        className="bg-transparent dark:bg-transparent"
-      />
+      {character}
       {showLabel ? (
         <Text className="mt-2 text-xs text-white/80">
           当前心情 · {MOOD_LABELS[mood]}
@@ -67,7 +73,7 @@ export function WuliliAvatar({
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
       >
-        <View className="flex-1 bg-black/10">{content}</View>
+        {hideCharacter ? null : <View className="flex-1 bg-black/10">{content}</View>}
       </ImageBackground>
     );
   }
