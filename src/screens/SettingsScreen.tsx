@@ -263,64 +263,6 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
           toggle={{ value: settings.autoCheckUpdate, onValueChange: setAutoCheckUpdate }}
         />
 
-        <Text className="px-4 pt-4 pb-2 text-xs text-muted dark:text-dark-muted">
-          诊断
-        </Text>
-        <SettingRow
-          icon="bug"
-          label={diagnosticLoading ? '诊断中…' : '运行诊断'}
-          value="检查 Token 与 Releases 状态"
-          onPress={runDiagnostic}
-        />
-        {diagnostic ? (
-          <Card className="mx-4 mt-2">
-            <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
-              诊断结果
-            </Text>
-            <DiagnosticLine label="App 版本" value={diagnostic.appVersion} />
-            <DiagnosticLine
-              label="Token 长度"
-              value={`${diagnostic.tokenLength}`}
-            />
-            <DiagnosticLine label="Token 前 10 位" value={diagnostic.tokenPreview} />
-            <DiagnosticLine
-              label="素材仓库"
-              value={`${GITHUB_REPO.owner}/${GITHUB_REPO.repo}`}
-            />
-            <DiagnosticLine
-              label="Release 仓库"
-              value={`${GITHUB_RELEASE_REPO.owner}/${GITHUB_RELEASE_REPO.repo}`}
-            />
-            <DiagnosticLine
-              label="Releases 数量"
-              value={`${diagnostic.releasesCount}`}
-            />
-            {diagnostic.releaseTags.length > 0 ? (
-              <View className="mt-1">
-                <Text className="text-[10px] text-muted dark:text-dark-muted">
-                  Tag 列表：
-                </Text>
-                {diagnostic.releaseTags.map((tag) => (
-                  <Text
-                    key={tag}
-                    className="text-[10px] text-text dark:text-dark-text ml-2"
-                  >
-                    · {tag}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-            {diagnostic.errorMessage ? (
-              <Text className="text-[10px] text-danger mt-2">
-                错误：{diagnostic.errorMessage}
-              </Text>
-            ) : null}
-            <Text className="text-[10px] text-muted dark:text-dark-muted mt-2">
-              检查时间：{diagnostic.checkedAt}
-            </Text>
-          </Card>
-        ) : null}
-
         {developerMode ? (
           <>
             <Text className="px-4 pt-4 pb-2 text-xs text-primary">
