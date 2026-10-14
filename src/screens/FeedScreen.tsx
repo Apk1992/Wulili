@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,15 +11,12 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import FoodItem from '@/components/FoodItem';
-import DialogueBubble from '@/components/DialogueBubble';
 import EmptyView from '@/components/EmptyView';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
-import { useAffinity } from '@/hooks/useAffinity';
 import { formatCoins } from '@/utils/format';
 import type { Food, FoodCategory } from '@/types/wulili';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Feed'>;
@@ -30,39 +26,20 @@ interface FoodTab {
   label: string;
   icon: string;
   activeColor: string;
-  inactiveColor: string;
 }
 
 const FOOD_TABS: FoodTab[] = [
-  {
-    key: 'healthy',
-    label: '营养',
-    icon: 'leaf',
-    activeColor: '#10B981',
-    inactiveColor: '#94A3B8',
-  },
-  {
-    key: 'junk',
-    label: '放纵',
-    icon: 'fast-food',
-    activeColor: '#EF4444',
-    inactiveColor: '#94A3B8',
-  },
+  { key: 'healthy', label: '营养', icon: 'leaf', activeColor: '#10B981' },
+  { key: 'junk', label: '放纵', icon: 'fast-food', activeColor: '#EF4444' },
 ];
 
-export function FeedScreen({}: Props): React.JSX.Element {
+export function FeedScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
-  const { gain } = useAffinity();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<FoodCategory>('healthy');
 
   const foods = useAppConfigStore((s) => s.config.foods);
   const coins = useWuliliStore((s) => s.state.coins);
-  const recordFoodCategory = useWuliliStore((s) => s.recordFoodCategory);
-  const markInteraction = useWuliliStore((s) => s.markInteraction);
-  const addStats = useWuliliStore((s) => s.addStats);
-  const addCoins = useWuliliStore((s) => s.addCoins);
 
   const healthyCount = useMemo(
     () => foods.filter((f) => f.category === 'healthy').length,
@@ -80,49 +57,16 @@ export function FeedScreen({}: Props): React.JSX.Element {
 
   useEffect(() => {
     if (foods.length === 0) {
-      const line = speak({ forceCategory: 'idle' });
-      if (line) setDialogue(line);
+      void speak({ forceCategory: 'idle' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foods.length]);
 
-  const handleFeed = useCallback(
+  const handleSelect = useCallback(
     (food: Food) => {
-      const currentCoins = useWuliliStore.getState().state.coins;
-      if (currentCoins < food.price) {
-        Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
-        return;
-      }
-
-      addCoins(-food.price);
-      addStats({
-        hunger: food.effect.hunger,
-        mood: food.effect.mood,
-        health: food.effect.health,
-        energy: food.effect.energy,
-        weight: food.effect.weight,
-      });
-      markInteraction('feed');
-      recordFoodCategory(food.category);
-      gain(food.category === 'healthy' ? 1 : 0.5);
-
-      const line = speak({
-        action: 'feed',
-        foodCategory: food.category,
-      });
-      if (line) setDialogue(line);
-
-      if (food.effect.health < 0) {
-        const risk = Math.abs(food.effect.health) * 0.02;
-        if (Math.random() < risk) {
-          useWuliliStore.getState().setIllness('rhinitis', 1);
-          setTimeout(() => {
-            Alert.alert('注意', '雾璃的鼻炎好像又犯了……');
-          }, 800);
-        }
-      }
+      navigation.navigate('FoodDetail', { foodId: food.id });
     },
-    [addCoins, addStats, gain, markInteraction, recordFoodCategory, speak],
+    [navigation],
   );
 
   const handleRefresh = async () => {
@@ -145,7 +89,7 @@ export function FeedScreen({}: Props): React.JSX.Element {
           {FOOD_TABS.map((tab) => {
             const isActive = tab.key === activeTab;
             const count = tab.key === 'healthy' ? healthyCount : junkCount;
-            const iconColor = isActive ? tab.activeColor : tab.inactiveColor;
+            const iconColor = isActive ? tab.activeColor : '#94A3B8';
             return (
               <Pressable
                 key={tab.key}
@@ -195,7 +139,7 @@ export function FeedScreen({}: Props): React.JSX.Element {
             <FoodItem
               food={item}
               affordable={coins >= item.price}
-              onPress={handleFeed}
+              onPress={handleSelect}
             />
           )}
           refreshControl={
@@ -204,16 +148,6 @@ export function FeedScreen({}: Props): React.JSX.Element {
           showsVerticalScrollIndicator={false}
         />
       )}
-
-      <View className="px-4 pb-3">
-        {dialogue ? (
-          <DialogueBubble
-            dialogue={dialogue}
-            onDismiss={() => setDialogue(null)}
-            autoDismissMs={9000}
-          />
-        ) : null}
-      </View>
     </ScreenContainer>
   );
 }
