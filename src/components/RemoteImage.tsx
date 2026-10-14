@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { Image, View, type ImageStyle, type StyleProp } from 'react-native';
+import {
+  Image,
+  View,
+  type ImageStyle,
+  type StyleProp,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '@/hooks/useTheme';
 import { getGitHubToken } from '@/api/githubClient';
@@ -39,10 +44,7 @@ export function RemoteImage({
 
   if (!uri || hasError) {
     return (
-      <View
-        className={containerClasses}
-        style={[{ width, height }]}
-      >
+      <View className={containerClasses} style={[{ width, height }]}>
         <Ionicons
           name={fallbackIcon}
           size={Math.max(16, Math.min(width ?? 48, height ?? 48) * 0.5)}
