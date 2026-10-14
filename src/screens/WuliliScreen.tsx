@@ -18,7 +18,11 @@ import { useAffinity } from '@/hooks/useAffinity';
 import { getTimeOfDayLabel, getTimeOfDay } from '@/utils/time';
 import { formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
-import { getCurrentScene, getSceneImagePath } from '@/utils/sceneSelector';
+import {
+  getCurrentScene,
+  getSceneImagePath,
+  getSleepSceneImagePath,
+} from '@/utils/sceneSelector';
 import { SLEEP_CONFIG, canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
 import type { Mood, Season } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
@@ -46,7 +50,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const timeOfDay = getTimeOfDay();
   const illness = useWuliliStore((s) => s.state.illness);
   const coins = useWuliliStore((s) => s.state.coins);
-  const energy = useWuliliStore((s) => s.state.energy ?? s.state.stats.energy);
+  const energy = useWuliliStore((s) => s.state.stats.energy);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
 
   const isStreaming = useStreamStore((s) => s.state.isStreaming);
@@ -58,16 +62,16 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  // 场景选择：睡眠 → 卧室；否则按时段
   const scene = useMemo(() => {
-    if (isSleeping) return 'bedroom' as const;
+    if (isSleeping) return null;
     return getCurrentScene(timeOfDay);
   }, [isSleeping, timeOfDay]);
 
-  const sceneImage = useMemo(
-    () => getSceneImagePath(scene, season),
-    [scene, season],
-  );
+  const sceneImage = useMemo(() => {
+    if (isSleeping) return getSleepSceneImagePath();
+    if (!scene) return null;
+    return getSceneImagePath(scene, season);
+  }, [isSleeping, scene, season]);
 
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
@@ -131,14 +135,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   const handleWakeUp = () => {
     const total = stopSleep();
-    if (total > 0) {
-      const sleepLine = speak({ forceAction: 'idle', forceCategory: 'idle' } as never);
-      if (sleepLine) setDialogue(sleepLine);
-    }
+    setMood('happy');
     Alert.alert(
       '已起床',
       `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + sleepElapsedMs / 1000)}，精力恢复了一些。`,
     );
+    void total;
   };
 
   const leftButtons: Array<{ icon: string; label: string; onPress: () => void }> = [
@@ -155,12 +157,17 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const buttonAreaTop = screenHeight * 0.38;
   const canSleep = canStartSleep(energy);
 
+  const displayMood: Mood = isSleeping ? 'sleepy' : mood;
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1 }}>
-        <WuliliAvatar mood={mood} fullScreen sceneImage={sceneImage} />
+        <WuliliAvatar
+          mood={displayMood}
+          fullScreen
+          sceneImage={sceneImage}
+        />
 
-        {/* 顶部信息 + 横幅 + 台词 */}
         <View
           className="absolute left-0 right-0 px-4"
           style={{ top: 12 }}
@@ -232,16 +239,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
                 onDismiss={() => setDialogue(null)}
                 autoDismissMs={10000}
               />
+            </View>
+          ) : null}
+
+          {!isSleeping ? (
+            <View style={{ position: 'relative', marginTop: -12 }}>
               <SleepButton
                 onPress={handleSleepPress}
-                disabled={!isSleeping && !canSleep}
-                isSleeping={isSleeping}
+                disabled={!canSleep}
+                isSleeping={false}
               />
             </View>
           ) : null}
         </View>
 
-        {/* 左右按钮（睡眠中隐藏） */}
         {!isSleeping ? (
           <>
             <View
@@ -278,7 +289,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           </>
         ) : null}
 
-        {/* 底部大按钮 */}
         <View
           className="absolute left-4 right-4"
           style={{ bottom: 24 }}
@@ -328,10 +338,11 @@ function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React
     <Pressable
       onPress={onPress}
       disabled={disabled && !isSleeping}
-      className="absolute items-center justify-center rounded-full active:opacity-70"
+      className="items-center justify-center rounded-full active:opacity-70"
       style={{
+        position: 'absolute',
         right: 8,
-        bottom: -65,
+        bottom: -35,
         width: 52,
         height: 52,
         backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
