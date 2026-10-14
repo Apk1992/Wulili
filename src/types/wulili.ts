@@ -19,6 +19,7 @@ export type ActionType =
   | 'stream'
   | 'exercise'
   | 'medicine'
+  | 'sleep'
   | 'idle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
@@ -59,6 +60,7 @@ export interface EquipmentBonus {
   streamIncomeRate?: number;
   moodRecoveryRate?: number;
   illnessResistance?: number;
+  sleepRecoveryRate?: number;
 }
 
 export interface Outfit {
@@ -124,9 +126,11 @@ export interface WuliliState {
   lastStreamedAt: number | null;
   lastExercisedAt: number | null;
   lastMedicineAt: number | null;
+  lastSleptAt: number | null;
   lastInteractionAt: number | null;
   totalStreamEarnings: number;
   totalStreamSeconds: number;
+  totalSleepSeconds: number;
   consecutiveJunkFood: number;
   consecutiveHealthyFood: number;
   consecutiveDaysLoggedIn: number;
@@ -176,9 +180,11 @@ export const INITIAL_WULILI_STATE: WuliliState = {
   lastStreamedAt: null,
   lastExercisedAt: null,
   lastMedicineAt: null,
+  lastSleptAt: null,
   lastInteractionAt: null,
   totalStreamEarnings: 0,
   totalStreamSeconds: 0,
+  totalSleepSeconds: 0,
   consecutiveJunkFood: 0,
   consecutiveHealthyFood: 0,
   consecutiveDaysLoggedIn: 1,
