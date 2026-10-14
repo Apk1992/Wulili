@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -13,18 +13,20 @@ import { useSeason } from '@/hooks/useSeason';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
 import { useStreamStore } from '@/store/useStreamStore';
+import { useSleepStore } from '@/store/useSleepStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { getTimeOfDayLabel, getTimeOfDay } from '@/utils/time';
 import { formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import { getCurrentScene, getSceneImagePath } from '@/utils/sceneSelector';
-import type { Mood } from '@/types/wulili';
+import { SLEEP_CONFIG, canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
+import type { Mood, Season } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
-const SEASON_LABELS: Record<string, string> = {
+const SEASON_LABELS: Record<Season, string> = {
   spring: '春',
   summer: '夏',
   autumn: '秋',
@@ -44,35 +46,49 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const timeOfDay = getTimeOfDay();
   const illness = useWuliliStore((s) => s.state.illness);
   const coins = useWuliliStore((s) => s.state.coins);
+  const energy = useWuliliStore((s) => s.state.energy ?? s.state.stats.energy);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
 
   const isStreaming = useStreamStore((s) => s.state.isStreaming);
   const streamStartedAt = useStreamStore((s) => s.state.startedAt);
 
-  const scene = useMemo(() => getCurrentScene(timeOfDay), [timeOfDay]);
+  const isSleeping = useSleepStore((s) => s.state.isSleeping);
+  const sleepStartedAt = useSleepStore((s) => s.state.startedAt);
+  const sleepTotalSeconds = useSleepStore((s) => s.state.totalSeconds);
+  const startSleep = useSleepStore((s) => s.start);
+  const stopSleep = useSleepStore((s) => s.stop);
+
+  // 场景选择：睡眠 → 卧室；否则按时段
+  const scene = useMemo(() => {
+    if (isSleeping) return 'bedroom' as const;
+    return getCurrentScene(timeOfDay);
+  }, [isSleeping, timeOfDay]);
+
   const sceneImage = useMemo(
     () => getSceneImagePath(scene, season),
     [scene, season],
   );
 
   useEffect(() => {
-    if (!isStreaming) return;
+    if (!isStreaming && !isSleeping) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [isStreaming]);
+  }, [isStreaming, isSleeping]);
 
   useFocusEffect(
     useCallback(() => {
       updateLoginStreak();
       setMood(computeMood());
-      const greeting = speak({ forceCategory: 'greeting' });
-      if (greeting) setDialogue(greeting);
+      if (!isSleeping) {
+        const greeting = speak({ forceCategory: 'greeting' });
+        if (greeting) setDialogue(greeting);
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
   useEffect(() => {
-    if (!dialogue) {
+    if (!dialogue && !isSleeping) {
       const lastText = useDialogueStore.getState().lastText;
       if (lastText) {
         setDialogue({
@@ -88,10 +104,42 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         });
       }
     }
-  }, [dialogue]);
+  }, [dialogue, isSleeping]);
 
   const streamElapsedMs =
     isStreaming && streamStartedAt ? now - streamStartedAt : 0;
+  const sleepElapsedMs =
+    isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
+
+  const handleSleepPress = () => {
+    if (isStreaming) {
+      Alert.alert('正在直播', '要先下播才能睡觉哦。');
+      return;
+    }
+    if (isSleeping) {
+      handleWakeUp();
+      return;
+    }
+    if (!canStartSleep(energy)) {
+      Alert.alert('还不困', '雾璃现在精力充沛，不需要睡觉。');
+      return;
+    }
+    startSleep();
+    useWuliliStore.getState().markInteraction('sleep');
+    setDialogue(null);
+  };
+
+  const handleWakeUp = () => {
+    const total = stopSleep();
+    if (total > 0) {
+      const sleepLine = speak({ forceAction: 'idle', forceCategory: 'idle' } as never);
+      if (sleepLine) setDialogue(sleepLine);
+    }
+    Alert.alert(
+      '已起床',
+      `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + sleepElapsedMs / 1000)}，精力恢复了一些。`,
+    );
+  };
 
   const leftButtons: Array<{ icon: string; label: string; onPress: () => void }> = [
     { icon: 'restaurant', label: '投喂', onPress: () => navigation.navigate('Feed') },
@@ -104,15 +152,15 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
-  // 左右按钮区的纵向中心：屏幕高度的 62%
   const buttonAreaTop = screenHeight * 0.38;
+  const canSleep = canStartSleep(energy);
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1 }}>
         <WuliliAvatar mood={mood} fullScreen sceneImage={sceneImage} />
 
-        {/* 顶部信息栏 + 台词（绝对定位） */}
+        {/* 顶部信息 + 横幅 + 台词 */}
         <View
           className="absolute left-0 right-0 px-4"
           style={{ top: 12 }}
@@ -149,7 +197,22 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
-          {illness.type !== 'none' ? (
+          {isSleeping ? (
+            <View
+              className="mb-2 rounded-2xl px-3 py-2 flex-row items-center"
+              style={{ backgroundColor: 'rgba(99,102,241,0.9)' }}
+            >
+              <Ionicons name="moon" size={18} color="#FFFFFF" />
+              <View className="ml-2 flex-1">
+                <Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text>
+                <Text className="text-white/80 text-[10px] mt-0.5">
+                  已睡 {formatSleepDuration(sleepElapsedMs / 1000)} · 精力 +{Math.round((SLEEP_CONFIG.energyRecoveryPerHour * sleepElapsedMs) / 3600000)}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {illness.type !== 'none' && !isSleeping ? (
             <Pressable
               onPress={() => navigation.navigate('Medicine')}
               className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80"
@@ -162,48 +225,58 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
-          {dialogue ? (
-            <DialogueBubble
-              dialogue={dialogue}
-              onDismiss={() => setDialogue(null)}
-              autoDismissMs={10000}
-            />
+          {dialogue && !isSleeping ? (
+            <View style={{ position: 'relative' }}>
+              <DialogueBubble
+                dialogue={dialogue}
+                onDismiss={() => setDialogue(null)}
+                autoDismissMs={10000}
+              />
+              <SleepButton
+                onPress={handleSleepPress}
+                disabled={!isSleeping && !canSleep}
+                isSleeping={isSleeping}
+              />
+            </View>
           ) : null}
         </View>
 
-        {/* 左侧按钮 */}
-        <View
-          className="absolute"
-          style={{ left: 16, top: buttonAreaTop }}
-          pointerEvents="box-none"
-        >
-          {leftButtons.map((btn) => (
-            <View key={btn.label} style={{ marginBottom: 12 }}>
-              <CircleButton
-                icon={btn.icon}
-                label={btn.label}
-                onPress={btn.onPress}
-              />
+        {/* 左右按钮（睡眠中隐藏） */}
+        {!isSleeping ? (
+          <>
+            <View
+              className="absolute"
+              style={{ left: 16, top: buttonAreaTop }}
+              pointerEvents="box-none"
+            >
+              {leftButtons.map((btn) => (
+                <View key={btn.label} style={{ marginBottom: 12 }}>
+                  <CircleButton
+                    icon={btn.icon}
+                    label={btn.label}
+                    onPress={btn.onPress}
+                  />
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
 
-        {/* 右侧按钮 */}
-        <View
-          className="absolute"
-          style={{ right: 16, top: buttonAreaTop }}
-          pointerEvents="box-none"
-        >
-          {rightButtons.map((btn) => (
-            <View key={btn.label} style={{ marginBottom: 12 }}>
-              <CircleButton
-                icon={btn.icon}
-                label={btn.label}
-                onPress={btn.onPress}
-              />
+            <View
+              className="absolute"
+              style={{ right: 16, top: buttonAreaTop }}
+              pointerEvents="box-none"
+            >
+              {rightButtons.map((btn) => (
+                <View key={btn.label} style={{ marginBottom: 12 }}>
+                  <CircleButton
+                    icon={btn.icon}
+                    label={btn.label}
+                    onPress={btn.onPress}
+                  />
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </>
+        ) : null}
 
         {/* 底部大按钮 */}
         <View
@@ -211,13 +284,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           style={{ bottom: 24 }}
           pointerEvents="box-none"
         >
-          <Button
-            label="查看雾璃的状态"
-            icon="heart-circle"
-            variant="primary"
-            size="lg"
-            onPress={() => navigation.navigate('Status')}
-          />
+          {isSleeping ? (
+            <Button
+              label="叫醒她"
+              icon="sunny"
+              variant="danger"
+              size="lg"
+              onPress={handleWakeUp}
+            />
+          ) : (
+            <Button
+              label="查看雾璃的状态"
+              icon="heart-circle"
+              variant="primary"
+              size="lg"
+              onPress={() => navigation.navigate('Status')}
+            />
+          )}
         </View>
       </View>
     </ScreenContainer>
@@ -232,6 +315,42 @@ function computeMood(): Mood {
   if (s.stats.mood >= 80) return 'happy';
   if (s.affinity >= 60) return 'shy';
   return 'calm';
+}
+
+interface SleepButtonProps {
+  onPress: () => void;
+  disabled: boolean;
+  isSleeping: boolean;
+}
+
+function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React.JSX.Element {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled && !isSleeping}
+      className="absolute items-center justify-center rounded-full active:opacity-70"
+      style={{
+        right: 8,
+        bottom: -12,
+        width: 52,
+        height: 52,
+        backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
+        borderWidth: 2,
+        borderColor: 'rgba(255,255,255,0.4)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 6,
+      }}
+    >
+      <Ionicons
+        name={isSleeping ? 'sunny' : 'moon'}
+        size={22}
+        color="#FFFFFF"
+      />
+    </Pressable>
+  );
 }
 
 interface CircleButtonProps {
