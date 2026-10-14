@@ -2,6 +2,7 @@ import type { Season, TimeOfDay } from '@/types/wulili';
 import { getSeasonFromDate } from '@/data/seasons';
 
 export type SceneKey = 'living' | 'bedroom' | 'kitchen' | 'study';
+export type SleepSceneKey = 'bedroom_sleep';
 
 export function getCurrentScene(timeOfDay: TimeOfDay): SceneKey {
   switch (timeOfDay) {
@@ -25,6 +26,10 @@ export function getSceneImagePath(
 ): string {
   const s = season ?? getSeasonFromDate();
   return `images/scenes/${scene}_${s}.png`;
+}
+
+export function getSleepSceneImagePath(): string {
+  return 'images/scenes/bedroom_sleep.png';
 }
 
 export function getFallbackSceneImagePath(scene: SceneKey): string {
