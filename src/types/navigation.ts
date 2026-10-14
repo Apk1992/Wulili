@@ -8,11 +8,21 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   Feed: undefined;
+  FoodDetail: {
+    foodId: string;
+  };
   Entertain: undefined;
   Stream: undefined;
   Exercise: undefined;
   Medicine: undefined;
+  MedicineDetail: {
+    medicineId: string;
+  };
   Shop: undefined;
+  ItemDetail: {
+    itemId: string;
+    kind: 'outfit' | 'accessory';
+  };
   Status: undefined;
   MusicPlayer: undefined;
   VideoPlayer: undefined;
