@@ -14,9 +14,22 @@ import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useDialogueStore } from '@/store/useDialogueStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { storageClearByPrefix } from '@/utils/storage';
+import { getGitHubToken } from '@/api/githubClient';
+import { listReleases } from '@/api/githubReleases';
+import { GITHUB_REPO } from '@/api/githubConfig';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
+
+interface DiagnosticResult {
+  appVersion: string;
+  tokenLength: number;
+  tokenPreview: string;
+  releasesCount: number;
+  releaseTags: string[];
+  errorMessage: string | null;
+  checkedAt: string;
+}
 
 export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings);
@@ -37,6 +50,8 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   const { info, isChecking, check } = useAppUpdate();
 
   const [versionTapCount, setVersionTapCount] = useState<number>(0);
+  const [diagnostic, setDiagnostic] = useState<DiagnosticResult | null>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState<boolean>(false);
 
   const handleVersionTap = useCallback(() => {
     if (developerMode) return;
@@ -47,6 +62,49 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
       return next;
     });
   }, [developerMode, handleSecretTap]);
+
+  const runDiagnostic = async () => {
+    setDiagnosticLoading(true);
+    const result: DiagnosticResult = {
+      appVersion: DeviceInfo.getVersion(),
+      tokenLength: 0,
+      tokenPreview: '',
+      releasesCount: 0,
+      releaseTags: [],
+      errorMessage: null,
+      checkedAt: new Date().toLocaleString('zh-CN'),
+    };
+
+    try {
+      const token = getGitHubToken();
+      if (token) {
+        result.tokenLength = token.length;
+        result.tokenPreview = `${token.slice(0, 10)}...`;
+      } else {
+        result.tokenPreview = '(空)';
+      }
+    } catch (e) {
+      result.errorMessage = `读取 Token 失败: ${e instanceof Error ? e.message : 'unknown'}`;
+    }
+
+    try {
+      const releases = await listReleases(20);
+      result.releasesCount = releases.length;
+      result.releaseTags = releases.slice(0, 5).map((r) => {
+        const draft = r.draft ? ' [draft]' : '';
+        const pre = r.prerelease ? ' [pre]' : '';
+        return `${r.tag_name}${draft}${pre}`;
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown';
+      result.errorMessage = result.errorMessage
+        ? `${result.errorMessage}; Releases: ${msg}`
+        : `Releases: ${msg}`;
+    }
+
+    setDiagnostic(result);
+    setDiagnosticLoading(false);
+  };
 
   const handleCheckUpdate = async () => {
     const result = await check({ silent: false });
@@ -71,18 +129,22 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handleResetGame = () => {
-    Alert.alert('重置养成数据', '这会清空雾璃的所有状态、金币、亲密度与购买记录，且不可恢复。确定吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '重置',
-        style: 'destructive',
-        onPress: () => {
-          useWuliliStore.getState().reset();
-          useDialogueStore.getState().resetRuntime();
-          Alert.alert('已重置', '雾璃会重新认识你。');
+    Alert.alert(
+      '重置养成数据',
+      '这会清空雾璃的所有状态、金币、亲密度与购买记录，且不可恢复。确定吗？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '重置',
+          style: 'destructive',
+          onPress: () => {
+            useWuliliStore.getState().reset();
+            useDialogueStore.getState().resetRuntime();
+            Alert.alert('已重置', '雾璃会重新认识你。');
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const handleClearToken = () => {
@@ -201,6 +263,57 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
           toggle={{ value: settings.autoCheckUpdate, onValueChange: setAutoCheckUpdate }}
         />
 
+        <Text className="px-4 pt-4 pb-2 text-xs text-muted dark:text-dark-muted">
+          诊断
+        </Text>
+        <SettingRow
+          icon="bug"
+          label={diagnosticLoading ? '诊断中…' : '运行诊断'}
+          value="检查 Token 与 Releases 状态"
+          onPress={runDiagnostic}
+        />
+        {diagnostic ? (
+          <Card className="mx-4 mt-2">
+            <Text className="text-xs font-semibold text-text dark:text-dark-text mb-2">
+              诊断结果
+            </Text>
+            <DiagnosticLine label="App 版本" value={diagnostic.appVersion} />
+            <DiagnosticLine
+              label="Token 长度"
+              value={`${diagnostic.tokenLength}`}
+            />
+            <DiagnosticLine label="Token 前 10 位" value={diagnostic.tokenPreview} />
+            <DiagnosticLine label="仓库" value={`${GITHUB_REPO.owner}/${GITHUB_REPO.repo}`} />
+            <DiagnosticLine
+              label="Releases 数量"
+              value={`${diagnostic.releasesCount}`}
+            />
+            {diagnostic.releaseTags.length > 0 ? (
+              <View className="mt-1">
+                <Text className="text-[10px] text-muted dark:text-dark-muted">
+                  Tag 列表：
+                </Text>
+                {diagnostic.releaseTags.map((tag) => (
+                  <Text
+                    key={tag}
+                    className="text-[10px] text-text dark:text-dark-text ml-2"
+                  >
+                    · {tag}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+            {diagnostic.errorMessage ? (
+              <Text className="text-[10px] text-danger mt-2">
+                错误：{diagnostic.errorMessage}
+              </Text>
+            ) : null}
+            <Text className="text-[10px] text-muted dark:text-dark-muted mt-2">
+              检查时间：{diagnostic.checkedAt}
+            </Text>
+          </Card>
+        ) : null}
+
         {developerMode ? (
           <>
             <Text className="px-4 pt-4 pb-2 text-xs text-primary">
@@ -272,6 +385,23 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
         </Card>
       </ScrollView>
     </ScreenContainer>
+  );
+}
+
+function DiagnosticLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.JSX.Element {
+  return (
+    <View className="flex-row items-center justify-between py-0.5">
+      <Text className="text-[10px] text-muted dark:text-dark-muted">{label}</Text>
+      <Text className="text-[10px] font-medium text-text dark:text-dark-text">
+        {value}
+      </Text>
+    </View>
   );
 }
 
