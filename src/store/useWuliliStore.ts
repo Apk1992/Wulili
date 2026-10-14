@@ -11,6 +11,10 @@ import { STORAGE_KEYS, storageGet, storageSet } from '@/utils/storage';
 import { clamp, chance, randomFloat } from '@/utils/random';
 import { getDateKey, HOUR_MS } from '@/utils/time';
 import { aggregateBonus, type AggregatedBonus } from '@/utils/equipmentBonus';
+import {
+  computeSleepDeprivation,
+  SLEEP_CONFIG,
+} from '@/data/sleepConfig';
 
 interface WuliliStore {
   state: WuliliState;
@@ -85,6 +89,11 @@ function getBonus(): AggregatedBonus {
   }
 }
 
+function pickRandomSleepIllness(): IllnessType {
+  // 长期不睡：60% 感冒、40% 发烧
+  return chance(0.6) ? 'cold' : 'fever';
+}
+
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
@@ -93,10 +102,19 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const sleeping = isSleepingNow();
   const bonus = getBonus();
 
+  // 计算睡眠不足状态
+  const sleepDeprivation = computeSleepDeprivation(
+    state.lastSleptAt,
+    state.createdAt,
+  );
+
   const hungerDecay = 3.2 * hours;
-  // 直播或睡眠中，跳过精力/心情衰减（由各自的 store 处理）
-  const energyDecay = streaming || sleeping ? 0 : 2.6 * hours * bonus.energyCostRate;
-  const moodDecayBase = streaming || sleeping ? 0 : 1.6 * hours * bonus.moodDecayRate;
+  const energyDecay =
+    streaming || sleeping ? 0 : 2.6 * hours * bonus.energyCostRate;
+  const moodDecayBase =
+    streaming || sleeping
+      ? 0
+      : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier;
 
   let moodDecay = moodDecayBase;
   if (!streaming && !sleeping) {
@@ -121,9 +139,23 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let illness = state.illness;
   if (illness.type === 'none') {
+    // 原有鼻炎风险
     const rhinitisRisk =
       computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
-    if (chance(rhinitisRisk)) {
+    // 睡眠不足导致生病
+    const sleepIllnessRisk = sleeping
+      ? 0
+      : sleepDeprivation.illnessRiskPerHour *
+        hours *
+        (1 - bonus.illnessResistance);
+
+    if (chance(sleepIllnessRisk)) {
+      illness = {
+        type: pickRandomSleepIllness(),
+        since: Date.now(),
+        severity: 1.2,
+      };
+    } else if (chance(rhinitisRisk)) {
       illness = { type: 'rhinitis', since: Date.now(), severity: 1 };
     }
   } else {
@@ -302,7 +334,10 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'stream') next.lastStreamedAt = now;
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
-    if (action === 'sleep') next.lastSleptAt = now;
+    if (action === 'sleep') {
+      // 睡觉后，重置"距上次睡觉"的计时
+      next.lastSleptAt = now;
+    }
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -409,3 +444,5 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
 }
+
+void SLEEP_CONFIG;
