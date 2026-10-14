@@ -342,7 +342,7 @@ function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React
       style={{
         position: 'absolute',
         right: 8,
-        bottom: -35,
+        bottom: -70,
         width: 52,
         height: 52,
         backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
