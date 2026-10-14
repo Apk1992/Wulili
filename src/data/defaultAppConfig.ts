@@ -5,6 +5,7 @@ export const defaultAppConfig: AppConfig = {
   schemaVersion: CONFIG_SCHEMA_VERSION,
   updatedAt: '2025-01-01T00:00:00.000Z',
   foods: [
+    // ============ 营养食物（energy 基本为 0） ============
     {
       id: 'congee',
       name: '皮蛋瘦肉粥',
@@ -12,7 +13,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 8,
       image: 'congee.png',
-      effect: { hunger: 22, mood: 5, health: 6, energy: 5, weight: -0.1 },
+      effect: { hunger: 22, mood: 5, health: 6, energy: 0, weight: -0.1 },
     },
     {
       id: 'salad',
@@ -21,7 +22,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 12,
       image: 'salad.png',
-      effect: { hunger: 18, mood: 2, health: 8, energy: 4, weight: -0.2 },
+      effect: { hunger: 18, mood: 2, health: 8, energy: 0, weight: -0.2 },
     },
     {
       id: 'steamed_fish',
@@ -30,7 +31,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 22,
       image: 'steamed_fish.png',
-      effect: { hunger: 28, mood: 7, health: 10, energy: 8, weight: -0.1 },
+      effect: { hunger: 28, mood: 7, health: 10, energy: 0, weight: -0.1 },
     },
     {
       id: 'veggie_stirfry',
@@ -39,7 +40,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 10,
       image: 'veggie_stirfry.png',
-      effect: { hunger: 16, mood: 3, health: 7, energy: 4, weight: -0.15 },
+      effect: { hunger: 16, mood: 3, health: 7, energy: 0, weight: -0.15 },
     },
     {
       id: 'soup',
@@ -48,7 +49,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 18,
       image: 'soup.png',
-      effect: { hunger: 20, mood: 8, health: 12, energy: 10, weight: 0 },
+      effect: { hunger: 20, mood: 8, health: 12, energy: 3, weight: 0 },
     },
     {
       id: 'oatmeal',
@@ -57,7 +58,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 9,
       image: 'oatmeal.png',
-      effect: { hunger: 20, mood: 4, health: 6, energy: 8, weight: -0.1 },
+      effect: { hunger: 20, mood: 4, health: 6, energy: 0, weight: -0.1 },
     },
     {
       id: 'steamed_bun',
@@ -66,7 +67,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 5,
       image: 'steamed_bun.png',
-      effect: { hunger: 24, mood: 1, health: 2, energy: 4, weight: 0.05 },
+      effect: { hunger: 24, mood: 1, health: 2, energy: 0, weight: 0.05 },
     },
     {
       id: 'boiled_egg',
@@ -75,7 +76,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 4,
       image: 'boiled_egg.png',
-      effect: { hunger: 10, mood: 1, health: 5, energy: 3, weight: 0 },
+      effect: { hunger: 10, mood: 1, health: 5, energy: 0, weight: 0 },
     },
     {
       id: 'soymilk',
@@ -84,7 +85,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 6,
       image: 'soymilk.png',
-      effect: { hunger: 8, mood: 4, health: 4, energy: 5, weight: 0 },
+      effect: { hunger: 8, mood: 4, health: 4, energy: 0, weight: 0 },
     },
     {
       id: 'fruit_plate',
@@ -93,7 +94,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 14,
       image: 'fruit_plate.png',
-      effect: { hunger: 12, mood: 6, health: 7, energy: 5, weight: -0.1 },
+      effect: { hunger: 12, mood: 6, health: 7, energy: 0, weight: -0.1 },
     },
     {
       id: 'brown_rice',
@@ -102,7 +103,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 8,
       image: 'brown_rice.png',
-      effect: { hunger: 26, mood: 1, health: 6, energy: 6, weight: 0 },
+      effect: { hunger: 26, mood: 1, health: 6, energy: 0, weight: 0 },
     },
     {
       id: 'yogurt',
@@ -111,8 +112,10 @@ export const defaultAppConfig: AppConfig = {
       category: 'healthy',
       price: 10,
       image: 'yogurt.png',
-      effect: { hunger: 10, mood: 5, health: 5, energy: 3, weight: 0 },
+      effect: { hunger: 10, mood: 5, health: 5, energy: 0, weight: 0 },
     },
+
+    // ============ 放纵食物（大多 energy 0，少数提神） ============
     {
       id: 'fried_chicken',
       name: '炸鸡',
@@ -120,7 +123,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 25,
       image: 'fried_chicken.png',
-      effect: { hunger: 30, mood: 22, health: -12, energy: 6, weight: 0.4 },
+      effect: { hunger: 30, mood: 22, health: -12, energy: -2, weight: 0.4 },
     },
     {
       id: 'bubble_tea',
@@ -138,7 +141,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 45,
       image: 'hotpot.png',
-      effect: { hunger: 40, mood: 28, health: -14, energy: 12, weight: 0.5 },
+      effect: { hunger: 40, mood: 28, health: -14, energy: 0, weight: 0.5 },
     },
     {
       id: 'malatang',
@@ -147,7 +150,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 22,
       image: 'malatang.png',
-      effect: { hunger: 28, mood: 20, health: -10, energy: 8, weight: 0.35 },
+      effect: { hunger: 28, mood: 20, health: -10, energy: 0, weight: 0.35 },
     },
     {
       id: 'fried_rice',
@@ -156,7 +159,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 18,
       image: 'fried_rice.png',
-      effect: { hunger: 32, mood: 16, health: -8, energy: 10, weight: 0.3 },
+      effect: { hunger: 32, mood: 16, health: -8, energy: 0, weight: 0.3 },
     },
     {
       id: 'instant_noodles',
@@ -165,7 +168,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 8,
       image: 'instant_noodles.png',
-      effect: { hunger: 26, mood: 18, health: -10, energy: 8, weight: 0.25 },
+      effect: { hunger: 26, mood: 18, health: -10, energy: -3, weight: 0.25 },
     },
     {
       id: 'bbq_skewers',
@@ -174,7 +177,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 30,
       image: 'bbq_skewers.png',
-      effect: { hunger: 30, mood: 24, health: -12, energy: 10, weight: 0.4 },
+      effect: { hunger: 30, mood: 24, health: -12, energy: 0, weight: 0.4 },
     },
     {
       id: 'pizza',
@@ -183,7 +186,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 35,
       image: 'pizza.png',
-      effect: { hunger: 34, mood: 26, health: -12, energy: 12, weight: 0.45 },
+      effect: { hunger: 34, mood: 26, health: -12, energy: 0, weight: 0.45 },
     },
     {
       id: 'burger',
@@ -192,7 +195,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 32,
       image: 'burger.png',
-      effect: { hunger: 36, mood: 24, health: -13, energy: 14, weight: 0.5 },
+      effect: { hunger: 36, mood: 24, health: -13, energy: 0, weight: 0.5 },
     },
     {
       id: 'cake',
@@ -201,7 +204,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 28,
       image: 'cake.png',
-      effect: { hunger: 14, mood: 28, health: -8, energy: 6, weight: 0.3 },
+      effect: { hunger: 14, mood: 28, health: -8, energy: 5, weight: 0.3 },
     },
     {
       id: 'ice_cream',
@@ -210,7 +213,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 16,
       image: 'ice_cream.png',
-      effect: { hunger: 10, mood: 22, health: -6, energy: 4, weight: 0.25 },
+      effect: { hunger: 10, mood: 22, health: -6, energy: 0, weight: 0.25 },
     },
     {
       id: 'chocolate',
@@ -219,7 +222,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 20,
       image: 'chocolate.png',
-      effect: { hunger: 8, mood: 24, health: -4, energy: 8, weight: 0.2 },
+      effect: { hunger: 8, mood: 24, health: -4, energy: 6, weight: 0.2 },
     },
     {
       id: 'chips',
@@ -228,7 +231,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 12,
       image: 'chips.png',
-      effect: { hunger: 12, mood: 18, health: -8, energy: 6, weight: 0.25 },
+      effect: { hunger: 12, mood: 18, health: -8, energy: 0, weight: 0.25 },
     },
     {
       id: 'donut',
@@ -237,7 +240,7 @@ export const defaultAppConfig: AppConfig = {
       category: 'junk',
       price: 14,
       image: 'donut.png',
-      effect: { hunger: 12, mood: 20, health: -6, energy: 5, weight: 0.25 },
+      effect: { hunger: 12, mood: 20, health: -6, energy: 3, weight: 0.25 },
     },
   ],
   medicines: [
@@ -283,6 +286,7 @@ export const defaultAppConfig: AppConfig = {
     },
   ],
   outfits: [
+    // ...（保持原样，我上一批已给你完整数据）
     {
       id: 'casual_tee',
       name: '白色T恤',
@@ -301,9 +305,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'hoodie.png',
       moodBonus: 4,
       affinityBonus: 1,
-      bonus: {
-        moodDecayRate: 0.94,
-      },
+      bonus: { moodDecayRate: 0.94 },
     },
     {
       id: 'sweater',
@@ -313,9 +315,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'sweater.png',
       moodBonus: 5,
       affinityBonus: 2,
-      bonus: {
-        moodDecayRate: 0.91,
-      },
+      bonus: { moodDecayRate: 0.91 },
     },
     {
       id: 'school_uniform',
@@ -325,9 +325,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'school_uniform.png',
       moodBonus: 6,
       affinityBonus: 2,
-      bonus: {
-        affinityGain: 1.2,
-      },
+      bonus: { affinityGain: 1.2 },
     },
     {
       id: 'hanfu',
@@ -337,10 +335,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'hanfu.png',
       moodBonus: 10,
       affinityBonus: 4,
-      bonus: {
-        affinityGain: 2.2,
-        streamIncomeRate: 1.11,
-      },
+      bonus: { affinityGain: 2.2, streamIncomeRate: 1.11 },
     },
     {
       id: 'maid_dress',
@@ -350,10 +345,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'maid_dress.png',
       moodBonus: 8,
       affinityBonus: 3,
-      bonus: {
-        streamIncomeRate: 1.18,
-        moodRecoveryRate: 1.08,
-      },
+      bonus: { streamIncomeRate: 1.18, moodRecoveryRate: 1.08 },
     },
     {
       id: 'lolita',
@@ -363,11 +355,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'lolita.png',
       moodBonus: 12,
       affinityBonus: 5,
-      bonus: {
-        affinityGain: 2.6,
-        moodRecoveryRate: 1.13,
-        moodDecayRate: 0.9,
-      },
+      bonus: { affinityGain: 2.6, moodRecoveryRate: 1.13, moodDecayRate: 0.9 },
     },
     {
       id: 'suit',
@@ -377,10 +365,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'suit.png',
       moodBonus: 8,
       affinityBonus: 3,
-      bonus: {
-        streamIncomeRate: 1.2,
-        energyCostRate: 0.95,
-      },
+      bonus: { streamIncomeRate: 1.2, energyCostRate: 0.95 },
     },
     {
       id: 'pajamas',
@@ -390,10 +375,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'pajamas.png',
       moodBonus: 6,
       affinityBonus: 2,
-      bonus: {
-        energyCostRate: 0.92,
-        moodRecoveryRate: 1.05,
-      },
+      bonus: { energyCostRate: 0.92, moodRecoveryRate: 1.05, sleepRecoveryRate: 1.2 },
     },
     {
       id: 'idol_stage',
@@ -403,14 +385,11 @@ export const defaultAppConfig: AppConfig = {
       image: 'idol_stage.png',
       moodBonus: 16,
       affinityBonus: 8,
-      bonus: {
-        streamIncomeRate: 1.5,
-        affinityGain: 4,
-        energyCostRate: 0.95,
-      },
+      bonus: { streamIncomeRate: 1.5, affinityGain: 4, energyCostRate: 0.95 },
     },
   ],
   accessories: [
+    // ...（保持原样，我上一批已给你完整数据）
     {
       id: 'glasses',
       name: '圆框眼镜',
@@ -419,9 +398,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'glasses.png',
       moodBonus: 3,
       affinityBonus: 1,
-      bonus: {
-        moodDecayRate: 0.98,
-      },
+      bonus: { moodDecayRate: 0.98 },
     },
     {
       id: 'hairpin',
@@ -431,9 +408,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'hairpin.png',
       moodBonus: 3,
       affinityBonus: 1,
-      bonus: {
-        affinityGain: 0.3,
-      },
+      bonus: { affinityGain: 0.3 },
     },
     {
       id: 'ribbon',
@@ -443,9 +418,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'ribbon.png',
       moodBonus: 4,
       affinityBonus: 1,
-      bonus: {
-        moodRecoveryRate: 1.03,
-      },
+      bonus: { moodRecoveryRate: 1.03 },
     },
     {
       id: 'headphones',
@@ -455,10 +428,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'headphones.png',
       moodBonus: 6,
       affinityBonus: 3,
-      bonus: {
-        streamIncomeRate: 1.08,
-        energyCostRate: 0.96,
-      },
+      bonus: { streamIncomeRate: 1.08, energyCostRate: 0.96 },
     },
     {
       id: 'necklace',
@@ -468,9 +438,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'necklace.png',
       moodBonus: 5,
       affinityBonus: 2,
-      bonus: {
-        affinityGain: 0.8,
-      },
+      bonus: { affinityGain: 0.8 },
     },
     {
       id: 'scarf',
@@ -480,9 +448,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'scarf.png',
       moodBonus: 5,
       affinityBonus: 2,
-      bonus: {
-        illnessResistance: 0.15,
-      },
+      bonus: { illnessResistance: 0.15 },
     },
     {
       id: 'earrings',
@@ -492,9 +458,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'earrings.png',
       moodBonus: 4,
       affinityBonus: 2,
-      bonus: {
-        affinityGain: 0.5,
-      },
+      bonus: { affinityGain: 0.5 },
     },
     {
       id: 'cat_ears',
@@ -504,10 +468,7 @@ export const defaultAppConfig: AppConfig = {
       image: 'cat_ears.png',
       moodBonus: 8,
       affinityBonus: 3,
-      bonus: {
-        streamIncomeRate: 1.1,
-        moodRecoveryRate: 1.05,
-      },
+      bonus: { streamIncomeRate: 1.1, moodRecoveryRate: 1.05 },
     },
   ],
   exercises: [
