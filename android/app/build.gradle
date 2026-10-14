@@ -19,8 +19,8 @@ android {
         applicationId "com.yukee520.wulili"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 3
+        versionName "1.0.2"
 
     // ↓↓↓ 新增：把环境变量暴露给 Java/Kotlin BuildConfig ↓↓↓
         buildConfigField "String", "WULILI_GH_TOKEN", "\"${System.getenv("WULILI_GH_TOKEN") ?: ""}\""
