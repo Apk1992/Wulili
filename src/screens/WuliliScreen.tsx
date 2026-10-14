@@ -331,7 +331,7 @@ function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React
       className="absolute items-center justify-center rounded-full active:opacity-70"
       style={{
         right: 8,
-        bottom: -55,
+        bottom: -65,
         width: 52,
         height: 52,
         backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
