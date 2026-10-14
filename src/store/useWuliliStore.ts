@@ -22,6 +22,7 @@ interface WuliliStore {
   addStats: (delta: Partial<WuliliStats>) => void;
   addCoins: (amount: number) => void;
   addStreamSeconds: (seconds: number) => void;
+  addSleepSeconds: (seconds: number) => void;
   setAffinity: (value: number) => void;
   setIllness: (type: IllnessType, severity: number) => void;
   clearIllness: () => void;
@@ -51,6 +52,15 @@ function isStreamingNow(): boolean {
   }
 }
 
+function isSleepingNow(): boolean {
+  try {
+    const { useSleepStore } = require('@/store/useSleepStore');
+    return useSleepStore.getState().state.isSleeping === true;
+  } catch {
+    return false;
+  }
+}
+
 function getBonus(): AggregatedBonus {
   try {
     const { useAppConfigStore } = require('@/store/useAppConfigStore');
@@ -70,6 +80,7 @@ function getBonus(): AggregatedBonus {
       streamIncomeRate: 1,
       moodRecoveryRate: 1,
       illnessResistance: 0,
+      sleepRecoveryRate: 1,
     };
   }
 }
@@ -79,16 +90,16 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   if (hours <= 0) return state;
 
   const streaming = isStreamingNow();
+  const sleeping = isSleepingNow();
   const bonus = getBonus();
 
   const hungerDecay = 3.2 * hours;
-  const energyDecay = streaming ? 0 : 2.6 * hours * bonus.energyCostRate;
-  const moodDecayBase = streaming
-    ? 0
-    : 1.6 * hours * bonus.moodDecayRate;
+  // 直播或睡眠中，跳过精力/心情衰减（由各自的 store 处理）
+  const energyDecay = streaming || sleeping ? 0 : 2.6 * hours * bonus.energyCostRate;
+  const moodDecayBase = streaming || sleeping ? 0 : 1.6 * hours * bonus.moodDecayRate;
 
   let moodDecay = moodDecayBase;
-  if (!streaming) {
+  if (!streaming && !sleeping) {
     if (state.stats.hunger < 30) moodDecay += 1.4 * hours;
     if (state.stats.health < 40) moodDecay += 1.2 * hours;
     if (state.illness.type !== 'none') moodDecay += 1.6 * hours;
@@ -96,7 +107,9 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let healthDecay = 0.5 * hours;
   if (state.stats.hunger < 20) healthDecay += 1.6 * hours;
-  if (state.stats.energy < 15 && !streaming) healthDecay += 1.2 * hours;
+  if (state.stats.energy < 15 && !streaming && !sleeping) {
+    healthDecay += 1.2 * hours;
+  }
 
   const newStats: WuliliStats = {
     hunger: clampStat('hunger', state.stats.hunger - hungerDecay),
@@ -152,6 +165,12 @@ function migrateState(stored: Partial<WuliliState>): WuliliState {
       typeof stored.totalStreamSeconds === 'number'
         ? stored.totalStreamSeconds
         : 0,
+    totalSleepSeconds:
+      typeof stored.totalSleepSeconds === 'number'
+        ? stored.totalSleepSeconds
+        : 0,
+    lastSleptAt:
+      typeof stored.lastSleptAt === 'number' ? stored.lastSleptAt : null,
   };
 }
 
@@ -232,6 +251,17 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
 
+  addSleepSeconds: (seconds) => {
+    if (seconds <= 0) return;
+    const current = get().state;
+    const next = {
+      ...current,
+      totalSleepSeconds: current.totalSleepSeconds + seconds,
+    };
+    set({ state: next });
+    void storageSet(STORAGE_KEYS.wuliliState, next);
+  },
+
   setAffinity: (value) => {
     const current = get().state;
     const next = { ...current, affinity: clamp(value, 0, 100) };
@@ -272,6 +302,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'stream') next.lastStreamedAt = now;
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
+    if (action === 'sleep') next.lastSleptAt = now;
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
