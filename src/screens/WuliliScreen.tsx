@@ -166,6 +166,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           mood={displayMood}
           fullScreen
           sceneImage={sceneImage}
+          hideCharacter={isSleeping}
         />
 
         <View
