@@ -1,65 +1,28 @@
 import React, { useState } from 'react';
-import { Alert, FlatList, Text, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import Card from '@/components/Card';
 import MedicineItem from '@/components/MedicineItem';
-import DialogueBubble from '@/components/DialogueBubble';
 import EmptyView from '@/components/EmptyView';
-import { useDialogue } from '@/hooks/useDialogue';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
-import { useAffinity } from '@/hooks/useAffinity';
 import { ILLNESS_LABELS } from '@/components/constants';
 import { formatCoins } from '@/utils/format';
 import type { Medicine } from '@/types/wulili';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Medicine'>;
 
-export function MedicineScreen({}: Props): React.JSX.Element {
-  const { speak } = useDialogue();
-  const { gain } = useAffinity();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
-
+export function MedicineScreen({ navigation }: Props): React.JSX.Element {
   const medicines = useAppConfigStore((s) => s.config.medicines);
   const coins = useWuliliStore((s) => s.state.coins);
   const illness = useWuliliStore((s) => s.state.illness);
 
-  const handleTake = (medicine: Medicine) => {
-    const currentCoins = useWuliliStore.getState().state.coins;
-    if (currentCoins < medicine.price) {
-      Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
-      return;
-    }
-
-    const currentIllness = useWuliliStore.getState().state.illness;
-    const curesCurrent =
-      currentIllness.type !== 'none' && medicine.cures.includes(currentIllness.type);
-
-    useWuliliStore.getState().addCoins(-medicine.price);
-    useWuliliStore.getState().addStats({
-      health: medicine.healthRestore,
-      mood: medicine.moodRestore,
-    });
-    useWuliliStore.getState().markInteraction('medicine');
-    gain(2);
-
-    if (curesCurrent) {
-      useWuliliStore.getState().clearIllness();
-    }
-
-    const line = speak({ action: 'medicine' });
-    if (line) setDialogue(line);
-
-    if (curesCurrent) {
-      setTimeout(() => {
-        Alert.alert('康复了', `雾璃的${ILLNESS_LABELS[currentIllness.type]}好多了。`);
-      }, 600);
-    }
+  const handleSelect = (medicine: Medicine) => {
+    navigation.navigate('MedicineDetail', { medicineId: medicine.id });
   };
 
   return (
@@ -110,22 +73,12 @@ export function MedicineScreen({}: Props): React.JSX.Element {
             <MedicineItem
               medicine={item}
               affordable={coins >= item.price}
-              onPress={handleTake}
+              onPress={handleSelect}
             />
           )}
           showsVerticalScrollIndicator={false}
         />
       )}
-
-      <View className="px-4 pb-3">
-        {dialogue ? (
-          <DialogueBubble
-            dialogue={dialogue}
-            onDismiss={() => setDialogue(null)}
-            autoDismissMs={8000}
-          />
-        ) : null}
-      </View>
     </ScreenContainer>
   );
 }
