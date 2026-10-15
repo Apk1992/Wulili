@@ -5,9 +5,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
-import TrackPlayer from 'react-native-track-player';
+import TrackPlayer, { Capability } from 'react-native-track-player';
 
 import RootNavigator from '@/navigation/RootNavigator';
+import PermissionGateModal from '@/components/PermissionGateModal';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
@@ -17,14 +18,20 @@ import { useShopStore } from '@/store/useShopStore';
 import { useMinigameStore } from '@/store/useMinigameStore';
 import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
+import { useSleepStore } from '@/store/useSleepStore';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { fetchRemoteDialogues } from '@/api/githubDialogues';
-import { toGitHubApiError, setGitHubToken, getGitHubToken } from '@/api/githubClient';
+import {
+  toGitHubApiError,
+  setGitHubToken,
+} from '@/api/githubClient';
 import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
+import { storageGet, storageSet } from '@/utils/storage';
+import { APP_KILLED_BEHAVIOR } from '@/services/playbackService';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,17 +43,54 @@ const queryClient = new QueryClient({
   },
 });
 
-void TrackPlayer.setupPlayer({
-  autoHandleInterruptions: true,
-}).catch(() => undefined);
-
 const PLACEHOLDER = '__WULILI_GH_TOKEN__';
+const PERMISSIONS_ASKED_KEY = '@wulili/permissions-asked';
+
+// TrackPlayer 只在 App 启动时初始化一次
+void (async () => {
+  try {
+    const isSetup = await TrackPlayer.isServiceRunning();
+    if (!isSetup) {
+      await TrackPlayer.setupPlayer({
+        autoHandleInterruptions: true,
+      });
+      await TrackPlayer.updateOptions({
+        android: {
+          appKilledPlaybackBehavior: APP_KILLED_BEHAVIOR,
+        },
+        capabilities: [
+          Capability.Play,
+          Capability.Pause,
+          Capability.Stop,
+          Capability.SkipToNext,
+          Capability.SkipToPrevious,
+          Capability.SeekTo,
+        ],
+        compactCapabilities: [
+          Capability.Play,
+          Capability.Pause,
+          Capability.SkipToNext,
+        ],
+        notificationCapabilities: [
+          Capability.Play,
+          Capability.Pause,
+          Capability.Stop,
+          Capability.SkipToNext,
+          Capability.SkipToPrevious,
+        ],
+      });
+    }
+  } catch (error) {
+    console.warn('[App] TrackPlayer setup failed:', error);
+  }
+})();
 
 function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
   const [ready, setReady] = useState<boolean>(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(false);
+  const [showPermissionGate, setShowPermissionGate] = useState<boolean>(false);
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
@@ -57,9 +101,12 @@ function AppInner(): React.JSX.Element {
   const hydrateMinigame = useMinigameStore((s) => s.hydrate);
   const hydrateUpdate = useUpdateStore((s) => s.hydrate);
   const hydrateStream = useStreamStore((s) => s.hydrate);
+  const hydrateSleep = useSleepStore((s) => s.hydrate);
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
-  const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
+  const useRemoteDialogues = useSettingsStore(
+    (s) => s.settings.useRemoteDialogues,
+  );
 
   const { loadToken } = useGitHubToken();
   const configQuery = useGitHubAppConfig(false);
@@ -91,20 +138,23 @@ function AppInner(): React.JSX.Element {
       await run('minigame', hydrateMinigame);
       await run('update', hydrateUpdate);
       await run('stream', hydrateStream);
+      await run('sleep', hydrateSleep);
 
       const embedded =
-        typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
+        typeof EMBEDDED_GH_TOKEN === 'string'
+          ? EMBEDDED_GH_TOKEN.trim()
+          : '';
       const embeddedValid = embedded.length > 0 && embedded !== PLACEHOLDER;
 
       if (embeddedValid) {
         setGitHubToken(embedded);
-        setHasToken(true);
+        if (mounted) setHasToken(true);
       } else {
         try {
           const fromKeychain = await loadToken();
           if (fromKeychain && fromKeychain.length > 0) {
             setGitHubToken(fromKeychain);
-            setHasToken(true);
+            if (mounted) setHasToken(true);
           }
         } catch {
           // ignore
@@ -122,6 +172,17 @@ function AppInner(): React.JSX.Element {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 首次启动检查权限
+  useEffect(() => {
+    if (!ready) return;
+    void (async () => {
+      const asked = await storageGet<boolean>(PERMISSIONS_ASKED_KEY);
+      if (!asked) {
+        setShowPermissionGate(true);
+      }
+    })();
+  }, [ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -166,6 +227,11 @@ function AppInner(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  const handlePermissionComplete = () => {
+    setShowPermissionGate(false);
+    void storageSet(PERMISSIONS_ASKED_KEY, true);
+  };
+
   if (!ready) {
     return (
       <View className="flex-1 bg-background dark:bg-dark-bg items-center justify-center px-6">
@@ -192,6 +258,10 @@ function AppInner(): React.JSX.Element {
       />
       <RootNavigator />
       <Toast />
+      <PermissionGateModal
+        visible={showPermissionGate}
+        onComplete={handlePermissionComplete}
+      />
       {!hasToken ? (
         <View
           pointerEvents="none"
