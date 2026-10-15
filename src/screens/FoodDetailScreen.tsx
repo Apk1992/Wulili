@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
-  Pressable,
   ScrollView,
   Text,
   View,
@@ -20,6 +19,10 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
 import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { formatCoins } from '@/utils/format';
+import {
+  FULL_HUNGER_THRESHOLD,
+  MAX_CONSECUTIVE_DESSERT,
+} from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
@@ -34,10 +37,13 @@ export function FoodDetailScreen({
 
   const food = useAppConfigStore((s) => s.getFoodById(foodId));
   const coins = useWuliliStore((s) => s.state.coins);
+  const hunger = useWuliliStore((s) => s.state.stats.hunger);
+  const consecutiveDessert = useWuliliStore((s) => s.state.consecutiveDessert);
   const addCoins = useWuliliStore((s) => s.addCoins);
   const addStats = useWuliliStore((s) => s.addStats);
   const markInteraction = useWuliliStore((s) => s.markInteraction);
   const recordFoodCategory = useWuliliStore((s) => s.recordFoodCategory);
+  const recordDessert = useWuliliStore((s) => s.recordDessert);
 
   const { speak } = useDialogue();
   const { gain } = useAffinity();
@@ -61,7 +67,11 @@ export function FoodDetailScreen({
             找不到这道食物
           </Text>
           <View className="mt-4 w-40">
-            <Button label="返回" variant="ghost" onPress={() => navigation.goBack()} />
+            <Button
+              label="返回"
+              variant="ghost"
+              onPress={() => navigation.goBack()}
+            />
           </View>
         </View>
       </ScreenContainer>
@@ -70,11 +80,32 @@ export function FoodDetailScreen({
 
   const affordable = coins >= food.price;
   const isHealthy = food.category === 'healthy';
+  const isDessert = food.isDessert === true;
+  const isFull = hunger >= FULL_HUNGER_THRESHOLD;
+  const dessertLimitReached = consecutiveDessert >= MAX_CONSECUTIVE_DESSERT;
+
+  // 逻辑判断：是否可喂
+  let blockReason: string | null = null;
+  if (isDessert) {
+    if (dessertLimitReached) {
+      blockReason = `她已经连续吃了 ${MAX_CONSECUTIVE_DESSERT} 个甜点，不能再吃了。`;
+    }
+  } else {
+    if (isFull) {
+      blockReason = '她已经吃饱了，吃不下正餐了。';
+    }
+  }
+
+  const canFeed = !blockReason;
 
   const handleConfirm = async () => {
     if (submitting) return;
     if (!affordable) {
       Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
+      return;
+    }
+    if (!canFeed) {
+      Alert.alert('她吃不下了', blockReason ?? '');
       return;
     }
 
@@ -90,6 +121,9 @@ export function FoodDetailScreen({
       });
       markInteraction('feed');
       recordFoodCategory(food.category);
+      if (isDessert) {
+        recordDessert();
+      }
       gain(food.category === 'healthy' ? 1 : 0.5);
 
       const line = speak({ action: 'feed', foodCategory: food.category });
@@ -141,7 +175,7 @@ export function FoodDetailScreen({
             </Text>
             <View
               className={[
-                'px-2 py-0.5 rounded-md',
+                'px-2 py-0.5 rounded-md mr-1',
                 isHealthy ? 'bg-success/15' : 'bg-danger/15',
               ].join(' ')}
             >
@@ -154,6 +188,13 @@ export function FoodDetailScreen({
                 {isHealthy ? '营养' : '放纵'}
               </Text>
             </View>
+            {isDessert ? (
+              <View className="px-2 py-0.5 rounded-md bg-warning/15">
+                <Text className="text-[10px] font-semibold text-warning">
+                  甜点
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">
@@ -176,30 +217,10 @@ export function FoodDetailScreen({
             效果
           </Text>
           <View className="rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border p-3">
-            <EffectRow
-              icon="restaurant"
-              label="饱食"
-              value={food.effect.hunger}
-              color="#2563EB"
-            />
-            <EffectRow
-              icon="happy"
-              label="心情"
-              value={food.effect.mood}
-              color="#10B981"
-            />
-            <EffectRow
-              icon="heart"
-              label="健康"
-              value={food.effect.health}
-              color="#EF4444"
-            />
-            <EffectRow
-              icon="flash"
-              label="精力"
-              value={food.effect.energy}
-              color="#F59E0B"
-            />
+            <EffectRow icon="restaurant" label="饱食" value={food.effect.hunger} color="#2563EB" />
+            <EffectRow icon="happy" label="心情" value={food.effect.mood} color="#10B981" />
+            <EffectRow icon="heart" label="健康" value={food.effect.health} color="#EF4444" />
+            <EffectRow icon="flash" label="精力" value={food.effect.energy} color="#F59E0B" />
             <EffectRow
               icon="scale"
               label="体重"
@@ -210,6 +231,17 @@ export function FoodDetailScreen({
             />
           </View>
         </View>
+
+        {blockReason ? (
+          <View className="px-4 mt-3">
+            <View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center">
+              <Ionicons name="alert-circle" size={16} color="#F59E0B" />
+              <Text className="ml-2 text-xs text-warning flex-1">
+                {blockReason}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View className="px-4 mt-5">
           {dialogue ? (
@@ -225,11 +257,11 @@ export function FoodDetailScreen({
           <Button
             label={submitting ? '投喂中…' : '确认投喂'}
             icon="checkmark"
-            variant={affordable ? 'primary' : 'ghost'}
+            variant={affordable && canFeed ? 'primary' : 'ghost'}
             size="lg"
             loading={submitting}
             onPress={handleConfirm}
-            disabled={!affordable}
+            disabled={!affordable || !canFeed}
           />
           <View className="mt-2">
             <Button
@@ -264,9 +296,7 @@ function EffectRow({
 }: EffectRowProps): React.JSX.Element {
   const isZero = Math.abs(value) < 0.001;
   const sign = value > 0 ? '+' : '';
-  const display = isZero
-    ? '0'
-    : `${sign}${value.toFixed(decimals)}${unit}`;
+  const display = isZero ? '0' : `${sign}${value.toFixed(decimals)}${unit}`;
   const valueColor = isZero ? '#94A3B8' : value > 0 ? color : '#EF4444';
 
   return (
