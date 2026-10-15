@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import TrackPlayer, {
@@ -33,6 +33,7 @@ const MAX_RETRIES = 2;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const query = useGitHubFiles({ path: GITHUB_PATHS.music, depth: 1 });
+
   const [playback, setPlayback] = useState<PlaybackState>({
     current: null,
     status: 'idle',
@@ -41,10 +42,11 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     error: null,
   });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
-  const [isSeeking, setIsSeeking] = useState<boolean>(false);
-  const [seekPosition, setSeekPosition] = useState<number>(0);
   const [retryCount, setRetryCount] = useState<number>(0);
 
+  // 用 useRef 记录拖动状态（避免渲染循环）
+  const isSeekingRef = useRef<boolean>(false);
+  const seekPositionRef = useRef<number>(0);
   const queueReadyRef = useRef<boolean>(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -67,7 +69,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     };
   }, []);
 
-  // 检测到错误时自动重试
+  // 自动重试
   useEffect(() => {
     if (trackPlayerState.state === TrackPlayerState.Error && playback.current) {
       if (retryCount < MAX_RETRIES) {
@@ -92,10 +94,10 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackPlayerState.state]);
 
-  // 同步进度到 playback（拖动时暂停更新）
+  // 同步进度到 playback（拖动中暂停）
   useEffect(() => {
     if (!playback.current) return;
-    if (isSeeking) return;
+    if (isSeekingRef.current) return;
 
     const state = trackPlayerState.state;
     let status: PlaybackState['status'] = 'idle';
@@ -116,15 +118,21 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       position: progress.position,
       duration: progress.duration || prev.duration,
     }));
-  }, [trackPlayerState.state, progress.position, progress.duration, isSeeking, playback.current]);
+  }, [
+    trackPlayerState.state,
+    progress.position,
+    progress.duration,
+    playback.current,
+  ]);
 
-  // 切歌时同步
+  // 监听切歌
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
     try {
       const index = event.index;
       if (typeof index === 'number' && index >= 0 && index < items.length) {
         setCurrentIndex(index);
         setRetryCount(0);
+        isSeekingRef.current = false;
         setPlayback((prev) => ({
           ...prev,
           current: items[index],
@@ -187,6 +195,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         if (!item) return;
 
         setRetryCount(0);
+        isSeekingRef.current = false;
         setPlayback({
           current: item,
           status: 'loading',
@@ -241,13 +250,14 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     }
   }, []);
 
+  // ============ 拖动 ============
   const handleSeekStart = useCallback((value: number) => {
-    setIsSeeking(true);
-    setSeekPosition(value);
+    isSeekingRef.current = true;
+    seekPositionRef.current = value;
   }, []);
 
   const handleSeekChange = useCallback((value: number) => {
-    setSeekPosition(value);
+    seekPositionRef.current = value;
   }, []);
 
   const handleSeekComplete = useCallback(async (value: number) => {
@@ -257,7 +267,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     } catch {
       // ignore
     } finally {
-      setIsSeeking(false);
+      isSeekingRef.current = false;
     }
   }, []);
 
@@ -339,10 +349,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex + 1 < items.length;
 
-  const playbackForBar = isSeeking
-    ? { ...playback, position: seekPosition }
-    : playback;
-
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
@@ -357,9 +363,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
           const isCurrent = currentIndex === index;
           return (
             <View
-              className={
-                isCurrent ? 'rounded-2xl border-2 border-primary' : ''
-              }
+              className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}
             >
               <MemoryListItem
                 item={item}
@@ -413,7 +417,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       {playback.current ? (
         <View className="absolute left-4 right-4 bottom-4">
           <MediaPlayerBar
-            playback={playbackForBar}
+            playback={playback}
             onTogglePlay={() => void handleTogglePlay()}
             onSeekStart={handleSeekStart}
             onSeekChange={handleSeekChange}
@@ -448,7 +452,9 @@ function buildMusicItems(files: GitHubContentItem[]): MemoryItem[] {
       source: 'repo',
     });
   }
-  return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+  return items.sort((a, b) =>
+    a.displayName.localeCompare(b.displayName, 'zh-CN'),
+  );
 }
 
 export default MusicPlayerScreen;
