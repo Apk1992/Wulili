@@ -11,8 +11,9 @@ import { useAffinity } from '@/hooks/useAffinity';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useSeason } from '@/hooks/useSeason';
 import { computeStreamLevel } from '@/data/streamConfig';
+import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import { aggregateBonus, describeAggregated } from '@/utils/equipmentBonus';
-import { formatCoins, formatNumber, formatWeight } from '@/utils/format';
+import { formatCoins, formatWeight } from '@/utils/format';
 import { formatRelativeTime, formatDuration } from '@/utils/time';
 import { ILLNESS_LABELS } from '@/components/constants';
 import type { RootStackParamList } from '@/types/navigation';
@@ -24,7 +25,17 @@ export function StatusScreen({}: Props): React.JSX.Element {
   const { affinity, level, levelLabel, progressToNext } = useAffinity();
   const getOutfitById = useAppConfigStore((s) => s.getOutfitById);
   const getAccessoryById = useAppConfigStore((s) => s.getAccessoryById);
-  const { season, label: seasonLabel, emoji: seasonEmoji, description: seasonDescription } = useSeason();
+  const {
+    season,
+    label: seasonLabel,
+    emoji: seasonEmoji,
+    description: seasonDescription,
+  } = useSeason();
+
+  const menstrualInfo = useMemo(
+    () => computeMenstrualInfo(state.menstrual),
+    [state.menstrual],
+  );
 
   const currentOutfitName = useMemo(() => {
     if (!state.currentOutfit) return '未穿戴';
@@ -57,6 +68,8 @@ export function StatusScreen({}: Props): React.JSX.Element {
     () => computeStreamLevel(state.totalStreamSeconds),
     [state.totalStreamSeconds],
   );
+
+  const isInPeriod = menstrualInfo.phase === 'period';
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
@@ -97,6 +110,55 @@ export function StatusScreen({}: Props): React.JSX.Element {
               </Text>
             </View>
           </View>
+        </Card>
+
+        <Card className="mt-3">
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-3">
+            生理周期
+          </Text>
+          <View className="flex-row items-center mb-2">
+            <View
+              className="w-10 h-10 rounded-full items-center justify-center mr-3"
+              style={{
+                backgroundColor: isInPeriod
+                  ? 'rgba(168,85,247,0.15)'
+                  : 'rgba(148,163,184,0.15)',
+              }}
+            >
+              <Ionicons
+                name={isInPeriod ? 'water' : 'calendar'}
+                size={20}
+                color={isInPeriod ? '#A855F7' : '#94A3B8'}
+              />
+            </View>
+            <View className="flex-1">
+              <Text
+                className="text-sm font-semibold"
+                style={{ color: isInPeriod ? '#A855F7' : undefined }}
+              >
+                {menstrualInfo.label} · 第 {menstrualInfo.dayInCycle} 天
+              </Text>
+              <Text className="text-[10px] text-muted dark:text-dark-muted mt-0.5">
+                {menstrualInfo.description}
+              </Text>
+            </View>
+          </View>
+          {isInPeriod && menstrualInfo.isMedicineActive ? (
+            <View className="mt-1 flex-row items-center px-2 py-1 rounded-full bg-success/15">
+              <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+              <Text className="ml-1 text-[10px] text-success font-medium">
+                布洛芬生效中 · 症状减轻
+              </Text>
+            </View>
+          ) : null}
+          {!isInPeriod ? (
+            <InfoRow
+              label="距下次经期"
+              value={`${menstrualInfo.daysUntilNextPeriod} 天`}
+              icon="time"
+              compact
+            />
+          ) : null}
         </Card>
 
         <Card className="mt-3">
@@ -244,12 +306,7 @@ function InfoRow({
       ].join(' ')}
     >
       <View className="flex-row items-center">
-        <Ionicons
-          name={icon}
-          size={14}
-          color="#64748B"
-          style={{ marginRight: 8 }}
-        />
+        <Ionicons name={icon} size={14} color="#64748B" style={{ marginRight: 8 }} />
         <Text className="text-xs text-muted dark:text-dark-muted">{label}</Text>
       </View>
       <Text
@@ -261,7 +318,5 @@ function InfoRow({
     </View>
   );
 }
-
-void formatNumber;
 
 export default StatusScreen;
