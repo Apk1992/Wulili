@@ -48,6 +48,7 @@ export interface Food {
   price: number;
   image: string;
   effect: FoodEffect;
+  isDessert?: boolean;
 }
 
 export interface Medicine {
@@ -60,6 +61,7 @@ export interface Medicine {
   healthRestore: number;
   moodRestore: number;
   relievesMenstrual?: boolean;
+  isTreatment?: boolean;
 }
 
 export interface EquipmentBonus {
@@ -143,6 +145,7 @@ export interface WuliliState {
   totalSleepSeconds: number;
   consecutiveJunkFood: number;
   consecutiveHealthyFood: number;
+  consecutiveDessert: number;
   consecutiveDaysLoggedIn: number;
   lastLoginDate: string | null;
   createdAt: number;
@@ -164,6 +167,9 @@ export const STAT_LIMITS = {
   energy: { min: 0, max: 100 },
   weight: { min: 30, max: 120 },
 } as const;
+
+export const FULL_HUNGER_THRESHOLD = 95;
+export const MAX_CONSECUTIVE_DESSERT = 3;
 
 export const INITIAL_WULILI_STATE: WuliliState = {
   stats: {
@@ -202,6 +208,7 @@ export const INITIAL_WULILI_STATE: WuliliState = {
   totalSleepSeconds: 0,
   consecutiveJunkFood: 0,
   consecutiveHealthyFood: 0,
+  consecutiveDessert: 0,
   consecutiveDaysLoggedIn: 1,
   lastLoginDate: null,
   createdAt: Date.now(),
