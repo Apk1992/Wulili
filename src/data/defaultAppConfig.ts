@@ -5,7 +5,7 @@ export const defaultAppConfig: AppConfig = {
   schemaVersion: CONFIG_SCHEMA_VERSION,
   updatedAt: '2025-01-01T00:00:00.000Z',
   foods: [
-    // ============ 营养食物（energy 基本为 0） ============
+    // ============ 营养食物 ============
     {
       id: 'congee',
       name: '皮蛋瘦肉粥',
@@ -115,7 +115,7 @@ export const defaultAppConfig: AppConfig = {
       effect: { hunger: 10, mood: 5, health: 5, energy: 0, weight: 0 },
     },
 
-    // ============ 放纵食物（大多 energy 0，少数提神） ============
+    // ============ 放纵食物 ============
     {
       id: 'fried_chicken',
       name: '炸鸡',
@@ -284,9 +284,19 @@ export const defaultAppConfig: AppConfig = {
       healthRestore: 8,
       moodRestore: 10,
     },
+    {
+      id: 'ibuprofen',
+      name: '布洛芬',
+      description: '经期时服用，能缓解 12 小时的不适。',
+      price: 30,
+      image: 'ibuprofen.png',
+      cures: [],
+      healthRestore: 5,
+      moodRestore: 8,
+      relievesMenstrual: true,
+    },
   ],
   outfits: [
-    // ...（保持原样，我上一批已给你完整数据）
     {
       id: 'casual_tee',
       name: '白色T恤',
@@ -389,7 +399,6 @@ export const defaultAppConfig: AppConfig = {
     },
   ],
   accessories: [
-    // ...（保持原样，我上一批已给你完整数据）
     {
       id: 'glasses',
       name: '圆框眼镜',
