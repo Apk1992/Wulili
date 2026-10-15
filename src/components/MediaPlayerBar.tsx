@@ -9,7 +9,9 @@ import type { PlaybackState } from '@/types/memory';
 export interface MediaPlayerBarProps {
   playback: PlaybackState;
   onTogglePlay: () => void;
-  onSeek: (seconds: number) => void;
+  onSeekStart?: (seconds: number) => void;
+  onSeekChange?: (seconds: number) => void;
+  onSeekComplete: (seconds: number) => void;
   onPrevious: () => void;
   onNext: () => void;
   onStop?: () => void;
@@ -21,7 +23,9 @@ export interface MediaPlayerBarProps {
 export function MediaPlayerBar({
   playback,
   onTogglePlay,
-  onSeek,
+  onSeekStart,
+  onSeekChange,
+  onSeekComplete,
   onPrevious,
   onNext,
   onStop,
@@ -57,7 +61,14 @@ export function MediaPlayerBar({
           >
             {playback.current.displayName}
           </Text>
-          <Text className="text-[10px] text-muted dark:text-dark-muted mt-0.5">
+          <Text
+            className={[
+              'text-[10px] mt-0.5',
+              playback.status === 'error'
+                ? 'text-danger'
+                : 'text-muted dark:text-dark-muted',
+            ].join(' ')}
+          >
             {statusText}
           </Text>
         </View>
@@ -85,7 +96,13 @@ export function MediaPlayerBar({
           minimumTrackTintColor="#2563EB"
           maximumTrackTintColor={isDark ? '#334155' : '#E2E8F0'}
           thumbTintColor="#2563EB"
-          onSlidingComplete={(value) => onSeek(value)}
+          onSlidingStart={(v) => {
+            if (onSeekStart) onSeekStart(v);
+          }}
+          onValueChange={(v) => {
+            if (onSeekChange) onSeekChange(v);
+          }}
+          onSlidingComplete={(v) => onSeekComplete(v)}
         />
         <Text className="text-[10px] text-muted dark:text-dark-muted w-10 text-right">
           {formatDuration(playback.duration * 1000)}
@@ -143,7 +160,7 @@ function resolveStatusText(
   error: string | null,
 ): string {
   if (status === 'error') return error ?? '播放失败';
-  if (status === 'loading') return '缓冲中';
+  if (status === 'loading') return '缓冲中…';
   if (status === 'paused') return '已暂停';
   if (status === 'playing') return '播放中';
   if (status === 'ended') return '已结束';
