@@ -15,8 +15,7 @@ import { useDialogueStore } from '@/store/useDialogueStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAffinity } from '@/hooks/useAffinity';
-import { getTimeOfDayLabel, getTimeOfDay } from '@/utils/time';
-import { formatDuration } from '@/utils/time';
+import { getTimeOfDayLabel, getTimeOfDay, formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import {
   getCurrentScene,
@@ -24,6 +23,7 @@ import {
   getSleepSceneImagePath,
 } from '@/utils/sceneSelector';
 import { SLEEP_CONFIG, canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
+import { computeMenstrualInfo, MENSTRUAL_CONFIG } from '@/data/menstrualConfig';
 import type { Mood, Season } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
@@ -49,6 +49,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   const timeOfDay = getTimeOfDay();
   const illness = useWuliliStore((s) => s.state.illness);
+  const menstrual = useWuliliStore((s) => s.state.menstrual);
   const coins = useWuliliStore((s) => s.state.coins);
   const energy = useWuliliStore((s) => s.state.stats.energy);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
@@ -61,6 +62,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const sleepTotalSeconds = useSleepStore((s) => s.state.totalSeconds);
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
+
+  const menstrualInfo = useMemo(
+    () => computeMenstrualInfo(menstrual),
+    [menstrual, now],
+  );
+  const isInPeriod = menstrualInfo.phase === 'period';
 
   const scene = useMemo(() => {
     if (isSleeping) return null;
@@ -134,13 +141,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handleWakeUp = () => {
-    const total = stopSleep();
+    stopSleep();
     setMood('happy');
     Alert.alert(
       '已起床',
       `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + sleepElapsedMs / 1000)}，精力恢复了一些。`,
     );
-    void total;
   };
 
   const leftButtons: Array<{ icon: string; label: string; onPress: () => void }> = [
@@ -157,7 +163,11 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const buttonAreaTop = screenHeight * 0.38;
   const canSleep = canStartSleep(energy);
 
-  const displayMood: Mood = isSleeping ? 'sleepy' : mood;
+  const displayMood: Mood = isSleeping
+    ? 'sleepy'
+    : isInPeriod
+      ? 'sad'
+      : mood;
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
@@ -218,6 +228,31 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
                 </Text>
               </View>
             </View>
+          ) : null}
+
+          {isInPeriod && !isSleeping ? (
+            <Pressable
+              onPress={() => navigation.navigate('Medicine')}
+              className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80"
+              style={{ backgroundColor: 'rgba(168,85,247,0.9)' }}
+            >
+              <Ionicons name="water" size={16} color="#FFFFFF" />
+              <View className="ml-2 flex-1">
+                <Text className="text-white text-xs font-semibold">
+                  雾璃今天不太舒服 · 经期第 {menstrualInfo.dayInCycle} 天
+                </Text>
+                {menstrualInfo.isMedicineActive ? (
+                  <Text className="text-white/80 text-[10px] mt-0.5">
+                    布洛芬生效中 · 症状减轻
+                  </Text>
+                ) : (
+                  <Text className="text-white/80 text-[10px] mt-0.5">
+                    点此去药房吃布洛芬
+                  </Text>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
+            </Pressable>
           ) : null}
 
           {illness.type !== 'none' && !isSleeping ? (
@@ -343,7 +378,7 @@ function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React
       style={{
         position: 'absolute',
         right: 8,
-        bottom: -70,
+        bottom: -35,
         width: 52,
         height: 52,
         backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
