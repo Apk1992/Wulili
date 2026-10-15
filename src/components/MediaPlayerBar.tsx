@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Slider from '@react-native-community/slider';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -34,14 +34,22 @@ export function MediaPlayerBar({
   className = '',
 }: MediaPlayerBarProps): React.JSX.Element | null {
   const { isDark } = useTheme();
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragValue, setDragValue] = useState<number>(0);
+  const lastEmittedRef = useRef<number>(0);
+
   if (!playback.current) return null;
 
   const iconColor = isDark ? '#F1F5F9' : '#0F172A';
   const disabledColor = isDark ? '#475569' : '#CBD5E1';
   const statusText = resolveStatusText(playback.status, playback.error);
 
-  const maxDuration = playback.duration > 0 ? playback.duration : 1;
-  const currentPos = Math.min(playback.position, playback.duration || 0);
+  const duration = playback.duration > 0 ? playback.duration : 1;
+  const liveValue = Math.min(playback.position, playback.duration || 0);
+  const displayValue = isDragging ? dragValue : liveValue;
+
+  // 当前显示时间（拖动中显示拖动位置）
+  const displayTimeText = formatDuration(displayValue * 1000);
 
   return (
     <View
@@ -85,26 +93,36 @@ export function MediaPlayerBar({
       </View>
 
       <View className="flex-row items-center">
-        <Text className="text-[10px] text-muted dark:text-dark-muted w-10">
-          {formatDuration(playback.position * 1000)}
+        <Text className="text-[10px] text-muted dark:text-dark-muted w-12">
+          {displayTimeText}
         </Text>
-        <Slider
-          style={{ flex: 1, height: 32 }}
-          minimumValue={0}
-          maximumValue={maxDuration}
-          value={currentPos}
-          minimumTrackTintColor="#2563EB"
-          maximumTrackTintColor={isDark ? '#334155' : '#E2E8F0'}
-          thumbTintColor="#2563EB"
-          onSlidingStart={(v) => {
-            if (onSeekStart) onSeekStart(v);
-          }}
-          onValueChange={(v) => {
-            if (onSeekChange) onSeekChange(v);
-          }}
-          onSlidingComplete={(v) => onSeekComplete(v)}
-        />
-        <Text className="text-[10px] text-muted dark:text-dark-muted w-10 text-right">
+        <View style={{ flex: 1, height: 40, justifyContent: 'center' }}>
+          <Slider
+            style={{ width: '100%', height: 40 }}
+            minimumValue={0}
+            maximumValue={duration}
+            value={displayValue}
+            step={0.5}
+            minimumTrackTintColor="#2563EB"
+            maximumTrackTintColor={isDark ? '#334155' : '#E2E8F0'}
+            thumbTintColor="#2563EB"
+            onSlidingStart={(v) => {
+              setIsDragging(true);
+              setDragValue(v);
+              lastEmittedRef.current = v;
+              if (onSeekStart) onSeekStart(v);
+            }}
+            onValueChange={(v) => {
+              setDragValue(v);
+              if (onSeekChange) onSeekChange(v);
+            }}
+            onSlidingComplete={(v) => {
+              setIsDragging(false);
+              onSeekComplete(v);
+            }}
+          />
+        </View>
+        <Text className="text-[10px] text-muted dark:text-dark-muted w-12 text-right">
           {formatDuration(playback.duration * 1000)}
         </Text>
       </View>
