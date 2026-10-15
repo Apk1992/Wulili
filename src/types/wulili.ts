@@ -24,6 +24,14 @@ export type ActionType =
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
+export type MenstrualPhase = 'period' | 'safe' | 'ovulation' | 'luteal';
+
+export interface MenstrualState {
+  cycleStartAt: number | null;
+  cycleLengthDays: number;
+  medicineExpireAt: number | null;
+}
+
 export interface FoodEffect {
   hunger: number;
   mood: number;
@@ -51,6 +59,7 @@ export interface Medicine {
   cures: IllnessType[];
   healthRestore: number;
   moodRestore: number;
+  relievesMenstrual?: boolean;
 }
 
 export interface EquipmentBonus {
@@ -116,6 +125,7 @@ export interface WuliliState {
   coins: number;
   affinity: number;
   illness: IllnessState;
+  menstrual: MenstrualState;
   ownedOutfits: string[];
   ownedAccessories: string[];
   currentOutfit: string | null;
@@ -169,6 +179,11 @@ export const INITIAL_WULILI_STATE: WuliliState = {
     type: 'none',
     since: null,
     severity: 0,
+  },
+  menstrual: {
+    cycleStartAt: null,
+    cycleLengthDays: 28,
+    medicineExpireAt: null,
   },
   ownedOutfits: ['casual_tee'],
   ownedAccessories: [],
