@@ -19,27 +19,20 @@ export interface DurationBonusTier {
 }
 
 export const STREAM_CONFIG: StreamConfigData = {
-  // 满状态下一小时赚 120 金币（翻倍）
-  baseEarningPerSecond: 120 / 3600,
-  // 满精力可支撑约 8 小时（12 是「小时速率」分子）
+  // 满状态下一小时赚 40 金币
+  baseEarningPerSecond: 40 / 3600,
+  // 满精力可支撑约 8 小时
   energyCostPerSecond: 12 / 3600,
   // 8 小时心情降约 48
   moodCostPerSecond: 6 / 3600,
-  // 精力低于 5 自动结束
   autoStopEnergy: 5,
-  // 健康低于 10 自动结束
   autoStopHealth: 10,
-  // 离线最多补 8 小时
   maxOfflineSeconds: 8 * 60 * 60,
-  // 开播门槛
   minEnergyToStart: 10,
   minHealthToStart: 15,
-  // 每累计直播 1 小时，等级 +1
   levelStepSeconds: 60 * 60,
-  // 每级 +5% 收入，20 级 +100%
   maxLevelBonus: 1.0,
 
-  // 本次直播时长 bonus（越播越值钱）
   durationBonusTiers: [
     { minHours: 0, multiplier: 1.0, label: '刚开始' },
     { minHours: 1, multiplier: 1.2, label: '渐入佳境' },
