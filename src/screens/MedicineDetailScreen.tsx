@@ -19,6 +19,7 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
 import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { ILLNESS_LABELS } from '@/components/constants';
+import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import { formatCoins } from '@/utils/format';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
@@ -35,6 +36,7 @@ export function MedicineDetailScreen({
   const medicine = useAppConfigStore((s) => s.getMedicineById(medicineId));
   const coins = useWuliliStore((s) => s.state.coins);
   const illness = useWuliliStore((s) => s.state.illness);
+  const menstrual = useWuliliStore((s) => s.state.menstrual);
   const addCoins = useWuliliStore((s) => s.addCoins);
   const addStats = useWuliliStore((s) => s.addStats);
   const markInteraction = useWuliliStore((s) => s.markInteraction);
@@ -43,6 +45,12 @@ export function MedicineDetailScreen({
   const { gain } = useAffinity();
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  const menstrualInfo = useMemo(
+    () => computeMenstrualInfo(menstrual),
+    [menstrual],
+  );
+  const isInPeriod = menstrualInfo.phase === 'period';
 
   const imagePath = useMemo(
     () => (medicine ? `images/medicine/${medicine.image}` : null),
@@ -65,14 +73,31 @@ export function MedicineDetailScreen({
     );
   }
 
+  // 二次校验：当前状态是否适合吃这个药
+  let blockReason: string | null = null;
+  if (medicine.relievesMenstrual) {
+    if (!isInPeriod) {
+      blockReason = '她肚子不痛，不需要吃这个。';
+    }
+  } else if (medicine.isTreatment) {
+    if (illness.type === 'none') {
+      blockReason = '她没有生病，不需要吃药。';
+    } else if (!medicine.cures.includes(illness.type)) {
+      blockReason = '这不对症，吃了没用。';
+    }
+  }
+
   const affordable = coins >= medicine.price;
-  const curesCurrent =
-    illness.type !== 'none' && medicine.cures.includes(illness.type);
+  const canTake = !blockReason;
 
   const handleConfirm = async () => {
     if (submitting) return;
     if (!affordable) {
       Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
+      return;
+    }
+    if (!canTake) {
+      Alert.alert('不需要吃', blockReason ?? '');
       return;
     }
 
@@ -86,6 +111,12 @@ export function MedicineDetailScreen({
       markInteraction('medicine');
       gain(2);
 
+      if (medicine.relievesMenstrual) {
+        useWuliliStore.getState().takeMenstrualMedicine();
+      }
+
+      const curesCurrent =
+        illness.type !== 'none' && medicine.cures.includes(illness.type);
       if (curesCurrent) {
         useWuliliStore.getState().clearIllness();
       }
@@ -99,6 +130,10 @@ export function MedicineDetailScreen({
             '康复了',
             `雾璃的${ILLNESS_LABELS[illness.type]}好多了。`,
           );
+        }, 600);
+      } else if (medicine.relievesMenstrual) {
+        setTimeout(() => {
+          Alert.alert('好了点', '布洛芬生效 12 小时，不适感减轻。');
         }, 600);
       }
 
@@ -150,13 +185,13 @@ export function MedicineDetailScreen({
           </View>
         </View>
 
-        <View className="px-4 mt-4">
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            治疗病症
-          </Text>
-          <View className="flex-row flex-wrap">
-            {medicine.cures.length > 0 ? (
-              medicine.cures.map((cure) => {
+        {medicine.cures.length > 0 ? (
+          <View className="px-4 mt-4">
+            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+              治疗病症
+            </Text>
+            <View className="flex-row flex-wrap">
+              {medicine.cures.map((cure) => {
                 const active = illness.type === cure;
                 return (
                   <View
@@ -177,14 +212,28 @@ export function MedicineDetailScreen({
                     </Text>
                   </View>
                 );
-              })
-            ) : (
-              <Text className="text-xs text-muted dark:text-dark-muted">
-                日常保健 · 不针对特定病症
-              </Text>
-            )}
+              })}
+            </View>
           </View>
-        </View>
+        ) : medicine.relievesMenstrual ? (
+          <View className="px-4 mt-4">
+            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+              用途
+            </Text>
+            <Text className="text-xs text-muted dark:text-dark-muted">
+              缓解经期不适，药效持续 12 小时。
+            </Text>
+          </View>
+        ) : (
+          <View className="px-4 mt-4">
+            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+              用途
+            </Text>
+            <Text className="text-xs text-muted dark:text-dark-muted">
+              日常保健。
+            </Text>
+          </View>
+        )}
 
         <View className="px-4 mt-4">
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
@@ -206,6 +255,17 @@ export function MedicineDetailScreen({
           </View>
         </View>
 
+        {blockReason ? (
+          <View className="px-4 mt-3">
+            <View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center">
+              <Ionicons name="alert-circle" size={16} color="#F59E0B" />
+              <Text className="ml-2 text-xs text-warning flex-1">
+                {blockReason}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         <View className="px-4 mt-5">
           {dialogue ? (
             <View className="mb-3">
@@ -220,11 +280,11 @@ export function MedicineDetailScreen({
           <Button
             label={submitting ? '服用中…' : '确认服用'}
             icon="checkmark"
-            variant={affordable ? 'primary' : 'ghost'}
+            variant={affordable && canTake ? 'primary' : 'ghost'}
             size="lg"
             loading={submitting}
             onPress={handleConfirm}
-            disabled={!affordable}
+            disabled={!affordable || !canTake}
           />
           <View className="mt-2">
             <Button
