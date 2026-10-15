@@ -29,6 +29,7 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
+const MAX_RETRIES = 2;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const query = useGitHubFiles({ path: GITHUB_PATHS.music, depth: 1 });
@@ -40,7 +41,12 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     error: null,
   });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [isSeeking, setIsSeeking] = useState<boolean>(false);
+  const [seekPosition, setSeekPosition] = useState<number>(0);
+  const [retryCount, setRetryCount] = useState<number>(0);
+
   const queueReadyRef = useRef<boolean>(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
@@ -54,12 +60,43 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     return () => {
       void TrackPlayer.reset().catch(() => undefined);
       queueReadyRef.current = false;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, []);
 
-  // 同步 TrackPlayer 状态到 playback
+  // 检测到错误时自动重试
+  useEffect(() => {
+    if (trackPlayerState.state === TrackPlayerState.Error && playback.current) {
+      if (retryCount < MAX_RETRIES) {
+        const next = retryCount + 1;
+        setRetryCount(next);
+        if (retryTimerRef.current !== null) {
+          clearTimeout(retryTimerRef.current);
+        }
+        retryTimerRef.current = setTimeout(() => {
+          if (currentIndex >= 0) {
+            void replayCurrentIndex();
+          }
+        }, 3000);
+      } else {
+        setPlayback((prev) => ({
+          ...prev,
+          status: 'error',
+          error: '播放失败（已重试）',
+        }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackPlayerState.state]);
+
+  // 同步进度到 playback（拖动时暂停更新）
   useEffect(() => {
     if (!playback.current) return;
+    if (isSeeking) return;
+
     const state = trackPlayerState.state;
     let status: PlaybackState['status'] = 'idle';
     if (state === TrackPlayerState.Playing) status = 'playing';
@@ -79,18 +116,18 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       position: progress.position,
       duration: progress.duration || prev.duration,
     }));
-  }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
+  }, [trackPlayerState.state, progress.position, progress.duration, isSeeking, playback.current]);
 
-  // 监听"当前播放曲目切换"事件
+  // 切歌时同步
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
     try {
       const index = event.index;
       if (typeof index === 'number' && index >= 0 && index < items.length) {
         setCurrentIndex(index);
-        const item = items[index];
+        setRetryCount(0);
         setPlayback((prev) => ({
           ...prev,
-          current: item,
+          current: items[index],
           status: 'loading',
           position: 0,
           duration: 0,
@@ -132,12 +169,24 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     [items, buildTracks],
   );
 
+  const replayCurrentIndex = useCallback(async () => {
+    if (currentIndex < 0 || currentIndex >= items.length) return;
+    try {
+      await TrackPlayer.reset();
+      queueReadyRef.current = false;
+      await ensureQueue(currentIndex);
+    } catch {
+      // ignore
+    }
+  }, [currentIndex, items.length, ensureQueue]);
+
   const handlePlayAt = useCallback(
     async (index: number) => {
       try {
         const item = items[index];
         if (!item) return;
 
+        setRetryCount(0);
         setPlayback({
           current: item,
           status: 'loading',
@@ -172,7 +221,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
           status: 'error',
           error: message,
         }));
-        Alert.alert('播放失败', message);
       }
     },
     [items, ensureQueue],
@@ -193,12 +241,23 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     }
   }, []);
 
-  const handleSeek = useCallback(async (seconds: number) => {
+  const handleSeekStart = useCallback((value: number) => {
+    setIsSeeking(true);
+    setSeekPosition(value);
+  }, []);
+
+  const handleSeekChange = useCallback((value: number) => {
+    setSeekPosition(value);
+  }, []);
+
+  const handleSeekComplete = useCallback(async (value: number) => {
     try {
-      await TrackPlayer.seekTo(seconds);
-      setPlayback((prev) => ({ ...prev, position: seconds }));
+      await TrackPlayer.seekTo(value);
+      setPlayback((prev) => ({ ...prev, position: value }));
     } catch {
       // ignore
+    } finally {
+      setIsSeeking(false);
     }
   }, []);
 
@@ -280,6 +339,10 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const hasPrevious = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex + 1 < items.length;
 
+  const playbackForBar = isSeeking
+    ? { ...playback, position: seekPosition }
+    : playback;
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
@@ -295,9 +358,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
           return (
             <View
               className={
-                isCurrent
-                  ? 'rounded-2xl border-2 border-primary'
-                  : ''
+                isCurrent ? 'rounded-2xl border-2 border-primary' : ''
               }
             >
               <MemoryListItem
@@ -310,17 +371,28 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
                     name={
                       playback.status === 'playing'
                         ? 'musical-notes'
-                        : 'pause-circle'
+                        : playback.status === 'error'
+                          ? 'alert-circle'
+                          : 'pause-circle'
                     }
                     size={12}
-                    color="#2563EB"
+                    color={playback.status === 'error' ? '#EF4444' : '#2563EB'}
                   />
-                  <Text className="ml-1 text-[10px] text-primary">
+                  <Text
+                    className={[
+                      'ml-1 text-[10px]',
+                      playback.status === 'error'
+                        ? 'text-danger'
+                        : 'text-primary',
+                    ].join(' ')}
+                  >
                     {playback.status === 'playing'
                       ? '正在播放'
                       : playback.status === 'paused'
                         ? '已暂停'
-                        : '当前曲目'}
+                        : playback.status === 'error'
+                          ? '播放失败'
+                          : '当前曲目'}
                   </Text>
                 </View>
               ) : null}
@@ -341,9 +413,11 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       {playback.current ? (
         <View className="absolute left-4 right-4 bottom-4">
           <MediaPlayerBar
-            playback={playback}
+            playback={playbackForBar}
             onTogglePlay={() => void handleTogglePlay()}
-            onSeek={(sec) => void handleSeek(sec)}
+            onSeekStart={handleSeekStart}
+            onSeekChange={handleSeekChange}
+            onSeekComplete={(sec) => void handleSeekComplete(sec)}
             onPrevious={() => void handlePrevious()}
             onNext={() => void handleNext()}
             onStop={() => void handleStop()}
