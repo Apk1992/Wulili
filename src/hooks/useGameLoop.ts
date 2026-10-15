@@ -11,12 +11,30 @@ import {
   computeDurationBonus,
 } from '@/data/streamConfig';
 import { SLEEP_CONFIG } from '@/data/sleepConfig';
+import { MENSTRUAL_CONFIG } from '@/data/menstrualConfig';
 import { aggregateBonus } from '@/utils/equipmentBonus';
 
 const TICK_INTERVAL_MS = 5000;
 
 export interface UseGameLoopResult {
   isRunning: boolean;
+}
+
+function isInPeriod(): boolean {
+  const w = useWuliliStore.getState().state;
+  const m = w.menstrual;
+  if (!m.cycleStartAt) return false;
+  const dayInCycle =
+    Math.floor((Date.now() - m.cycleStartAt) / (24 * 60 * 60 * 1000)) + 1;
+  return dayInCycle >= 1 && dayInCycle <= MENSTRUAL_CONFIG.periodDays;
+}
+
+function getMenstrualPenalty(): number {
+  if (!isInPeriod()) return 0;
+  const m = useWuliliStore.getState().state.menstrual;
+  const medicineActive =
+    m.medicineExpireAt !== null && Date.now() < m.medicineExpireAt;
+  return medicineActive ? 0.3 : 1.0;
 }
 
 export function useGameLoop(): UseGameLoopResult {
@@ -46,12 +64,15 @@ export function useGameLoop(): UseGameLoopResult {
       const bonus = getBonus();
       const levelInfo = computeStreamLevel(wulili.totalStreamSeconds);
       const levelMultiplier = 1 + levelInfo.bonusRate;
-
-      // 本次直播时长 bonus
       const durationInfo = computeDurationBonus(stream.totalSeconds);
 
       const moodFactor = clamp(wulili.stats.mood / 100, 0.2, 1);
       const healthFactor = clamp(wulili.stats.health / 100, 0.3, 1);
+
+      // 经期惩罚
+      const menstrualPenalty = getMenstrualPenalty();
+      const streamIncomePenalty = 1 - menstrualPenalty * 0.3;   // 最多 -30%
+      const energyExtraCost = 1 + menstrualPenalty * 0.3;        // 最多 +30%
 
       const earningsPerSecond =
         STREAM_CONFIG.baseEarningPerSecond *
@@ -59,12 +80,17 @@ export function useGameLoop(): UseGameLoopResult {
         healthFactor *
         bonus.streamIncomeRate *
         levelMultiplier *
-        durationInfo.multiplier;
+        durationInfo.multiplier *
+        streamIncomePenalty;
 
       const energyCostPerSecond =
-        STREAM_CONFIG.energyCostPerSecond * bonus.energyCostRate;
+        STREAM_CONFIG.energyCostPerSecond *
+        bonus.energyCostRate *
+        energyExtraCost;
       const moodCostPerSecond =
-        STREAM_CONFIG.moodCostPerSecond * bonus.moodDecayRate;
+        STREAM_CONFIG.moodCostPerSecond *
+        bonus.moodDecayRate *
+        (1 + menstrualPenalty * 0.5);
 
       streamStore.tick(
         deltaMs,
@@ -101,7 +127,11 @@ export function useGameLoop(): UseGameLoopResult {
       if (!sleep.isSleeping) return;
 
       const bonus = getBonus();
-      const recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
+      let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
+
+      // 经期惩罚：恢复慢
+      const menstrualPenalty = getMenstrualPenalty();
+      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;   // 最多 -40%
 
       const energyPerSec =
         (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
