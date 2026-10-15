@@ -113,6 +113,7 @@ export const defaultAppConfig: AppConfig = {
       price: 10,
       image: 'yogurt.png',
       effect: { hunger: 10, mood: 5, health: 5, energy: 0, weight: 0 },
+      isDessert: true,
     },
 
     // ============ 放纵食物 ============
@@ -133,6 +134,7 @@ export const defaultAppConfig: AppConfig = {
       price: 15,
       image: 'bubble_tea.png',
       effect: { hunger: 10, mood: 20, health: -8, energy: 10, weight: 0.3 },
+      isDessert: true,
     },
     {
       id: 'hotpot',
@@ -205,6 +207,7 @@ export const defaultAppConfig: AppConfig = {
       price: 28,
       image: 'cake.png',
       effect: { hunger: 14, mood: 28, health: -8, energy: 5, weight: 0.3 },
+      isDessert: true,
     },
     {
       id: 'ice_cream',
@@ -214,6 +217,7 @@ export const defaultAppConfig: AppConfig = {
       price: 16,
       image: 'ice_cream.png',
       effect: { hunger: 10, mood: 22, health: -6, energy: 0, weight: 0.25 },
+      isDessert: true,
     },
     {
       id: 'chocolate',
@@ -223,6 +227,7 @@ export const defaultAppConfig: AppConfig = {
       price: 20,
       image: 'chocolate.png',
       effect: { hunger: 8, mood: 24, health: -4, energy: 6, weight: 0.2 },
+      isDessert: true,
     },
     {
       id: 'chips',
@@ -232,6 +237,7 @@ export const defaultAppConfig: AppConfig = {
       price: 12,
       image: 'chips.png',
       effect: { hunger: 12, mood: 18, health: -8, energy: 0, weight: 0.25 },
+      isDessert: true,
     },
     {
       id: 'donut',
@@ -241,6 +247,7 @@ export const defaultAppConfig: AppConfig = {
       price: 14,
       image: 'donut.png',
       effect: { hunger: 12, mood: 20, health: -6, energy: 3, weight: 0.25 },
+      isDessert: true,
     },
   ],
   medicines: [
@@ -253,6 +260,7 @@ export const defaultAppConfig: AppConfig = {
       cures: ['rhinitis'],
       healthRestore: 10,
       moodRestore: 4,
+      isTreatment: true,
     },
     {
       id: 'cold_syrup',
@@ -263,6 +271,7 @@ export const defaultAppConfig: AppConfig = {
       cures: ['cold'],
       healthRestore: 14,
       moodRestore: 3,
+      isTreatment: true,
     },
     {
       id: 'fever_patch',
@@ -273,6 +282,7 @@ export const defaultAppConfig: AppConfig = {
       cures: ['fever'],
       healthRestore: 12,
       moodRestore: 5,
+      isTreatment: true,
     },
     {
       id: 'vitamin',
