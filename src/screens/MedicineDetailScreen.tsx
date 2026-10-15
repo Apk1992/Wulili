@@ -51,6 +51,7 @@ export function MedicineDetailScreen({
     [menstrual],
   );
   const isInPeriod = menstrualInfo.phase === 'period';
+  const isMedicineActive = menstrualInfo.isMedicineActive;
 
   const imagePath = useMemo(
     () => (medicine ? `images/medicine/${medicine.image}` : null),
@@ -78,6 +79,8 @@ export function MedicineDetailScreen({
   if (medicine.relievesMenstrual) {
     if (!isInPeriod) {
       blockReason = '她肚子不痛，不需要吃这个。';
+    } else if (isMedicineActive) {
+      blockReason = '布洛芬还在生效中，不需要重复吃。';
     }
   } else if (medicine.isTreatment) {
     if (illness.type === 'none') {
