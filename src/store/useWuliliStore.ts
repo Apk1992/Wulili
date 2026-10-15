@@ -39,6 +39,7 @@ interface WuliliStore {
   checkAndRollCycle: () => void;
   markInteraction: (action: ActionType) => void;
   recordFoodCategory: (category: 'healthy' | 'junk') => void;
+  recordDessert: () => void;
   ownOutfit: (id: string) => void;
   ownAccessory: (id: string) => void;
   wearOutfit: (id: string | null) => void;
@@ -151,7 +152,6 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   if (state.stats.energy < 15 && !streaming && !sleeping) {
     healthDecay += 1.2 * hours;
   }
-  // 经期额外健康衰减
   if (inPeriod) {
     healthDecay += 0.5 * hours * (medicineActive ? 0.3 : 1.0);
   }
@@ -235,6 +235,10 @@ function migrateState(stored: Partial<WuliliState>): WuliliState {
       typeof stored.totalSleepSeconds === 'number'
         ? stored.totalSleepSeconds
         : 0,
+    consecutiveDessert:
+      typeof stored.consecutiveDessert === 'number'
+        ? stored.consecutiveDessert
+        : 0,
     lastSleptAt:
       typeof stored.lastSleptAt === 'number' ? stored.lastSleptAt : null,
   };
@@ -248,7 +252,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     const stored = await storageGet<Partial<WuliliState>>(STORAGE_KEYS.wuliliState);
     if (stored && typeof stored === 'object') {
       const merged = migrateState(stored);
-      // 首次进 App，初始化月经周期
       if (merged.menstrual.cycleStartAt === null) {
         merged.menstrual = {
           cycleStartAt: Date.now(),
@@ -256,7 +259,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
           medicineExpireAt: null,
         };
       }
-      // 检测是否该开始新周期
       const nextState = rollCycleIfNeeded(merged);
       const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
       const decayed = applyDecayToStats(nextState, elapsed);
@@ -264,7 +266,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
       return;
     }
-    // 首次安装：初始化
     const fresh: WuliliState = {
       ...INITIAL_WULILI_STATE,
       menstrual: {
@@ -283,7 +284,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   applyTimeDecay: () => {
     const current = get().state;
-    // 每次 tick 都检测是否该开新周期
     const rolled = rollCycleIfNeeded(current);
     const elapsed = (Date.now() - rolled.lastTickAt) / HOUR_MS;
     if (elapsed < 0.0005) {
@@ -418,9 +418,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'stream') next.lastStreamedAt = now;
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
-    if (action === 'sleep') {
-      next.lastSleptAt = now;
-    }
+    if (action === 'sleep') next.lastSleptAt = now;
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -433,6 +431,18 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
         category === 'healthy' ? current.consecutiveHealthyFood + 1 : 0,
       consecutiveJunkFood:
         category === 'junk' ? current.consecutiveJunkFood + 1 : 0,
+      // 吃正餐 → 重置甜点连续计数
+      consecutiveDessert: 0,
+    };
+    set({ state: next });
+    void storageSet(STORAGE_KEYS.wuliliState, next);
+  },
+
+  recordDessert: () => {
+    const current = get().state;
+    const next: WuliliState = {
+      ...current,
+      consecutiveDessert: current.consecutiveDessert + 1,
     };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
@@ -535,7 +545,6 @@ function rollCycleIfNeeded(state: WuliliState): WuliliState {
   const cycleMs = m.cycleLengthDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
   if (now - m.cycleStartAt >= cycleMs) {
-    // 开始新周期
     return {
       ...state,
       menstrual: {
@@ -551,3 +560,5 @@ function rollCycleIfNeeded(state: WuliliState): WuliliState {
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
 }
+
+void SLEEP_CONFIG;
