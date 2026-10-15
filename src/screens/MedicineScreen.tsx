@@ -28,22 +28,26 @@ export function MedicineScreen({ navigation }: Props): React.JSX.Element {
     [menstrual],
   );
   const isInPeriod = menstrualInfo.phase === 'period';
+  const isMedicineActive = menstrualInfo.isMedicineActive;
 
   // 过滤规则：
   // 1. 治病药：只在生病时显示；且只显示对症的药
-  // 2. 布洛芬：只在经期显示
+  // 2. 布洛芬：只在经期显示；药效生效中则隐藏
   // 3. 其它（维生素软糖）：总是显示
   const visibleMedicines = useMemo(() => {
     return medicines.filter((med) => {
       if (med.relievesMenstrual) {
-        return isInPeriod;
+        if (!isInPeriod) return false;
+        // 药效还在 → 隐藏
+        if (isMedicineActive) return false;
+        return true;
       }
       if (med.isTreatment) {
         return illness.type !== 'none' && med.cures.includes(illness.type);
       }
       return true;
     });
-  }, [medicines, illness.type, isInPeriod]);
+  }, [medicines, illness.type, isInPeriod, isMedicineActive]);
 
   const handleSelect = (medicine: Medicine) => {
     navigation.navigate('MedicineDetail', { medicineId: medicine.id });
@@ -77,7 +81,9 @@ export function MedicineScreen({ navigation }: Props): React.JSX.Element {
               <Ionicons name="water" size={14} color="#A855F7" />
               <Text className="ml-1.5 text-xs text-[#A855F7] font-medium">
                 经期第 {menstrualInfo.dayInCycle} 天
-                {menstrualInfo.isMedicineActive ? ' · 布洛芬生效中' : ' · 可以吃布洛芬'}
+                {isMedicineActive
+                  ? ' · 布洛芬生效中（不能重复吃）'
+                  : ' · 可以吃布洛芬'}
               </Text>
             </View>
           ) : null}
@@ -96,7 +102,9 @@ export function MedicineScreen({ navigation }: Props): React.JSX.Element {
           message={
             illness.type === 'none' && !isInPeriod
               ? '雾璃现在很健康，也没有经期不适。'
-              : '没有合适的药物。'
+              : isInPeriod && isMedicineActive
+                ? '布洛芬已经生效，不用再吃了。'
+                : '没有合适的药物。'
           }
           icon="medkit-outline"
           fullScreen
