@@ -410,7 +410,7 @@ function CircleButton({ icon, label, onPress }: CircleButtonProps): React.JSX.El
   return (
     <Pressable
       onPress={onPress}
-      className="items-center justify-center rounded-full active:opacity-70"
+      className="items-center justify-center rounded-full active:opacity-90"
       style={{
         width: 64,
         height: 64,
