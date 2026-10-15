@@ -15,6 +15,11 @@ import {
   computeSleepDeprivation,
   SLEEP_CONFIG,
 } from '@/data/sleepConfig';
+import {
+  MENSTRUAL_CONFIG,
+  randomCycleLength,
+  getMedicineExpireAt,
+} from '@/data/menstrualConfig';
 
 interface WuliliStore {
   state: WuliliState;
@@ -30,6 +35,8 @@ interface WuliliStore {
   setAffinity: (value: number) => void;
   setIllness: (type: IllnessType, severity: number) => void;
   clearIllness: () => void;
+  takeMenstrualMedicine: () => void;
+  checkAndRollCycle: () => void;
   markInteraction: (action: ActionType) => void;
   recordFoodCategory: (category: 'healthy' | 'junk') => void;
   ownOutfit: (id: string) => void;
@@ -90,7 +97,6 @@ function getBonus(): AggregatedBonus {
 }
 
 function pickRandomSleepIllness(): IllnessType {
-  // 长期不睡：60% 感冒、40% 发烧
   return chance(0.6) ? 'cold' : 'fever';
 }
 
@@ -101,20 +107,37 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const streaming = isStreamingNow();
   const sleeping = isSleepingNow();
   const bonus = getBonus();
-
-  // 计算睡眠不足状态
   const sleepDeprivation = computeSleepDeprivation(
     state.lastSleptAt,
     state.createdAt,
   );
 
+  // 月经影响
+  const menstrual = state.menstrual;
+  const now = Date.now();
+  const dayInCycle =
+    menstrual.cycleStartAt !== null
+      ? Math.floor((now - menstrual.cycleStartAt) / (24 * 60 * 60 * 1000)) + 1
+      : 0;
+  const inPeriod =
+    dayInCycle >= 1 && dayInCycle <= MENSTRUAL_CONFIG.periodDays;
+  const medicineActive =
+    menstrual.medicineExpireAt !== null && now < menstrual.medicineExpireAt;
+  const menstrualPenalty = inPeriod ? (medicineActive ? 0.3 : 1.0) : 0;
+
   const hungerDecay = 3.2 * hours;
   const energyDecay =
-    streaming || sleeping ? 0 : 2.6 * hours * bonus.energyCostRate;
+    streaming || sleeping
+      ? 0
+      : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
   const moodDecayBase =
     streaming || sleeping
       ? 0
-      : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier;
+      : 1.6 *
+        hours *
+        bonus.moodDecayRate *
+        sleepDeprivation.moodDecayMultiplier *
+        (1 + menstrualPenalty * 1.0);
 
   let moodDecay = moodDecayBase;
   if (!streaming && !sleeping) {
@@ -128,6 +151,10 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   if (state.stats.energy < 15 && !streaming && !sleeping) {
     healthDecay += 1.2 * hours;
   }
+  // 经期额外健康衰减
+  if (inPeriod) {
+    healthDecay += 0.5 * hours * (medicineActive ? 0.3 : 1.0);
+  }
 
   const newStats: WuliliStats = {
     hunger: clampStat('hunger', state.stats.hunger - hungerDecay),
@@ -139,10 +166,8 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let illness = state.illness;
   if (illness.type === 'none') {
-    // 原有鼻炎风险
     const rhinitisRisk =
       computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
-    // 睡眠不足导致生病
     const sleepIllnessRisk = sleeping
       ? 0
       : sleepDeprivation.illnessRiskPerHour *
@@ -188,11 +213,20 @@ function computeRhinitisRisk(stats: WuliliStats, hours: number): number {
 }
 
 function migrateState(stored: Partial<WuliliState>): WuliliState {
+  const menstrual = stored.menstrual ?? INITIAL_WULILI_STATE.menstrual;
   return {
     ...INITIAL_WULILI_STATE,
     ...stored,
     stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
     illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
+    menstrual: {
+      cycleStartAt: menstrual.cycleStartAt ?? null,
+      cycleLengthDays:
+        typeof menstrual.cycleLengthDays === 'number'
+          ? menstrual.cycleLengthDays
+          : MENSTRUAL_CONFIG.baseCycleDays,
+      medicineExpireAt: menstrual.medicineExpireAt ?? null,
+    },
     totalStreamSeconds:
       typeof stored.totalStreamSeconds === 'number'
         ? stored.totalStreamSeconds
@@ -214,13 +248,33 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     const stored = await storageGet<Partial<WuliliState>>(STORAGE_KEYS.wuliliState);
     if (stored && typeof stored === 'object') {
       const merged = migrateState(stored);
-      const elapsed = (Date.now() - (merged.lastTickAt ?? Date.now())) / HOUR_MS;
-      const decayed = applyDecayToStats(merged, elapsed);
+      // 首次进 App，初始化月经周期
+      if (merged.menstrual.cycleStartAt === null) {
+        merged.menstrual = {
+          cycleStartAt: Date.now(),
+          cycleLengthDays: randomCycleLength(),
+          medicineExpireAt: null,
+        };
+      }
+      // 检测是否该开始新周期
+      const nextState = rollCycleIfNeeded(merged);
+      const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
+      const decayed = applyDecayToStats(nextState, elapsed);
       set({ state: decayed, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
       return;
     }
-    set({ hydrated: true });
+    // 首次安装：初始化
+    const fresh: WuliliState = {
+      ...INITIAL_WULILI_STATE,
+      menstrual: {
+        cycleStartAt: Date.now(),
+        cycleLengthDays: randomCycleLength(),
+        medicineExpireAt: null,
+      },
+    };
+    set({ state: fresh, hydrated: true });
+    await storageSet(STORAGE_KEYS.wuliliState, fresh);
   },
 
   persist: async () => {
@@ -229,9 +283,17 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   applyTimeDecay: () => {
     const current = get().state;
-    const elapsed = (Date.now() - current.lastTickAt) / HOUR_MS;
-    if (elapsed < 0.0005) return;
-    const next = applyDecayToStats(current, elapsed);
+    // 每次 tick 都检测是否该开新周期
+    const rolled = rollCycleIfNeeded(current);
+    const elapsed = (Date.now() - rolled.lastTickAt) / HOUR_MS;
+    if (elapsed < 0.0005) {
+      if (rolled !== current) {
+        set({ state: rolled });
+        void storageSet(STORAGE_KEYS.wuliliState, rolled);
+      }
+      return;
+    }
+    const next = applyDecayToStats(rolled, elapsed);
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -322,6 +384,28 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
 
+  takeMenstrualMedicine: () => {
+    const current = get().state;
+    const next = {
+      ...current,
+      menstrual: {
+        ...current.menstrual,
+        medicineExpireAt: getMedicineExpireAt(),
+      },
+    };
+    set({ state: next });
+    void storageSet(STORAGE_KEYS.wuliliState, next);
+  },
+
+  checkAndRollCycle: () => {
+    const current = get().state;
+    const next = rollCycleIfNeeded(current);
+    if (next !== current) {
+      set({ state: next });
+      void storageSet(STORAGE_KEYS.wuliliState, next);
+    }
+  },
+
   markInteraction: (action) => {
     const now = Date.now();
     const current = get().state;
@@ -335,7 +419,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
     if (action === 'sleep') {
-      // 睡觉后，重置"距上次睡觉"的计时
       next.lastSleptAt = now;
     }
     set({ state: next });
@@ -435,14 +518,36 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       ...INITIAL_WULILI_STATE,
       createdAt: Date.now(),
       lastTickAt: Date.now(),
+      menstrual: {
+        cycleStartAt: Date.now(),
+        cycleLengthDays: randomCycleLength(),
+        medicineExpireAt: null,
+      },
     };
     set({ state: fresh });
     void storageSet(STORAGE_KEYS.wuliliState, fresh);
   },
 }));
 
+function rollCycleIfNeeded(state: WuliliState): WuliliState {
+  const m = state.menstrual;
+  if (!m.cycleStartAt) return state;
+  const cycleMs = m.cycleLengthDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  if (now - m.cycleStartAt >= cycleMs) {
+    // 开始新周期
+    return {
+      ...state,
+      menstrual: {
+        cycleStartAt: now,
+        cycleLengthDays: randomCycleLength(),
+        medicineExpireAt: null,
+      },
+    };
+  }
+  return state;
+}
+
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
 }
-
-void SLEEP_CONFIG;
