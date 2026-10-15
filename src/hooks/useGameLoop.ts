@@ -5,7 +5,11 @@ import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { clamp } from '@/utils/random';
-import { STREAM_CONFIG, computeStreamLevel } from '@/data/streamConfig';
+import {
+  STREAM_CONFIG,
+  computeStreamLevel,
+  computeDurationBonus,
+} from '@/data/streamConfig';
 import { SLEEP_CONFIG } from '@/data/sleepConfig';
 import { aggregateBonus } from '@/utils/equipmentBonus';
 
@@ -43,6 +47,9 @@ export function useGameLoop(): UseGameLoopResult {
       const levelInfo = computeStreamLevel(wulili.totalStreamSeconds);
       const levelMultiplier = 1 + levelInfo.bonusRate;
 
+      // 本次直播时长 bonus
+      const durationInfo = computeDurationBonus(stream.totalSeconds);
+
       const moodFactor = clamp(wulili.stats.mood / 100, 0.2, 1);
       const healthFactor = clamp(wulili.stats.health / 100, 0.3, 1);
 
@@ -51,7 +58,8 @@ export function useGameLoop(): UseGameLoopResult {
         moodFactor *
         healthFactor *
         bonus.streamIncomeRate *
-        levelMultiplier;
+        levelMultiplier *
+        durationInfo.multiplier;
 
       const energyCostPerSecond =
         STREAM_CONFIG.energyCostPerSecond * bonus.energyCostRate;
@@ -95,7 +103,6 @@ export function useGameLoop(): UseGameLoopResult {
       const bonus = getBonus();
       const recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
 
-      // 每小时恢复量 → 每秒
       const energyPerSec =
         (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
       const moodPerSec =
@@ -105,11 +112,7 @@ export function useGameLoop(): UseGameLoopResult {
 
       sleepStore.tick(
         deltaMs,
-        {
-          energy: energyPerSec,
-          mood: moodPerSec,
-          health: healthPerSec,
-        },
+        { energy: energyPerSec, mood: moodPerSec, health: healthPerSec },
         (energyGain, moodGain, healthGain) => {
           useWuliliStore.getState().addStats({
             energy: energyGain,
@@ -122,10 +125,8 @@ export function useGameLoop(): UseGameLoopResult {
         },
       );
 
-      // 自动起床判断
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
-
       if (
         afterTick.stats.energy >= SLEEP_CONFIG.autoWakeEnergy ||
         totalHours >= SLEEP_CONFIG.maxSleepHours
@@ -171,7 +172,6 @@ export function useGameLoop(): UseGameLoopResult {
         nextState === 'active' &&
         (prev === 'background' || prev === 'inactive')
       ) {
-        // 补直播收益
         const streamStore = useStreamStore.getState();
         const stream = streamStore.state;
         if (stream.isStreaming && stream.lastTickAt) {
@@ -185,7 +185,6 @@ export function useGameLoop(): UseGameLoopResult {
           }
         }
 
-        // 补睡眠恢复
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
         if (sleep.isSleeping && sleep.lastTickAt) {
