@@ -177,8 +177,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           fullScreen
           sceneImage={sceneImage}
           hideCharacter={isSleeping}
-          characterSizeRatio={1.5}
-          characterVerticalBias={0.5}
+          characterSizeRatio={1.3}
+          characterVerticalBias={0.1}
           characterBottomOffset={0}
         />
 
