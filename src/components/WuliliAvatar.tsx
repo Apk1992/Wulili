@@ -25,8 +25,9 @@ export interface WuliliAvatarProps {
   sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
-  characterSizeRatio?: number;
-  characterVerticalBias?: number;
+  characterSizeRatio?: number;      // 人物宽度占屏宽比例
+  characterVerticalBias?: number;   // 人物顶部距屏顶比例
+  characterHeightOverflow?: number; // 人物高度 = 屏幕剩余空间 × 此值
   characterBottomOffset?: number;
 }
 
@@ -50,6 +51,7 @@ export function WuliliAvatar({
   hideCharacter = false,
   characterSizeRatio = 1.0,
   characterVerticalBias = 0.1,
+  characterHeightOverflow = 1.0,
   characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
@@ -81,16 +83,19 @@ export function WuliliAvatar({
   const sceneUri =
     useRemoteImages && activeScene ? `${RAW_BASE}/${activeScene}` : null;
 
-  // 正方形图片：宽 = 高
-  const characterSize = fullScreen
+  const topOffset = screenHeight * characterVerticalBias;
+  const characterWidth = fullScreen
     ? screenWidth * characterSizeRatio
+    : size;
+  const characterHeight = fullScreen
+    ? (screenHeight - topOffset) * characterHeightOverflow
     : size;
 
   const character = hideCharacter ? null : (
     <RemoteImage
       uri={avatarUri}
-      width={characterSize}
-      height={characterSize}
+      width={characterWidth}
+      height={characterHeight}
       resizeMode="cover"
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
@@ -98,8 +103,6 @@ export function WuliliAvatar({
   );
 
   if (fullScreen && sceneUri) {
-    const topOffset = screenHeight * characterVerticalBias;
-
     return (
       <ImageBackground
         source={{ uri: sceneUri, headers }}
@@ -120,7 +123,9 @@ export function WuliliAvatar({
               left: 0,
               right: 0,
               top: topOffset,
+              height: characterHeight,
               alignItems: 'center',
+              justifyContent: 'flex-start',
               paddingBottom: characterBottomOffset,
             }}
           >
