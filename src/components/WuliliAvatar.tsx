@@ -25,10 +25,9 @@ export interface WuliliAvatarProps {
   sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
-  // 🆕 人物位置控制
-  characterSizeRatio?: number; // 人物宽度占屏幕宽度的比例（默认 0.75）
-  characterBottomOffset?: number; // 底部留白（像素，默认 0）
-  characterVerticalBias?: number; // 垂直偏移：0=居中，正数=向下，负数=向上（默认 0.25）
+  characterSizeRatio?: number;
+  characterVerticalBias?: number;
+  characterBottomOffset?: number;
 }
 
 const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
@@ -49,9 +48,9 @@ export function WuliliAvatar({
   sceneImage = null,
   fullScreen = false,
   hideCharacter = false,
-  characterSizeRatio = 0.75,
+  characterSizeRatio = 1.0,
+  characterVerticalBias = 0.1,
   characterBottomOffset = 0,
-  characterVerticalBias = 0.25,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
@@ -82,31 +81,24 @@ export function WuliliAvatar({
   const sceneUri =
     useRemoteImages && activeScene ? `${RAW_BASE}/${activeScene}` : null;
 
-  // 人物尺寸按屏幕宽度比例
-  const characterWidth = fullScreen
+  // 正方形图片：宽 = 高
+  const characterSize = fullScreen
     ? screenWidth * characterSizeRatio
-    : size;
-  const characterHeight = fullScreen
-    ? screenHeight * characterSizeRatio * 1.5
     : size;
 
   const character = hideCharacter ? null : (
     <RemoteImage
       uri={avatarUri}
-      width={characterWidth}
-      height={characterHeight}
-      resizeMode="contain"
+      width={characterSize}
+      height={characterSize}
+      resizeMode="cover"
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
   );
 
-  // 完整模式：场景 + 人物
   if (fullScreen && sceneUri) {
-    // 计算人物垂直位置
-    // characterVerticalBias: 0=居中，正数=向下偏移
-    const containerHeight = screenHeight;
-    const offsetY = containerHeight * characterVerticalBias;
+    const topOffset = screenHeight * characterVerticalBias;
 
     return (
       <ImageBackground
@@ -121,14 +113,13 @@ export function WuliliAvatar({
           }
         }}
       >
-        <View className="flex-1" pointerEvents="none">
-          {/* 人物：绝对定位 */}
+        <View style={{ flex: 1 }} pointerEvents="none">
           <View
             style={{
               position: 'absolute',
               left: 0,
               right: 0,
-              top: offsetY,
+              top: topOffset,
               alignItems: 'center',
               paddingBottom: characterBottomOffset,
             }}
@@ -136,7 +127,6 @@ export function WuliliAvatar({
             {character}
           </View>
 
-          {/* 心情标签 */}
           {showLabel ? (
             <View
               style={{
@@ -157,7 +147,6 @@ export function WuliliAvatar({
     );
   }
 
-  // 完整模式但无场景：兜底
   if (fullScreen) {
     return (
       <View
@@ -179,7 +168,6 @@ export function WuliliAvatar({
     );
   }
 
-  // 小尺寸模式（用于状态页等）
   return (
     <View className={['items-center', className].filter(Boolean).join(' ')}>
       <View
