@@ -117,6 +117,9 @@ export function WuliliAvatar({
   );
 
   // === 4. 渲染 ===
+// 🔥 加这行日志！
+console.log("=== 背景图请求的最终 URL ===", sceneUri);
+  
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
