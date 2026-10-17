@@ -32,7 +32,8 @@ export interface WuliliAvatarProps {
   characterBottomOffset?: number;
 }
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+// 使用 jsDelivr 替换 raw.githubusercontent，加载速度飞快，缓存秒命中
+const RAW_BASE = 'https://cdn.jsdelivr.net/gh/yukee520/Wulili_assets@main';
 
 function resolveScenePath(
   scene: string | SceneImagePair | null | undefined,
