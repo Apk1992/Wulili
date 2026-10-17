@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import {
-  Image,
   View,
   type ImageStyle,
   type StyleProp,
 } from 'react-native';
+import FastImage from 'react-native-fast-image'; // 👈 引入 FastImage
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '@/hooks/useTheme';
 import { getGitHubToken } from '@/api/githubClient';
@@ -58,12 +58,24 @@ export function RemoteImage({
   const token = getGitHubToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  // 将 FastImage 的模式映射一下
+  const fastResizeMode = 
+    resizeMode === 'cover' ? FastImage.resizeMode.cover :
+    resizeMode === 'contain' ? FastImage.resizeMode.contain :
+    resizeMode === 'stretch' ? FastImage.resizeMode.stretch :
+    FastImage.resizeMode.center;
+
   return (
     <View className={containerClasses} style={[{ width, height }]}>
-      <Image
-        source={{ uri, headers }}
+      <FastImage
         style={[{ width, height }, style]}
-        resizeMode={resizeMode}
+        source={{
+          uri,
+          headers,
+          priority: FastImage.priority.normal,
+          cache: FastImage.cacheControl.immutable, // 👈 核心：设置不可变缓存，只要有图就永远读本地
+        }}
+        resizeMode={fastResizeMode}
         onError={() => setHasError(true)}
       />
     </View>
