@@ -131,7 +131,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1 }}>
-        <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.1} characterVerticalBias={0.25} characterHeightOverflow={1.5} />
+        <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.02} characterVerticalBias={0.25} characterHeightOverflow={1.5} />
         
         <View className="absolute left-0 right-0 px-4" style={{ top: insets.top + 12 }} pointerEvents="box-none">
           <View className="flex-row items-center justify-between mb-2">
