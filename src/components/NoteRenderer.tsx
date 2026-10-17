@@ -20,7 +20,7 @@ export function NoteRenderer({
         selectable // 👈 允许长按复制
         className="text-sm leading-7 text-text dark:text-dark-text"
       >
-        {content}
+        {content || '（文件内容为空）'}
       </Text>
     </ScrollView>
   );
