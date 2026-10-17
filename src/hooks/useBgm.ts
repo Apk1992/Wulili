@@ -32,7 +32,7 @@ export function useBgm() {
         const suffix = isNight ? 'night' : 'day';
         
         // 拼接 URL，例如 autumn_night.mp3
-        const bgmUrl = `${RAW_BASE}/music/bgm/${season}_${suffix}.mp3?token=${token}`;
+        const bgmUrl = `${RAW_BASE}/bgm/${season}_${suffix}.mp3?token=${token}`;
 
         // 如果当前正在播这首，就不重复加载了
         if (lastPlayedUrlRef.current === bgmUrl) return;
