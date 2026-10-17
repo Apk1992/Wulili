@@ -4,6 +4,7 @@ import { useTheme } from '@/hooks/useTheme';
 
 export interface NoteRendererProps {
   content: string;
+  isTxt?: boolean; // 👈 新增：标记是否为纯文本
   className?: string;
 }
 
@@ -15,14 +16,35 @@ interface NoteBlock {
 
 export function NoteRenderer({
   content,
+  isTxt = false,
   className = '',
 }: NoteRendererProps): React.JSX.Element {
   const { isDark } = useTheme();
+
+  // 🔥 如果是纯文本 .txt，直接按原样渲染，保留所有换行符
+  if (isTxt) {
+    return (
+      <ScrollView
+        className={['flex-1 px-4 pt-4', className].filter(Boolean).join(' ')}
+        contentContainerClassName="pb-8"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text 
+          selectable // 允许长按复制文本
+          className="text-sm leading-7 text-text dark:text-dark-text"
+        >
+          {content}
+        </Text>
+      </ScrollView>
+    );
+  }
+
+  // 否则走原来的 Markdown 解析逻辑
   const blocks = parseMarkdown(content);
 
   return (
     <ScrollView
-      className={['flex-1', className].filter(Boolean).join(' ')}
+      className={['flex-1 px-4 pt-4', className].filter(Boolean).join(' ')}
       contentContainerClassName="pb-8"
       showsVerticalScrollIndicator={false}
     >
