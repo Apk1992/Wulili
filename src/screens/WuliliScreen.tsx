@@ -143,8 +143,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           sceneImage={sceneImage}
           hideCharacter={isSleeping}
           characterSizeRatio={1.2} 
-          characterVerticalBias={0.25} 
-          characterHeightOverflow={1.5} 
+          characterVerticalBias={0.5} 
+          characterHeightOverflow={1.3} 
         />
 
         <View className="absolute left-0 right-0 px-4" style={{ top: insets.top + 12 }} pointerEvents="box-none">
