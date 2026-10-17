@@ -31,7 +31,7 @@ export interface WuliliAvatarProps {
   characterBottomOffset?: number;
 }
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/refs/heads/main';
 
 function resolveScenePath(
   scene: string | SceneImagePair | null | undefined,
