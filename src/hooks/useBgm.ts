@@ -5,52 +5,67 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { useSeason } from '@/hooks/useSeason';
 import { getGitHubToken } from '@/api/githubClient';
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
-
 export function useBgm() {
   const { season } = useSeason();
-  const token = getGitHubToken();
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
   const lastPlayedUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!bgmEnabled || !token) return;
+    if (!bgmEnabled) return;
 
     const setupBgm = async () => {
       try {
+        const token = getGitHubToken();
+        if (!token) return;
+
         const currentHour = new Date().getHours();
         const isNight = currentHour >= 18 || currentHour < 6;
         const suffix = isNight ? 'night' : 'day';
         const seasonStr = season || 'autumn';
         
-        // 注意：这里测试你用 .m4a，如果你其实传的是 .mp3，记得改这里
-        const bgmUrl = `${RAW_BASE}/bgm/${seasonStr}_${suffix}.m4a?token=${token}`;
+        const filePath = `bgm/${seasonStr}_${suffix}.m4a`;
+        const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
 
-        if (lastPlayedUrlRef.current === bgmUrl) return;
+        // 1. 通过 API 获取私有仓库的真实下载链接
+        const res = await fetch(apiUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        });
 
-        // 🔥 关键：先清理旧队列，再添加新歌
-        await TrackPlayer.reset(); 
-        await TrackPlayer.add({ 
-          id: 'bgm', 
-          url: bgmUrl, 
-          title: 'BGM', 
-          artist: 'Wulili' 
+        if (!res.ok) {
+          throw new Error(`API 请求失败: ${res.status}`);
+        }
+
+        const data = await res.json();
+        const downloadUrl = data.download_url; // 这是一个带签名的临时 URL
+
+        if (!downloadUrl) throw new Error('未能获取下载链接');
+
+        // 如果当前播放的已经是这同一首歌，就不再重头加载了
+        if (lastPlayedUrlRef.current === downloadUrl) return;
+
+        // 2. 清空队列并播放
+        // 注意：如果回忆记录正在播放，这里会打断它。如果你不想打断，可以在调用前加个判断。
+        await TrackPlayer.reset();
+        await TrackPlayer.add({
+          id: 'bgm',
+          url: downloadUrl,
+          title: `${seasonStr} ${suffix}`,
+          artist: 'Wulili',
         });
         
-        await TrackPlayer.setRepeatMode(RepeatMode.Track); 
-        await TrackPlayer.setVolume(0.4);
-        
-        // 🔥 强行触发播放，如果底层报错，直接弹窗抓取
+        await TrackPlayer.setRepeatMode(RepeatMode.Track);
+        await TrackPlayer.setVolume(0.4); // 背景音小一点
         await TrackPlayer.play();
-        
-        lastPlayedUrlRef.current = bgmUrl;
+
+        lastPlayedUrlRef.current = downloadUrl;
       } catch (err: any) {
-        // 如果 Play 失败，弹窗让你知道原因
-        Alert.alert('BGM加载失败', err?.message || '未知错误');
-        console.error('BGM Load Error:', err);
+        Alert.alert('BGM 播放失败', err?.message || '未知错误');
       }
     };
 
     setupBgm();
-  }, [season, token, bgmEnabled]);
+  }, [season, bgmEnabled]);
 }
