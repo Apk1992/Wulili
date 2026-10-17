@@ -11,7 +11,7 @@ import DialogueBubble from '@/components/DialogueBubble';
 import Button from '@/components/Button';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
-import { useBgm } from '@/hooks/useBgm'; // 👈 引入 BGM
+import { useBgm } from '@/hooks/useBgm';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
 import { useStreamStore } from '@/store/useStreamStore';
@@ -27,13 +27,10 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
-const SEASON_LABELS: Record<Season, string> = {
-  spring: '春', summer: '夏', autumn: '秋', winter: '冬',
-};
+const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
-  // 🔥 激活 BGM
-  useBgm();
+  useBgm(); // 👈 启动 BGM
 
   const { speak } = useDialogue();
   const { levelLabel } = useAffinity();
@@ -64,16 +61,15 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const menstrualInfo = useMemo(() => computeMenstrualInfo(menstrual), [menstrual, now]);
   const isInPeriod = menstrualInfo.phase === 'period';
 
-  // 🔥 修复场景路径判断（区分白天/夜晚）
+  // 🔥 绝对准确的昼夜判断（18:00 - 06:00 算夜晚）
   const sceneImage = useMemo(() => {
     if (isSleeping) return 'images/scenes/bedroom_sleep.png';
-    
     const seasonStr = season || 'autumn';
-    const isNight = timeOfDay === 'night' || timeOfDay === 'evening'; 
+    const currentHour = new Date().getHours();
+    const isNight = currentHour >= 18 || currentHour < 6; 
     const suffix = isNight ? '_night' : '';
-    
     return `images/scenes/living_${seasonStr}${suffix}.png`;
-  }, [isSleeping, season, timeOfDay]);
+  }, [isSleeping, season]);
 
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
@@ -81,16 +77,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  useFocusEffect(
-    useCallback(() => {
-      updateLoginStreak();
-      setMood(computeMood());
-      if (!isSleeping) {
-        const greeting = speak({ forceCategory: 'greeting' });
-        if (greeting) setDialogue(greeting);
-      }
-    }, []),
-  );
+  useFocusEffect(useCallback(() => {
+    updateLoginStreak();
+    setMood(computeMood());
+    if (!isSleeping) {
+      const greeting = speak({ forceCategory: 'greeting' });
+      if (greeting) setDialogue(greeting);
+    }
+  }, []));
 
   useEffect(() => {
     if (!dialogue && !isSleeping) {
@@ -137,36 +131,18 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1 }}>
-        <WuliliAvatar
-          mood={displayMood}
-          fullScreen
-          sceneImage={sceneImage}
-          hideCharacter={isSleeping}
-          characterSizeRatio={1.2} 
-          characterVerticalBias={0.5} 
-          characterHeightOverflow={1.3} 
-        />
-
+        <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.2} characterVerticalBias={0.25} characterHeightOverflow={1.5} />
+        
         <View className="absolute left-0 right-0 px-4" style={{ top: insets.top + 12 }} pointerEvents="box-none">
           <View className="flex-row items-center justify-between mb-2">
-            <View className="rounded-full bg-black/50 px-3 py-1">
-              <Text className="text-xs text-white font-medium">
-                {getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}
-              </Text>
-            </View>
-            <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center">
-              <Ionicons name="cash-outline" size={12} color="#FFFFFF" />
-              <Text className="ml-1 text-xs text-white font-medium">{formatNumber(coins)}</Text>
-            </View>
+            <View className="rounded-full bg-black/50 px-3 py-1"><Text className="text-xs text-white font-medium">{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text></View>
+            <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center"><Ionicons name="cash-outline" size={12} color="#FFFFFF" /><Text className="ml-1 text-xs text-white font-medium">{formatNumber(coins)}</Text></View>
           </View>
 
           {isStreaming ? (
             <Pressable onPress={() => navigation.navigate('Stream')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.9)' }}>
               <Ionicons name="radio" size={18} color="#FFFFFF" />
-              <View className="ml-2 flex-1">
-                <Text className="text-white text-sm font-semibold">正在直播中</Text>
-                <Text className="text-white/80 text-[10px] mt-0.5">已播 {formatDuration(streamElapsedMs)} · 点此查看</Text>
-              </View>
+              <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">正在直播中</Text><Text className="text-white/80 text-[10px] mt-0.5">已播 {formatDuration(streamElapsedMs)} · 点此查看</Text></View>
               <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
             </Pressable>
           ) : null}
@@ -174,69 +150,44 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           {isSleeping ? (
             <View className="mb-2 rounded-2xl px-3 py-2 flex-row items-center" style={{ backgroundColor: 'rgba(99,102,241,0.9)' }}>
               <Ionicons name="moon" size={18} color="#FFFFFF" />
-              <View className="ml-2 flex-1">
-                <Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text>
-                <Text className="text-white/80 text-[10px] mt-0.5">已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text>
-              </View>
+              <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text><Text className="text-white/80 text-[10px] mt-0.5">已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
             </View>
           ) : null}
 
           {isInPeriod && !isSleeping ? (
             <Pressable onPress={() => navigation.navigate('Medicine')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(168,85,247,0.9)' }}>
-              <Ionicons name="water" size={16} color="#FFFFFF" />
-              <View className="ml-2 flex-1">
-                <Text className="text-white text-xs font-semibold">雾璃今天不太舒服 · 经期第 {menstrualInfo.dayInCycle} 天</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
+              <Ionicons name="water" size={16} color="#FFFFFF" /><View className="ml-2 flex-1"><Text className="text-white text-xs font-semibold">雾璃今天不太舒服 · 经期第 {menstrualInfo.dayInCycle} 天</Text></View><Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
             </Pressable>
           ) : null}
 
           {illness.type !== 'none' && !isSleeping ? (
             <Pressable onPress={() => navigation.navigate('Medicine')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.85)' }}>
-              <Ionicons name="medkit" size={16} color="#FFFFFF" />
-              <Text className="ml-2 text-white text-xs font-medium">雾璃身体不舒服 · 去药房</Text>
+              <Ionicons name="medkit" size={16} color="#FFFFFF" /><Text className="ml-2 text-white text-xs font-medium">雾璃身体不舒服 · 去药房</Text>
             </Pressable>
           ) : null}
 
           {dialogue && !isSleeping ? (
-            <View style={{ position: 'relative' }}>
-              <DialogueBubble dialogue={dialogue} onDismiss={() => setDialogue(null)} autoDismissMs={10000} />
-            </View>
+            <View style={{ position: 'relative' }}><DialogueBubble dialogue={dialogue} onDismiss={() => setDialogue(null)} autoDismissMs={10000} /></View>
           ) : null}
 
           {!isSleeping ? (
-            <View style={{ position: 'relative', marginTop: -12 }}>
-              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
-            </View>
+            <View style={{ position: 'relative', marginTop: -12 }}><SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} /></View>
           ) : null}
         </View>
 
         {!isSleeping ? (
           <>
             <View className="absolute" style={{ left: 16, top: buttonAreaTop }} pointerEvents="box-none">
-              {leftButtons.map((btn) => (
-                <View key={btn.label} style={{ marginBottom: 12 }}>
-                  <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
-                </View>
-              ))}
+              {leftButtons.map((btn) => (<View key={btn.label} style={{ marginBottom: 12 }}><CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} /></View>))}
             </View>
-
             <View className="absolute" style={{ right: 16, top: buttonAreaTop }} pointerEvents="box-none">
-              {rightButtons.map((btn) => (
-                <View key={btn.label} style={{ marginBottom: 12 }}>
-                  <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
-                </View>
-              ))}
+              {rightButtons.map((btn) => (<View key={btn.label} style={{ marginBottom: 12 }}><CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} /></View>))}
             </View>
           </>
         ) : null}
 
         <View className="absolute left-4 right-4" style={{ bottom: 24 }} pointerEvents="box-none">
-          {isSleeping ? (
-            <Button label="叫醒她" icon="sunny" variant="danger" size="lg" onPress={handleWakeUp} />
-          ) : (
-            <Button label="查看雾璃的状态" icon="heart-circle" variant="primary" size="lg" onPress={() => navigation.navigate('Status')} />
-          )}
+          {isSleeping ? (<Button label="叫醒她" icon="sunny" variant="danger" size="lg" onPress={handleWakeUp} />) : (<Button label="查看雾璃的状态" icon="heart-circle" variant="primary" size="lg" onPress={() => navigation.navigate('Status')} />)}
         </View>
       </View>
     </ScreenContainer>
@@ -253,44 +204,18 @@ function computeMood(): Mood {
   return 'calm';
 }
 
-interface SleepButtonProps {
-  onPress: () => void;
-  disabled: boolean;
-  isSleeping: boolean;
-}
-
-function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React.JSX.Element {
+function SleepButton({ onPress, disabled, isSleeping }: { onPress: () => void; disabled: boolean; isSleeping: boolean }): React.JSX.Element {
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled && !isSleeping}
-      className="items-center justify-center rounded-full active:opacity-70"
-      style={{
-        position: 'absolute', right: 8, bottom: -35, width: 52, height: 52,
-        backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444',
-        borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)',
-      }}
-    >
+    <Pressable onPress={onPress} disabled={disabled && !isSleeping} className="items-center justify-center rounded-full active:opacity-70" style={{ position: 'absolute', right: 8, bottom: -35, width: 52, height: 52, backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)' }}>
       <Ionicons name={isSleeping ? 'sunny' : 'moon'} size={22} color="#FFFFFF" />
     </Pressable>
   );
 }
 
-interface CircleButtonProps {
-  icon: string;
-  label: string;
-  onPress: () => void;
-}
-
-function CircleButton({ icon, label, onPress }: CircleButtonProps): React.JSX.Element {
+function CircleButton({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }): React.JSX.Element {
   return (
-    <Pressable
-      onPress={onPress}
-      className="items-center justify-center rounded-full active:opacity-90"
-      style={{ width: 64, height: 64, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)' }}
-    >
-      <Ionicons name={icon} size={24} color="#FFFFFF" />
-      <Text className="text-[10px] text-white mt-0.5 font-medium">{label}</Text>
+    <Pressable onPress={onPress} className="items-center justify-center rounded-full active:opacity-90" style={{ width: 64, height: 64, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)' }}>
+      <Ionicons name={icon} size={24} color="#FFFFFF" /><Text className="text-[10px] text-white mt-0.5 font-medium">{label}</Text>
     </Pressable>
   );
 }
