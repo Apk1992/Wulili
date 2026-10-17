@@ -1,10 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  ImageBackground,
-  useWindowDimensions,
-} from 'react-native';
+import { View, Text, ImageBackground, useWindowDimensions } from 'react-native';
 import RemoteImage from './RemoteImage';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useTheme } from '@/hooks/useTheme';
@@ -25,21 +20,14 @@ export interface WuliliAvatarProps {
   sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
-  characterSizeRatio?: number;      // 人物宽度占屏宽比例
-  characterVerticalBias?: number;   // 人物顶部距屏顶比例
-  characterHeightOverflow?: number; // 人物高度 = 屏幕剩余空间 × 此值
+  characterSizeRatio?: number;
+  characterVerticalBias?: number;
+  characterHeightOverflow?: number;
   characterBottomOffset?: number;
 }
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/refs/heads/main';
-
-function resolveScenePath(
-  scene: string | SceneImagePair | null | undefined,
-): string | null {
-  if (!scene) return null;
-  if (typeof scene === 'string') return scene;
-  return scene.primary;
-}
+// 🔥 强制使用原始 raw 路径，防止 refs/heads 的跳转问题
+const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
 
 export function WuliliAvatar({
   mood = 'calm',
@@ -59,74 +47,54 @@ export function WuliliAvatar({
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const token = getGitHubToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
 
-  // === 1. 人物 URI (带 Token 缓存) ===
+  // 1. 人物图
   const avatarFile = AVATAR_FILES[mood];
-  const avatarUri =
-    useRemoteImages && avatarFile && token
-      ? `${RAW_BASE}/images/avatar/${avatarFile}?token=${token}`
-      : useRemoteImages && avatarFile
-      ? `${RAW_BASE}/images/avatar/${avatarFile}`
-      : null;
+  const avatarUri = useRemoteImages && avatarFile ? `${RAW_BASE}/images/avatar/${avatarFile}` : null;
 
-  // === 2. 场景 URI ===
-  const primaryPath = resolveScenePath(sceneImage);
-  const fallbackPath =
-    sceneImage && typeof sceneImage === 'object'
-      ? sceneImage.fallback
-      : null;
-
-  const [activeScene, setActiveScene] = useState<string | null>(primaryPath);
+  // 2. 场景图
+  const primaryPath = typeof sceneImage === 'string' ? sceneImage : sceneImage?.primary;
+  const fallbackPath = typeof sceneImage === 'object' ? sceneImage?.fallback : null;
+  const [activeScene, setActiveScene] = useState<string | null>(primaryPath || null);
 
   useEffect(() => {
-    setActiveScene(primaryPath);
+    setActiveScene(primaryPath || null);
   }, [primaryPath]);
 
-  // 严格清洗路径，防止多重斜杠或 http 前缀导致 404
   let sceneUri = null;
   if (useRemoteImages && activeScene) {
-    let cleanPath = activeScene.split('?')[0];
-    if (cleanPath.startsWith('http')) {
-      sceneUri = token ? `${cleanPath}?token=${token}` : cleanPath;
-    } else {
-      cleanPath = cleanPath.replace(/^\/+/, '').replace(/\/+$/, '');
-      sceneUri = token 
-        ? `${RAW_BASE}/${cleanPath}?token=${token}` 
-        : `${RAW_BASE}/${cleanPath}`;
-    }
+    // 清洗路径，去掉多余的斜杠
+    const cleanPath = activeScene.replace(/^\/+/, '').replace(/\/+$/, '');
+    sceneUri = `${RAW_BASE}/${cleanPath}`;
   }
 
-  // === 3. 完美布局计算 (Galgame 效果) ===
+  // 3. 布局计算
   const topOffset = screenHeight * characterVerticalBias;
-  const characterWidth = fullScreen
-    ? screenWidth * characterSizeRatio
-    : size;
-  const characterHeight = fullScreen
-    ? (screenHeight - topOffset) * characterHeightOverflow
-    : size;
+  const characterWidth = fullScreen ? screenWidth * characterSizeRatio : size;
+  const characterHeight = fullScreen ? (screenHeight - topOffset) * characterHeightOverflow : size;
 
   const character = hideCharacter ? null : (
     <RemoteImage
       uri={avatarUri}
       width={characterWidth}
       height={characterHeight}
-      resizeMode="contain" // 保证人物不变形
+      resizeMode="contain"
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
   );
 
-  // === 4. 渲染 ===
-// 🔥 加这行日志！
-console.log("=== 背景图请求的最终 URL ===", sceneUri);
-  
+  // 4. 渲染
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
-        source={{ uri: sceneUri }}
+        source={{ uri: sceneUri, headers }} // 👈 用最稳的 headers 鉴权
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
         onError={() => {
+          console.log('❌ 场景图加载失败:', sceneUri);
           if (fallbackPath && activeScene !== fallbackPath) {
             setActiveScene(fallbackPath);
           } else {
@@ -135,72 +103,18 @@ console.log("=== 背景图请求的最终 URL ===", sceneUri);
         }}
       >
         <View style={{ flex: 1 }} pointerEvents="none">
-          <View
-            style={{
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: topOffset,
-              height: characterHeight,
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              paddingBottom: characterBottomOffset,
-            }}
-          >
+          <View style={{ position: 'absolute', left: 0, right: 0, top: topOffset, height: characterHeight, alignItems: 'center' }}>
             {character}
           </View>
-
-          {showLabel ? (
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 80,
-                left: 0,
-                right: 0,
-                alignItems: 'center',
-              }}
-            >
-              <Text className="text-xs text-white/80 bg-black/40 px-3 py-1 rounded-full">
-                当前心情 · {MOOD_LABELS[mood]}
-              </Text>
-            </View>
-          ) : null}
         </View>
       </ImageBackground>
     );
   }
 
-  // 场景图加载失败时的兜底（只有人物）
-  if (fullScreen) {
-    return (
-      <View
-        className={[
-          'flex-1 items-center justify-center',
-          isDark ? 'bg-dark-card' : 'bg-card',
-          className,
-        ]
-          .filter(Boolean)
-          .join(' ')}
-      >
-        {character}
-        {showLabel ? (
-          <Text className="mt-2 text-xs text-muted dark:text-dark-muted">
-            当前心情 · {MOOD_LABELS[mood]}
-          </Text>
-        ) : null}
-      </View>
-    );
-  }
-
-  // 非全屏小头像
+  // 场景图失败时的背景
   return (
-    <View className={['items-center', className].filter(Boolean).join(' ')}>
-      <View
-        className="items-center justify-center rounded-3xl bg-card dark:bg-dark-card border border-border dark:border-dark-border overflow-hidden"
-        style={{ width: size, height: size }}
-      >
-        {character}
-      </View>
+    <View className={['flex-1 items-center justify-center', isDark ? 'bg-dark-card' : 'bg-card', className].join(' ')}>
+      {character}
     </View>
   );
 }
