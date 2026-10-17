@@ -182,10 +182,10 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   characterSizeRatio={1.2} 
   
   // 2. 控制上下高度（如果觉得人太大，改小这个；如果脚露出来的不够，改大这个）
-  characterHeightScale={1.3} 
+  characterHeightOverflow={1.5} 
 
   // 3. 控制人物在屏幕上的位置（0 是贴顶，1 是贴底，0.4 大概在中间偏上）
-  characterVerticalBias={0.4} 
+  characterVerticalBias={0.25} 
 />
 
         <View
