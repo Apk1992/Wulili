@@ -4,7 +4,6 @@ import { useTheme } from '@/hooks/useTheme';
 
 export interface NoteRendererProps {
   content: string;
-  isTxt?: boolean; // 👈 新增：标记是否为纯文本
   className?: string;
 }
 
@@ -16,12 +15,14 @@ interface NoteBlock {
 
 export function NoteRenderer({
   content,
-  isTxt = false,
   className = '',
 }: NoteRendererProps): React.JSX.Element {
   const { isDark } = useTheme();
 
-  // 🔥 如果是纯文本 .txt，直接按原样渲染，保留所有换行符
+  // 🔥 自动检测：如果没有 Markdown 的特征符号（# > - *），且换行较多，就判定为 TXT
+  const hasMarkdownSigns = /^(#{1,3}\s|>\s|[-*+]\s|---)/m.test(content);
+  const isTxt = !hasMarkdownSigns;
+
   if (isTxt) {
     return (
       <ScrollView
@@ -30,7 +31,7 @@ export function NoteRenderer({
         showsVerticalScrollIndicator={false}
       >
         <Text 
-          selectable // 允许长按复制文本
+          selectable
           className="text-sm leading-7 text-text dark:text-dark-text"
         >
           {content}
@@ -39,7 +40,6 @@ export function NoteRenderer({
     );
   }
 
-  // 否则走原来的 Markdown 解析逻辑
   const blocks = parseMarkdown(content);
 
   return (
@@ -55,26 +55,12 @@ export function NoteRenderer({
   );
 }
 
-function NoteBlockView({
-  block,
-  isDark,
-}: {
-  block: NoteBlock;
-  isDark: boolean;
-}): React.JSX.Element {
+// 下面的 NoteBlockView 和 parseMarkdown 保持原样，不用动，我直接给你补全：
+function NoteBlockView({ block, isDark }: { block: NoteBlock; isDark: boolean }): React.JSX.Element {
   switch (block.kind) {
     case 'heading':
       return (
-        <Text
-          className={[
-            'mt-4 mb-2 font-bold text-text dark:text-dark-text',
-            block.level === 1
-              ? 'text-2xl'
-              : block.level === 2
-                ? 'text-xl'
-                : 'text-lg',
-          ].join(' ')}
-        >
+        <Text className={['mt-4 mb-2 font-bold text-text dark:text-dark-text', block.level === 1 ? 'text-2xl' : block.level === 2 ? 'text-xl' : 'text-lg'].join(' ')}>
           {block.text}
         </Text>
       );
@@ -82,29 +68,21 @@ function NoteBlockView({
       return (
         <View className="flex-row mb-1">
           <Text className="text-text dark:text-dark-text mr-2">•</Text>
-          <Text className="flex-1 text-sm leading-6 text-text dark:text-dark-text">
-            {block.text}
-          </Text>
+          <Text className="flex-1 text-sm leading-6 text-text dark:text-dark-text">{block.text}</Text>
         </View>
       );
     case 'divider':
-      return (
-        <View className="h-px my-3 bg-border dark:bg-dark-border" />
-      );
+      return <View className="h-px my-3 bg-border dark:bg-dark-border" />;
     case 'quote':
       return (
         <View className="border-l-4 border-primary pl-3 my-2">
-          <Text className="text-sm italic text-muted dark:text-dark-muted">
-            {block.text}
-          </Text>
+          <Text className="text-sm italic text-muted dark:text-dark-muted">{block.text}</Text>
         </View>
       );
     case 'paragraph':
     default:
       return (
-        <Text className="mb-2 text-sm leading-6 text-text dark:text-dark-text">
-          {block.text}
-        </Text>
+        <Text className="mb-2 text-sm leading-6 text-text dark:text-dark-text">{block.text}</Text>
       );
   }
 }
@@ -117,9 +95,7 @@ function parseMarkdown(content: string): NoteBlock[] {
   const flushParagraph = () => {
     if (paragraphBuffer.length > 0) {
       const text = paragraphBuffer.join(' ').trim();
-      if (text.length > 0) {
-        blocks.push({ kind: 'paragraph', text });
-      }
+      if (text.length > 0) blocks.push({ kind: 'paragraph', text });
       paragraphBuffer = [];
     }
   };
@@ -127,45 +103,15 @@ function parseMarkdown(content: string): NoteBlock[] {
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
-
-    if (trimmed.length === 0) {
-      flushParagraph();
-      continue;
-    }
-
+    if (trimmed.length === 0) { flushParagraph(); continue; }
     const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      flushParagraph();
-      blocks.push({
-        kind: 'heading',
-        level: headingMatch[1].length,
-        text: headingMatch[2],
-      });
-      continue;
-    }
-
-    if (trimmed === '---' || trimmed === '***') {
-      flushParagraph();
-      blocks.push({ kind: 'divider', text: '' });
-      continue;
-    }
-
-    if (trimmed.startsWith('> ')) {
-      flushParagraph();
-      blocks.push({ kind: 'quote', text: trimmed.slice(2) });
-      continue;
-    }
-
+    if (headingMatch) { flushParagraph(); blocks.push({ kind: 'heading', level: headingMatch[1].length, text: headingMatch[2] }); continue; }
+    if (trimmed === '---' || trimmed === '***') { flushParagraph(); blocks.push({ kind: 'divider', text: '' }); continue; }
+    if (trimmed.startsWith('> ')) { flushParagraph(); blocks.push({ kind: 'quote', text: trimmed.slice(2) }); continue; }
     const bulletMatch = trimmed.match(/^[-*+]\s+(.*)$/);
-    if (bulletMatch) {
-      flushParagraph();
-      blocks.push({ kind: 'bullet', text: bulletMatch[1] });
-      continue;
-    }
-
+    if (bulletMatch) { flushParagraph(); blocks.push({ kind: 'bullet', text: bulletMatch[1] }); continue; }
     paragraphBuffer.push(trimmed);
   }
-
   flushParagraph();
   return blocks;
 }
