@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ImageBackground, useWindowDimensions } from 'react-native';
+import {
+  View,
+  ImageBackground,
+  useWindowDimensions,
+} from 'react-native';
 import RemoteImage from './RemoteImage';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useTheme } from '@/hooks/useTheme';
 import { getGitHubToken } from '@/api/githubClient';
 import type { Mood } from '@/types/wulili';
-import { AVATAR_FILES, MOOD_LABELS } from './constants';
+import { AVATAR_FILES } from './constants';
 
 export interface SceneImagePair {
   primary: string;
@@ -26,7 +29,6 @@ export interface WuliliAvatarProps {
   characterBottomOffset?: number;
 }
 
-// 🔥 强制使用原始 raw 路径，防止 refs/heads 的跳转问题
 const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
 
 export function WuliliAvatar({
@@ -42,7 +44,6 @@ export function WuliliAvatar({
   characterHeightOverflow = 1.5,
   characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
-  const { isDark } = useTheme();
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
@@ -50,11 +51,9 @@ export function WuliliAvatar({
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  // 1. 人物图
   const avatarFile = AVATAR_FILES[mood];
   const avatarUri = useRemoteImages && avatarFile ? `${RAW_BASE}/images/avatar/${avatarFile}` : null;
 
-  // 2. 场景图
   const primaryPath = typeof sceneImage === 'string' ? sceneImage : sceneImage?.primary;
   const fallbackPath = typeof sceneImage === 'object' ? sceneImage?.fallback : null;
   const [activeScene, setActiveScene] = useState<string | null>(primaryPath || null);
@@ -65,12 +64,10 @@ export function WuliliAvatar({
 
   let sceneUri = null;
   if (useRemoteImages && activeScene) {
-    // 清洗路径，去掉多余的斜杠
     const cleanPath = activeScene.replace(/^\/+/, '').replace(/\/+$/, '');
     sceneUri = `${RAW_BASE}/${cleanPath}`;
   }
 
-  // 3. 布局计算
   const topOffset = screenHeight * characterVerticalBias;
   const characterWidth = fullScreen ? screenWidth * characterSizeRatio : size;
   const characterHeight = fullScreen ? (screenHeight - topOffset) * characterHeightOverflow : size;
@@ -86,15 +83,15 @@ export function WuliliAvatar({
     />
   );
 
-  // 4. 渲染
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
-        source={{ uri: sceneUri, headers }} // 👈 用最稳的 headers 鉴权
+        source={{ uri: sceneUri, headers }} // 👈 稳如老狗的鉴权方式
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
-        onError={() => {
-          console.log('❌ 场景图加载失败:', sceneUri);
+        onError={(e) => {
+          console.log('❌ [场景图加载失败] URL:', sceneUri);
+          console.log('❌ [错误原因]:', e.nativeEvent.error);
           if (fallbackPath && activeScene !== fallbackPath) {
             setActiveScene(fallbackPath);
           } else {
@@ -111,9 +108,8 @@ export function WuliliAvatar({
     );
   }
 
-  // 场景图失败时的背景
   return (
-    <View className={['flex-1 items-center justify-center', isDark ? 'bg-dark-card' : 'bg-card', className].join(' ')}>
+    <View className={['flex-1 items-center justify-center bg-card dark:bg-dark-card', className].join(' ')}>
       {character}
     </View>
   );
