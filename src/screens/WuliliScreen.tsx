@@ -179,7 +179,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   hideCharacter={isSleeping}
   
   // 1. 控制左右宽度（如果觉得人物太宽，就改小这个；太窄就改大）
-  characterSizeRatio={0.9} 
+  characterSizeRatio={1.2} 
   
   // 2. 控制上下高度（如果觉得人太大，改小这个；如果脚露出来的不够，改大这个）
   characterHeightScale={1.3} 
