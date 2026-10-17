@@ -1,9 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  ImageBackground,
-  useWindowDimensions,
-} from 'react-native';
+import { View, ImageBackground, useWindowDimensions } from 'react-native';
 import RemoteImage from './RemoteImage';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { getGitHubToken } from '@/api/githubClient';
@@ -34,7 +30,6 @@ const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main'
 export function WuliliAvatar({
   mood = 'calm',
   size = 200,
-  showLabel = false,
   className = '',
   sceneImage = null,
   fullScreen = false,
@@ -42,7 +37,6 @@ export function WuliliAvatar({
   characterSizeRatio = 1.2,
   characterVerticalBias = 0.25,
   characterHeightOverflow = 1.5,
-  characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -64,7 +58,7 @@ export function WuliliAvatar({
 
   let sceneUri = null;
   if (useRemoteImages && activeScene) {
-    const cleanPath = activeScene.replace(/^\/+/, '').replace(/\/+$/, '');
+    const cleanPath = activeScene.replace(/^\/+/, '');
     sceneUri = `${RAW_BASE}/${cleanPath}`;
   }
 
@@ -77,7 +71,7 @@ export function WuliliAvatar({
       uri={avatarUri}
       width={characterWidth}
       height={characterHeight}
-      resizeMode="contain"
+      resizeMode="cover" // 🔥 恢复 cover，人物直接撑满，恢复完美大小！
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
@@ -86,17 +80,12 @@ export function WuliliAvatar({
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
-        source={{ uri: sceneUri, headers }} // 👈 稳如老狗的鉴权方式
+        source={{ uri: sceneUri, headers }}
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
-        onError={(e) => {
-          console.log('❌ [场景图加载失败] URL:', sceneUri);
-          console.log('❌ [错误原因]:', e.nativeEvent.error);
-          if (fallbackPath && activeScene !== fallbackPath) {
-            setActiveScene(fallbackPath);
-          } else {
-            setActiveScene(null);
-          }
+        onError={() => {
+          if (fallbackPath && activeScene !== fallbackPath) setActiveScene(fallbackPath);
+          else setActiveScene(null);
         }}
       >
         <View style={{ flex: 1 }} pointerEvents="none">
