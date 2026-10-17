@@ -17,10 +17,10 @@ export function NoteRenderer({
       showsVerticalScrollIndicator={false}
     >
       <Text 
-        selectable // 👈 允许长按复制
+        selectable
         className="text-sm leading-7 text-text dark:text-dark-text"
       >
-        {content || '（文件内容为空）'}
+        {content || '（由于接口原因，未能读取到文本内容）'}
       </Text>
     </ScrollView>
   );
