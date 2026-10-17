@@ -49,9 +49,9 @@ export function WuliliAvatar({
   sceneImage = null,
   fullScreen = false,
   hideCharacter = false,
-  characterSizeRatio = 1.2,      // 恢复你调好的值
-  characterVerticalBias = 0.25,  // 恢复你调好的值
-  characterHeightOverflow = 1.5, // 恢复你调好的值
+  characterSizeRatio = 1.2,
+  characterVerticalBias = 0.25,
+  characterHeightOverflow = 1.5,
   characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
@@ -60,7 +60,7 @@ export function WuliliAvatar({
 
   const token = getGitHubToken();
 
-  // === 1. 处理人物 URI ===
+  // === 1. 人物 URI (带 Token 缓存) ===
   const avatarFile = AVATAR_FILES[mood];
   const avatarUri =
     useRemoteImages && avatarFile && token
@@ -69,7 +69,7 @@ export function WuliliAvatar({
       ? `${RAW_BASE}/images/avatar/${avatarFile}`
       : null;
 
-  // === 2. 处理场景 URI ===
+  // === 2. 场景 URI ===
   const primaryPath = resolveScenePath(sceneImage);
   const fallbackPath =
     sceneImage && typeof sceneImage === 'object'
@@ -82,16 +82,21 @@ export function WuliliAvatar({
     setActiveScene(primaryPath);
   }, [primaryPath]);
 
-  // 防御性编程：先去掉可能存在的旧参数，再拼上 token
-  const cleanScenePath = activeScene ? activeScene.split('?')[0] : null;
-  const sceneUri =
-    useRemoteImages && cleanScenePath && token
-      ? `${RAW_BASE}/${cleanScenePath}?token=${token}`
-      : useRemoteImages && cleanScenePath
-      ? `${RAW_BASE}/${cleanScenePath}`
-      : null;
+  // 严格清洗路径，防止多重斜杠或 http 前缀导致 404
+  let sceneUri = null;
+  if (useRemoteImages && activeScene) {
+    let cleanPath = activeScene.split('?')[0];
+    if (cleanPath.startsWith('http')) {
+      sceneUri = token ? `${cleanPath}?token=${token}` : cleanPath;
+    } else {
+      cleanPath = cleanPath.replace(/^\/+/, '').replace(/\/+$/, '');
+      sceneUri = token 
+        ? `${RAW_BASE}/${cleanPath}?token=${token}` 
+        : `${RAW_BASE}/${cleanPath}`;
+    }
+  }
 
-  // === 3. 布局计算 (使用你调好的公式) ===
+  // === 3. 完美布局计算 (Galgame 效果) ===
   const topOffset = screenHeight * characterVerticalBias;
   const characterWidth = fullScreen
     ? screenWidth * characterSizeRatio
@@ -105,17 +110,17 @@ export function WuliliAvatar({
       uri={avatarUri}
       width={characterWidth}
       height={characterHeight}
-      resizeMode="contain" 
+      resizeMode="contain" // 保证人物不变形
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
   );
 
-  // === 4. 渲染场景 + 人物 ===
+  // === 4. 渲染 ===
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
-        source={{ uri: sceneUri }} 
+        source={{ uri: sceneUri }}
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
         onError={() => {
@@ -162,7 +167,7 @@ export function WuliliAvatar({
     );
   }
 
-  // === 5. 纯色 Fallback (场景加载失败时) ===
+  // 场景图加载失败时的兜底（只有人物）
   if (fullScreen) {
     return (
       <View
@@ -184,7 +189,7 @@ export function WuliliAvatar({
     );
   }
 
-  // === 6. 小尺寸头像渲染 (非全屏) ===
+  // 非全屏小头像
   return (
     <View className={['items-center', className].filter(Boolean).join(' ')}>
       <View
