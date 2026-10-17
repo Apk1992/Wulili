@@ -25,63 +25,29 @@ import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { fetchRemoteDialogues } from '@/api/githubDialogues';
-import {
-  toGitHubApiError,
-  setGitHubToken,
-} from '@/api/githubClient';
+import { toGitHubApiError, setGitHubToken } from '@/api/githubClient';
 import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
 import { storageGet, storageSet } from '@/utils/storage';
 import { APP_KILLED_BEHAVIOR } from '@/services/playbackService';
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-      staleTime: 60 * 1000,
-    },
-  },
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 60 * 1000 } },
 });
 
 const PLACEHOLDER = '__WULILI_GH_TOKEN__';
 const PERMISSIONS_ASKED_KEY = '@wulili/permissions-asked';
 
-// TrackPlayer 只在 App 启动时初始化一次
+// 🔥 修复：直接 setupPlayer，避免因为版本不支持某些方法导致整个初始化中断
 void (async () => {
   try {
-    const isSetup = await TrackPlayer.isServiceRunning();
-    if (!isSetup) {
-      await TrackPlayer.setupPlayer({
-        autoHandleInterruptions: true,
-      });
-      await TrackPlayer.updateOptions({
-        android: {
-          appKilledPlaybackBehavior: APP_KILLED_BEHAVIOR,
-        },
-        capabilities: [
-          Capability.Play,
-          Capability.Pause,
-          Capability.Stop,
-          Capability.SkipToNext,
-          Capability.SkipToPrevious,
-          Capability.SeekTo,
-        ],
-        compactCapabilities: [
-          Capability.Play,
-          Capability.Pause,
-          Capability.SkipToNext,
-        ],
-        notificationCapabilities: [
-          Capability.Play,
-          Capability.Pause,
-          Capability.Stop,
-          Capability.SkipToNext,
-          Capability.SkipToPrevious,
-        ],
-      });
-    }
+    await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+    await TrackPlayer.updateOptions({
+      android: { appKilledPlaybackBehavior: APP_KILLED_BEHAVIOR },
+      capabilities: [Capability.Play, Capability.Pause, Capability.Stop, Capability.SkipToNext, Capability.SkipToPrevious, Capability.SeekTo],
+      compactCapabilities: [Capability.Play, Capability.Pause, Capability.SkipToNext],
+    });
   } catch (error) {
-    console.warn('[App] TrackPlayer setup failed:', error);
+    console.warn('[App] TrackPlayer setup failed (可能已初始化):', error);
   }
 })();
 
@@ -104,15 +70,12 @@ function AppInner(): React.JSX.Element {
   const hydrateSleep = useSleepStore((s) => s.hydrate);
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
-  const useRemoteDialogues = useSettingsStore(
-    (s) => s.settings.useRemoteDialogues,
-  );
+  const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
 
   const { loadToken } = useGitHubToken();
   const configQuery = useGitHubAppConfig(false);
   const setRemoteConfig = useAppConfigStore((s) => s.setRemoteConfig);
   const setRemoteDialogues = useDialogueStore((s) => s.setRemoteDialogues);
-
   const { promptIfAvailable } = useAppUpdate();
 
   useGameLoop();
@@ -122,11 +85,7 @@ function AppInner(): React.JSX.Element {
     void (async () => {
       const fails: string[] = [];
       const run = async (name: string, fn: () => Promise<unknown>) => {
-        try {
-          await fn();
-        } catch (e) {
-          fails.push(`${name}: ${e instanceof Error ? e.message : 'unknown'}`);
-        }
+        try { await fn(); } catch (e) { fails.push(`${name}: ${e instanceof Error ? e.message : 'unknown'}`); }
       };
 
       await run('settings', hydrateSettings);
@@ -140,10 +99,7 @@ function AppInner(): React.JSX.Element {
       await run('stream', hydrateStream);
       await run('sleep', hydrateSleep);
 
-      const embedded =
-        typeof EMBEDDED_GH_TOKEN === 'string'
-          ? EMBEDDED_GH_TOKEN.trim()
-          : '';
+      const embedded = typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
       const embeddedValid = embedded.length > 0 && embedded !== PLACEHOLDER;
 
       if (embeddedValid) {
@@ -156,31 +112,20 @@ function AppInner(): React.JSX.Element {
             setGitHubToken(fromKeychain);
             if (mounted) setHasToken(true);
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
       }
 
-      if (fails.length > 0) {
-        setBootError(fails.join('\n'));
-      }
-
+      if (fails.length > 0) setBootError(fails.join('\n'));
       if (mounted) setReady(true);
     })();
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { mounted = false; };
   }, []);
 
-  // 首次启动检查权限
   useEffect(() => {
     if (!ready) return;
     void (async () => {
       const asked = await storageGet<boolean>(PERMISSIONS_ASKED_KEY);
-      if (!asked) {
-        setShowPermissionGate(true);
-      }
+      if (!asked) setShowPermissionGate(true);
     })();
   }, [ready]);
 
@@ -191,40 +136,26 @@ function AppInner(): React.JSX.Element {
       try {
         if (useRemoteConfig) {
           const result = await configQuery.refetch();
-          if (!cancelled && result.data) {
-            setRemoteConfig(result.data.config);
-          }
+          if (!cancelled && result.data) setRemoteConfig(result.data.config);
         }
         if (useRemoteDialogues) {
           const dialogueResult = await fetchRemoteDialogues();
-          if (!cancelled) {
-            setRemoteDialogues(dialogueResult.file.dialogues);
-          }
+          if (!cancelled) setRemoteDialogues(dialogueResult.file.dialogues);
         }
       } catch (error) {
         const apiError = toGitHubApiError(error);
         if (!cancelled && apiError.status !== 404) {
-          Toast.show({
-            type: 'error',
-            text1: '无法同步线上内容',
-            text2: apiError.message,
-          });
+          Toast.show({ type: 'error', text1: '无法同步线上内容', text2: apiError.message });
         }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { cancelled = true; };
   }, [ready, useRemoteConfig, useRemoteDialogues]);
 
   useEffect(() => {
     if (!ready) return;
-    const timer = setTimeout(() => {
-      void promptIfAvailable();
-    }, 2500);
+    const timer = setTimeout(() => { void promptIfAvailable(); }, 2500);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
   const handlePermissionComplete = () => {
@@ -235,12 +166,8 @@ function AppInner(): React.JSX.Element {
   if (!ready) {
     return (
       <View className="flex-1 bg-background dark:bg-dark-bg items-center justify-center px-6">
-        <Text className="text-base text-text dark:text-dark-text font-semibold">
-          雾璃专属
-        </Text>
-        <Text className="text-xs text-muted dark:text-dark-muted mt-2">
-          正在准备…
-        </Text>
+        <Text className="text-base text-text dark:text-dark-text font-semibold">雾璃专属</Text>
+        <Text className="text-xs text-muted dark:text-dark-muted mt-2">正在准备…</Text>
         {bootError ? (
           <ScrollView style={{ maxHeight: 200, marginTop: 16 }}>
             <Text className="text-[10px] text-danger">{bootError}</Text>
@@ -252,31 +179,13 @@ function AppInner(): React.JSX.Element {
 
   return (
     <NavigationContainer>
-      <StatusBar
-        barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={isDark ? '#0F172A' : '#F8FAFC'}
-      />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0F172A' : '#F8FAFC'} />
       <RootNavigator />
       <Toast />
-      <PermissionGateModal
-        visible={showPermissionGate}
-        onComplete={handlePermissionComplete}
-      />
+      <PermissionGateModal visible={showPermissionGate} onComplete={handlePermissionComplete} />
       {!hasToken ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            padding: 8,
-            backgroundColor: '#EF4444',
-          }}
-        >
-          <Text style={{ color: 'white', fontSize: 11, textAlign: 'center' }}>
-            未检测到 GitHub Token · App 将无法读取私有仓库
-          </Text>
+        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 8, backgroundColor: '#EF4444' }}>
+          <Text style={{ color: 'white', fontSize: 11, textAlign: 'center' }}>未检测到 GitHub Token · App 将无法读取私有仓库</Text>
         </View>
       ) : null}
     </NavigationContainer>
