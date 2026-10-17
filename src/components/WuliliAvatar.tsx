@@ -25,15 +25,13 @@ export interface WuliliAvatarProps {
   sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
-  characterSizeRatio?: number;      // 控制人物基础宽度比例
-  characterHeightScale?: number;    // 新增：控制人物高度的整体缩放
-  characterVerticalBias?: number;   // 人物中心偏下的比例
-  characterHeightOverflow?: number; // 预留，用于微调
+  characterSizeRatio?: number;      // 人物宽度占屏宽比例
+  characterHeightScale?: number;    // 人物高度（基于屏幕高度缩放，用于控制下半身裁切）
+  characterVerticalBias?: number;   // 人物顶部距屏顶比例（0 贴顶，1 贴底）
   characterBottomOffset?: number;
 }
 
-// 使用 jsDelivr 替换 raw.githubusercontent，加载速度飞快，缓存秒命中
-const RAW_BASE = 'https://cdn.jsdelivr.net/gh/yukee520/Wulili_assets@main';
+const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
 
 function resolveScenePath(
   scene: string | SceneImagePair | null | undefined,
@@ -51,25 +49,28 @@ export function WuliliAvatar({
   sceneImage = null,
   fullScreen = false,
   hideCharacter = false,
-  characterSizeRatio = 1.0,
-  characterHeightScale = 1.0, // 默认高度缩放为 1
-  characterVerticalBias = 0.5,
+  characterSizeRatio = 0.9,      // 默认稍微收窄，显得人物修长
+  characterHeightScale = 1.3,    // 默认放大 1.3 倍高度
+  characterVerticalBias = 0.35,  // 默认偏上一点，避免脚露太多
   characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
+  const token = getGitHubToken();
+
+  // === 1. 处理人物 URI ===
   const avatarFile = AVATAR_FILES[mood];
+  // 把 token 拼接到 URL 后面，让原生 Image 能走本地缓存，避免每次都下载
   const avatarUri =
-    useRemoteImages && avatarFile
+    useRemoteImages && avatarFile && token
+      ? `${RAW_BASE}/images/avatar/${avatarFile}?token=${token}`
+      : useRemoteImages && avatarFile
       ? `${RAW_BASE}/images/avatar/${avatarFile}`
       : null;
 
-  const token = getGitHubToken();
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
+  // === 2. 处理场景 URI ===
   const primaryPath = resolveScenePath(sceneImage);
   const fallbackPath =
     sceneImage && typeof sceneImage === 'object'
@@ -83,19 +84,18 @@ export function WuliliAvatar({
   }, [primaryPath]);
 
   const sceneUri =
-    useRemoteImages && activeScene ? `${RAW_BASE}/${activeScene}` : null;
+    useRemoteImages && activeScene && token
+      ? `${RAW_BASE}/${activeScene}?token=${token}`
+      : useRemoteImages && activeScene
+      ? `${RAW_BASE}/${activeScene}`
+      : null;
 
-  // === 核心布局计算 ===
-  // 1. 人物宽度 = 屏幕宽度 × 宽度比例
+  // === 3. 布局计算 (Galgame 立绘效果) ===
+  // 宽度 = 屏宽 * 宽度比例
   const characterWidth = fullScreen ? screenWidth * characterSizeRatio : size;
-  
-  // 2. 人物高度 = 屏幕高度 × 高度缩放（因为原图 1:1，这样高度就是基于屏幕高度的放大）
-  // 比如 characterHeightScale = 1.2，人物高度就是屏幕的 1.2 倍
+  // 高度 = 屏高 * 高度缩放（这决定了人物有多大，以及脚被裁掉多少）
   const characterHeight = fullScreen ? screenHeight * characterHeightScale : size;
-  
-  // 3. 人物锚点位置：根据比例决定人物中心点在哪（0 为顶部，1 为底部）
-  // 如果用 absolute 定位且只设置 top 会导致高度溢出屏幕底部。
-  // 我们改用中心点计算：让图片居中在这个位置上。
+  // 顶部偏移 = (屏高 - 人物高度) * 垂直偏移比例
   const topOffset = (screenHeight - characterHeight) * characterVerticalBias;
 
   const character = hideCharacter ? null : (
@@ -103,23 +103,24 @@ export function WuliliAvatar({
       uri={avatarUri}
       width={characterWidth}
       height={characterHeight}
-      resizeMode="contain" // 👈 必须用 contain，保证人物不被拉伸变形
+      resizeMode="contain" // 保证人物比例不变形
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
   );
 
+  // === 4. 渲染场景 + 人物 ===
   if (fullScreen && sceneUri) {
     return (
       <ImageBackground
-        source={{ uri: sceneUri, headers }}
+        source={{ uri: sceneUri }} // 这里去掉了 headers，因为 token 已经在 URL 里了
         style={{ flex: 1, width: '100%', height: '100%' }}
         resizeMode="cover"
         onError={() => {
           if (fallbackPath && activeScene !== fallbackPath) {
             setActiveScene(fallbackPath);
           } else {
-            setActiveScene(null);
+            setActiveScene(null); // 找不到场景就用纯色背景
           }
         }}
       >
@@ -158,6 +159,7 @@ export function WuliliAvatar({
     );
   }
 
+  // === 5. 纯色 Fallback (场景加载失败时) ===
   if (fullScreen) {
     return (
       <View
@@ -179,6 +181,7 @@ export function WuliliAvatar({
     );
   }
 
+  // === 6. 小尺寸头像渲染 (非全屏) ===
   return (
     <View className={['items-center', className].filter(Boolean).join(' ')}>
       <View
