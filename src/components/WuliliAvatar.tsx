@@ -25,9 +25,10 @@ export interface WuliliAvatarProps {
   sceneImage?: string | SceneImagePair | null;
   fullScreen?: boolean;
   hideCharacter?: boolean;
-  characterSizeRatio?: number;      // 人物宽度占屏宽比例
-  characterVerticalBias?: number;   // 人物顶部距屏顶比例
-  characterHeightOverflow?: number; // 人物高度 = 屏幕剩余空间 × 此值
+  characterSizeRatio?: number;      // 控制人物基础宽度比例
+  characterHeightScale?: number;    // 新增：控制人物高度的整体缩放
+  characterVerticalBias?: number;   // 人物中心偏下的比例
+  characterHeightOverflow?: number; // 预留，用于微调
   characterBottomOffset?: number;
 }
 
@@ -50,8 +51,8 @@ export function WuliliAvatar({
   fullScreen = false,
   hideCharacter = false,
   characterSizeRatio = 1.0,
-  characterVerticalBias = 0.1,
-  characterHeightOverflow = 1.0,
+  characterHeightScale = 1.0, // 默认高度缩放为 1
+  characterVerticalBias = 0.5,
   characterBottomOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const { isDark } = useTheme();
@@ -83,20 +84,25 @@ export function WuliliAvatar({
   const sceneUri =
     useRemoteImages && activeScene ? `${RAW_BASE}/${activeScene}` : null;
 
-  const topOffset = screenHeight * characterVerticalBias;
-  const characterWidth = fullScreen
-    ? screenWidth * characterSizeRatio
-    : size;
-  const characterHeight = fullScreen
-    ? (screenHeight - topOffset) * characterHeightOverflow
-    : size;
+  // === 核心布局计算 ===
+  // 1. 人物宽度 = 屏幕宽度 × 宽度比例
+  const characterWidth = fullScreen ? screenWidth * characterSizeRatio : size;
+  
+  // 2. 人物高度 = 屏幕高度 × 高度缩放（因为原图 1:1，这样高度就是基于屏幕高度的放大）
+  // 比如 characterHeightScale = 1.2，人物高度就是屏幕的 1.2 倍
+  const characterHeight = fullScreen ? screenHeight * characterHeightScale : size;
+  
+  // 3. 人物锚点位置：根据比例决定人物中心点在哪（0 为顶部，1 为底部）
+  // 如果用 absolute 定位且只设置 top 会导致高度溢出屏幕底部。
+  // 我们改用中心点计算：让图片居中在这个位置上。
+  const topOffset = (screenHeight - characterHeight) * characterVerticalBias;
 
   const character = hideCharacter ? null : (
     <RemoteImage
       uri={avatarUri}
       width={characterWidth}
       height={characterHeight}
-      resizeMode="cover"
+      resizeMode="contain" // 👈 必须用 contain，保证人物不被拉伸变形
       fallbackIcon="person"
       className="bg-transparent dark:bg-transparent"
     />
@@ -123,7 +129,6 @@ export function WuliliAvatar({
               left: 0,
               right: 0,
               top: topOffset,
-              height: characterHeight,
               alignItems: 'center',
               justifyContent: 'flex-start',
               paddingBottom: characterBottomOffset,
