@@ -179,7 +179,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
       hideCharacter={isSleeping}
       
       // 1. 放大人物：让立绘整体尺寸变大，撑满屏幕宽度甚至超出
-      characterSizeRatio={1.2} 
+      characterSizeRatio={1.0} 
       
       // 2. 调整垂直偏移：让立绘往下沉。
       // 如果是 0~1 的比例，0.5 是居中，你需要调到 0.7 或 0.8 让重心下移
