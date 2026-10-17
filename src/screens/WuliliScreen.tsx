@@ -170,17 +170,25 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
       : mood;
 
   return (
-    <ScreenContainer padded={false} edges={['bottom']}>
-      <View style={{ flex: 1 }}>
-        <WuliliAvatar
-          mood={displayMood}
-          fullScreen
-          sceneImage={sceneImage}
-          hideCharacter={isSleeping}
-          characterSizeRatio={1.1}
-          characterVerticalBias={0.5}
-          characterHeightOverflow={1.3}
-        />
+<ScreenContainer padded={false} edges={['bottom']}>
+  <View style={{ flex: 1 }}>
+    <WuliliAvatar
+      mood={displayMood}
+      fullScreen
+      sceneImage={sceneImage}
+      hideCharacter={isSleeping}
+      
+      // 1. 放大人物：让立绘整体尺寸变大，撑满屏幕宽度甚至超出
+      characterSizeRatio={1.4} 
+      
+      // 2. 调整垂直偏移：让立绘往下沉。
+      // 如果是 0~1 的比例，0.5 是居中，你需要调到 0.7 或 0.8 让重心下移
+      characterVerticalBias={0.75} 
+      
+      // 3. 高度溢出：控制立绘高度超出屏幕的比例。
+      // 设为 1.5 意味着人物高度是屏幕的 1.5 倍，这样脚必然在屏幕外
+      characterHeightOverflow={1.5} 
+    />
 
         <View
           className="absolute left-0 right-0 px-4"
