@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, View, useWindowDimensions } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import WuliliAvatar from '@/components/WuliliAvatar';
@@ -17,13 +18,8 @@ import { useSleepStore } from '@/store/useSleepStore';
 import { useAffinity } from '@/hooks/useAffinity';
 import { getTimeOfDayLabel, getTimeOfDay, formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
-import {
-  getCurrentScene,
-  getSceneImagePath,
-  getSleepSceneImagePath,
-} from '@/utils/sceneSelector';
 import { SLEEP_CONFIG, canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
-import { computeMenstrualInfo, MENSTRUAL_CONFIG } from '@/data/menstrualConfig';
+import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import type { Mood, Season } from '@/types/wulili';
 import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
@@ -42,6 +38,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
   const { height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets(); // 获取安全区高度
 
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [now, setNow] = useState<number>(Date.now());
@@ -69,16 +66,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   );
   const isInPeriod = menstrualInfo.phase === 'period';
 
-  const scene = useMemo(() => {
-    if (isSleeping) return null;
-    return getCurrentScene(timeOfDay);
-  }, [isSleeping, timeOfDay]);
-
+  // 🔥 暴力修复场景路径，绕过所有潜在错误
   const sceneImage = useMemo(() => {
-    if (isSleeping) return getSleepSceneImagePath();
-    if (!scene) return null;
-    return getSceneImagePath(scene, season);
-  }, [isSleeping, scene, season]);
+    if (isSleeping) return 'images/scenes/bedroom_sleep.png';
+    
+    // 默认强制用秋季背景，如果有其他季节会自动替换
+    const seasonStr = season || 'autumn';
+    return `images/scenes/living_${seasonStr}.png`;
+  }, [isSleeping, season]);
 
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
@@ -117,10 +112,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     }
   }, [dialogue, isSleeping]);
 
-  const streamElapsedMs =
-    isStreaming && streamStartedAt ? now - streamStartedAt : 0;
-  const sleepElapsedMs =
-    isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
+  const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
+  const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
 
   const handleSleepPress = () => {
     if (isStreaming) {
@@ -149,12 +142,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     );
   };
 
-  const leftButtons: Array<{ icon: string; label: string; onPress: () => void }> = [
+  const leftButtons = [
     { icon: 'restaurant', label: '投喂', onPress: () => navigation.navigate('Feed') },
     { icon: 'game-controller', label: '娱乐', onPress: () => navigation.navigate('Entertain') },
     { icon: 'videocam', label: '直播', onPress: () => navigation.navigate('Stream') },
   ];
-  const rightButtons: Array<{ icon: string; label: string; onPress: () => void }> = [
+  const rightButtons = [
     { icon: 'bicycle', label: '运动', onPress: () => navigation.navigate('Exercise') },
     { icon: 'medkit', label: '药房', onPress: () => navigation.navigate('Medicine') },
     { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
@@ -163,34 +156,24 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const buttonAreaTop = screenHeight * 0.38;
   const canSleep = canStartSleep(energy);
 
-  const displayMood: Mood = isSleeping
-    ? 'sleepy'
-    : isInPeriod
-      ? 'sad'
-      : mood;
+  const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
   return (
-<ScreenContainer padded={false} edges={['bottom']}>
-  <View style={{ flex: 1 }}>
-<WuliliAvatar
-  mood={displayMood}
-  fullScreen
-  sceneImage={sceneImage}
-  hideCharacter={isSleeping}
-  
-  // 1. 控制左右宽度（如果觉得人物太宽，就改小这个；太窄就改大）
-  characterSizeRatio={1.2} 
-  
-  // 2. 控制上下高度（如果觉得人太大，改小这个；如果脚露出来的不够，改大这个）
-  characterHeightOverflow={1.5} 
-
-  // 3. 控制人物在屏幕上的位置（0 是贴顶，1 是贴底，0.4 大概在中间偏上）
-  characterVerticalBias={0.25} 
-/>
+    <ScreenContainer padded={false} edges={['bottom']}>
+      <View style={{ flex: 1 }}>
+        <WuliliAvatar
+          mood={displayMood}
+          fullScreen
+          sceneImage={sceneImage}
+          hideCharacter={isSleeping}
+          characterSizeRatio={1.2} 
+          characterVerticalBias={0.25} 
+          characterHeightOverflow={1.5} 
+        />
 
         <View
           className="absolute left-0 right-0 px-4"
-          style={{ top: 12 }}
+          style={{ top: insets.top + 12 }} // 🔥 使用安全区高度，避免被刘海遮挡
           pointerEvents="box-none"
         >
           <View className="flex-row items-center justify-between mb-2">
@@ -300,61 +283,29 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {!isSleeping ? (
           <>
-            <View
-              className="absolute"
-              style={{ left: 16, top: buttonAreaTop }}
-              pointerEvents="box-none"
-            >
+            <View className="absolute" style={{ left: 16, top: buttonAreaTop }} pointerEvents="box-none">
               {leftButtons.map((btn) => (
                 <View key={btn.label} style={{ marginBottom: 12 }}>
-                  <CircleButton
-                    icon={btn.icon}
-                    label={btn.label}
-                    onPress={btn.onPress}
-                  />
+                  <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
                 </View>
               ))}
             </View>
 
-            <View
-              className="absolute"
-              style={{ right: 16, top: buttonAreaTop }}
-              pointerEvents="box-none"
-            >
+            <View className="absolute" style={{ right: 16, top: buttonAreaTop }} pointerEvents="box-none">
               {rightButtons.map((btn) => (
                 <View key={btn.label} style={{ marginBottom: 12 }}>
-                  <CircleButton
-                    icon={btn.icon}
-                    label={btn.label}
-                    onPress={btn.onPress}
-                  />
+                  <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
                 </View>
               ))}
             </View>
           </>
         ) : null}
 
-        <View
-          className="absolute left-4 right-4"
-          style={{ bottom: 24 }}
-          pointerEvents="box-none"
-        >
+        <View className="absolute left-4 right-4" style={{ bottom: 24 }} pointerEvents="box-none">
           {isSleeping ? (
-            <Button
-              label="叫醒她"
-              icon="sunny"
-              variant="danger"
-              size="lg"
-              onPress={handleWakeUp}
-            />
+            <Button label="叫醒她" icon="sunny" variant="danger" size="lg" onPress={handleWakeUp} />
           ) : (
-            <Button
-              label="查看雾璃的状态"
-              icon="heart-circle"
-              variant="primary"
-              size="lg"
-              onPress={() => navigation.navigate('Status')}
-            />
+            <Button label="查看雾璃的状态" icon="heart-circle" variant="primary" size="lg" onPress={() => navigation.navigate('Status')} />
           )}
         </View>
       </View>
@@ -400,11 +351,7 @@ function SleepButton({ onPress, disabled, isSleeping }: SleepButtonProps): React
         elevation: 6,
       }}
     >
-      <Ionicons
-        name={isSleeping ? 'sunny' : 'moon'}
-        size={22}
-        color="#FFFFFF"
-      />
+      <Ionicons name={isSleeping ? 'sunny' : 'moon'} size={22} color="#FFFFFF" />
     </Pressable>
   );
 }
