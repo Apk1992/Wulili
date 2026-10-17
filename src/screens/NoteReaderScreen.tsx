@@ -62,7 +62,7 @@ export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Elemen
         </View>
       </View>
 
-      <View className="flex-1 px-4">
+      <View className="flex-1">
         <NoteRenderer content={query.data.raw} />
       </View>
     </ScreenContainer>
