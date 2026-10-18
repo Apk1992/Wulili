@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import DeviceInfo from 'react-native-device-info';
 import TrackPlayer, { RepeatMode, State, usePlaybackState } from 'react-native-track-player';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -84,25 +83,19 @@ export function useBgm() {
     }
   }, [playbackState.state, setupBgm]);
 
-  // 🔥 4. 监听 App 进入后台/被划掉，强制清理
+  // 4. 监听 App 进入后台，暂停 BGM（防止后台疯狂耗电）
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // 如果 App 被划掉（后台状态且系统判定为未知），直接停止并清空通知
-        if (DeviceInfo.isEmulatorSync()) {
-          await TrackPlayer.stop();
-          await TrackPlayer.reset();
-          return;
-        }
-        
         try {
           const state = await TrackPlayer.getState();
           if (state === State.Playing) {
-             // 如果只是切到后台，先暂停
-             await TrackPlayer.pause();
+            // 切后台时直接暂停，等切回前台再恢复
+            await TrackPlayer.pause();
           }
         } catch {}
       } else if (nextAppState === 'active') {
+        // 切回前台时，立刻重新检测并播放
         void setupBgm();
       }
     };
@@ -113,12 +106,4 @@ export function useBgm() {
       subscription.remove();
     };
   }, [setupBgm]);
-
-  // 🔥 5. 页面卸载时（彻底退出或路由替换），清理播放器
-  useEffect(() => {
-    return () => {
-      // 注意：这里不要用 reset，否则会清掉回忆记录的队列
-      // 留给系统的 AppState 去处理杀掉后台的情况
-    };
-  }, []);
 }
