@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
@@ -12,19 +11,12 @@ export function useBgm() {
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
   const lastPlayedUrlRef = useRef<string | null>(null);
 
-  const setupBgm = useCallback(async (forceReload = false) => {
+  const setupBgm = useCallback(async (force = false) => {
     if (!bgmEnabled) return;
 
     try {
       const token = getGitHubToken();
       if (!token) return;
-
-      // 🔥 强制重置服务，防止被杀后不复活
-      try {
-        await TrackPlayer.getPlaybackState();
-      } catch (e) {
-        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
-      }
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -38,13 +30,18 @@ export function useBgm() {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
+      // 🔥 强制检查当前播放队列
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      if (activeTrack && activeTrack.id !== 'bgm') return;
+      // 如果当前队列里有别人的歌（回忆音乐、视频），说明用户在听，BGM 绝不打扰
+      if (!force && activeTrack && activeTrack.id !== 'bgm') {
+        return;
+      }
 
-      if (forceReload || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
+      // 如果队列空了，或者不是在放 BGM，强行塞入 BGM
+      if (force || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
         await TrackPlayer.setRepeatMode(RepeatMode.Track);
@@ -61,12 +58,23 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  useFocusEffect(useCallback(() => { void setupBgm(); }, [setupBgm]));
+  // 首次进入时强力启动
+  useEffect(() => {
+    void setupBgm(true);
+  }, [setupBgm]);
 
+  // 每次回到主页时检查
+  useFocusEffect(
+    useCallback(() => {
+      void setupBgm(false);
+    }, [setupBgm])
+  );
+
+  // 监听 App 前后台
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
-        void setupBgm();
+        void setupBgm(false);
       } else if (nextAppState === 'background' || nextAppState === 'inactive') {
         try {
           const activeTrack = await TrackPlayer.getActiveTrack();
