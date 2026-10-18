@@ -1,15 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useIsFocused } from '@react-navigation/native'; // 👈 引入
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import TrackPlayer, {
-  Event,
-  State as TrackPlayerState,
-  usePlaybackState,
-  useProgress,
-  useTrackPlayerEvents,
-} from 'react-native-track-player';
+import TrackPlayer, { Event, RepeatMode, State as TrackPlayerState, usePlaybackState, useProgress, useTrackPlayerEvents } from 'react-native-track-player';
 import type { Track } from 'react-native-track-player';
 
 import ScreenContainer from '@/components/ScreenContainer';
@@ -30,61 +23,64 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
-const MAX_RETRIES = 2;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
-  const query = useGitHubFiles({ path: GITHUB_PATHS.music, depth: 1 });
-  const isFocused = useIsFocused(); // 👈 判断是否在页面上
+  // 🔥 新增：记录当前所在的文件夹路径，默认是基础 music/ 目录
+  const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
 
-  const [playback, setPlayback] = useState<PlaybackState>({
-    current: null,
-    status: 'idle',
-    position: 0,
-    duration: 0,
-    error: null,
-  });
+  // 拉取当前路径下的文件和文件夹
+  const query = useGitHubFiles({ path: currentPath, depth: 1 });
+
+  const [playback, setPlayback] = useState<PlaybackState>({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
-  const [retryCount, setRetryCount] = useState<number>(0);
 
   const isSeekingRef = useRef<boolean>(false);
-  const seekPositionRef = useRef<number>(0);
   const queueReadyRef = useRef<boolean>(false);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  const items = useMemo(() => {
+  // 区分当前路径下的文件夹和音乐文件
+  const { folders, items } = useMemo(() => {
     const files = query.data ?? [];
-    return buildMusicItems(files);
+    const dirs: GitHubContentItem[] = [];
+    const musicFiles: GitHubContentItem[] = [];
+
+    for (const file of files) {
+      if (file.type === 'dir') {
+        dirs.push(file);
+      } else if (file.type === 'file') {
+        musicFiles.push(file);
+      }
+    }
+
+    return {
+      folders: dirs,
+      items: buildMusicItems(musicFiles), // 只从当前文件夹里的音乐建播放队列
+    };
   }, [query.data]);
 
-  // 🔥 离开页面时：强行清空音乐，让 BGM 立刻接管
+  // 离开页面时只暂停，不打断底层状态，让主页的 BGM 顺利接管
   useEffect(() => {
     return () => {
-      // 只要离开这个页面，就直接重置 TrackPlayer
-      void TrackPlayer.reset().catch(() => undefined);
+      void TrackPlayer.pause().catch(() => undefined);
     };
   }, []);
 
-  useEffect(() => {
-    if (trackPlayerState.state === TrackPlayerState.Error && playback.current) {
-      if (retryCount < MAX_RETRIES) {
-        const next = retryCount + 1;
-        setRetryCount(next);
-        if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = setTimeout(() => {
-          if (currentIndex >= 0) void replayCurrentIndex();
-        }, 3000);
-      } else {
-        setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败（已重试）' }));
-      }
-    }
-  }, [trackPlayerState.state]);
+  // 🔥 切换文件夹时，如果当前在播放，就不重置，只是 UI 跟着切
+  const handleFolderPress = (path: string) => {
+    setCurrentPath(path);
+  };
+
+  // 🔥 返回上一级文件夹
+  const handleGoBackFolder = () => {
+    if (currentPath === GITHUB_PATHS.music) return;
+    const parts = currentPath.split('/');
+    parts.pop();
+    setCurrentPath(parts.join('/') || GITHUB_PATHS.music);
+  };
 
   useEffect(() => {
     if (!playback.current || isSeekingRef.current) return;
-
     const state = trackPlayerState.state;
     let status: PlaybackState['status'] = 'idle';
     if (state === TrackPlayerState.Playing) status = 'playing';
@@ -94,12 +90,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     else if (state === TrackPlayerState.Error) status = 'error';
     else if (state === TrackPlayerState.Stopped) status = 'ended';
 
-    setPlayback((prev) => ({
-      ...prev,
-      status,
-      position: progress.position,
-      duration: progress.duration || prev.duration,
-    }));
+    setPlayback((prev) => ({ ...prev, status, position: progress.position, duration: progress.duration || prev.duration }));
   }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
 
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
@@ -107,16 +98,8 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       const index = event.index;
       if (typeof index === 'number' && index >= 0 && index < items.length) {
         setCurrentIndex(index);
-        setRetryCount(0);
         isSeekingRef.current = false;
-        setPlayback((prev) => ({
-          ...prev,
-          current: items[index],
-          status: 'loading',
-          position: 0,
-          duration: 0,
-          error: null,
-        }));
+        setPlayback((prev) => ({ ...prev, current: items[index], status: 'loading', position: 0, duration: 0, error: null }));
       }
     } catch {}
   });
@@ -136,30 +119,20 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items);
+    const tracks = buildTracks(items); // 👈 这里只会把【当前文件夹】里的歌加入队列
     await TrackPlayer.add(tracks);
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表循环
     queueReadyRef.current = true;
     await TrackPlayer.skip(startIndex);
     await TrackPlayer.play();
     setCurrentIndex(startIndex);
   }, [items, buildTracks]);
 
-  const replayCurrentIndex = useCallback(async () => {
-    if (currentIndex < 0 || currentIndex >= items.length) return;
-    try {
-      await TrackPlayer.reset();
-      queueReadyRef.current = false;
-      await ensureQueue(currentIndex);
-    } catch {}
-  }, [currentIndex, items.length, ensureQueue]);
-
   const handlePlayAt = useCallback(async (index: number) => {
     try {
       const item = items[index];
       if (!item) return;
 
-      setRetryCount(0);
-      isSeekingRef.current = false;
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
       if (!queueReadyRef.current) {
@@ -182,7 +155,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         }
       }
     } catch (error) {
-      setPlayback((prev) => ({ ...prev, status: 'error', error: error instanceof Error ? error.message : '播放失败' }));
+      setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
     }
   }, [items, ensureQueue]);
 
@@ -197,15 +170,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         setPlayback((prev) => ({ ...prev, status: 'playing' }));
       }
     } catch {}
-  }, []);
-
-  const handleSeekStart = useCallback((value: number) => { isSeekingRef.current = true; seekPositionRef.current = value; }, []);
-  const handleSeekChange = useCallback((value: number) => { seekPositionRef.current = value; }, []);
-  const handleSeekComplete = useCallback(async (value: number) => {
-    try {
-      await TrackPlayer.seekTo(value);
-      setPlayback((prev) => ({ ...prev, position: value }));
-    } catch {} finally { isSeekingRef.current = false; }
   }, []);
 
   const handleNext = useCallback(async () => {
@@ -239,46 +203,84 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   if (query.isLoading) return <ScreenContainer edges={['bottom']}><LoadingView message="正在加载音乐列表…" fullScreen /></ScreenContainer>;
   if (query.isError) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" message="无法获取音乐列表，请检查网络或 Token。" onRetry={() => query.refetch()} fullScreen /></ScreenContainer>;
-  if (items.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="还没有音乐" message="往仓库的 music/ 文件夹里上传一些音乐文件吧。" icon="musical-notes-outline" fullScreen /></ScreenContainer>;
+  
+  // 如果当前文件夹既没歌也没文件夹，显示空状态
+  if (items.length === 0 && folders.length === 0) {
+    return <ScreenContainer edges={['bottom']}><EmptyView title="这里还没有内容" message="往当前文件夹里上传一些音乐文件或子文件夹吧。" icon="musical-notes-outline" fullScreen /></ScreenContainer>;
+  }
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
+        // 🔥 把文件夹和音乐文件合在一起渲染（文件夹在上）
+        data={[{ isFolderHeader: true }, ...folders, ...items] as any[]}
+        keyExtractor={(item: any, index) => item.isFolderHeader ? 'header' : item.id || index.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: playback.current ? 220 : 24 }}
         renderItem={({ item, index }) => {
-          const isCurrent = currentIndex === index;
+          // 渲染顶部的“返回上一级”和“刷新”栏
+          if (item.isFolderHeader) {
+            return (
+              <View className="mb-2 flex-row items-center justify-between">
+                {currentPath !== GITHUB_PATHS.music ? (
+                  <Pressable className="flex-row items-center" onPress={handleGoBackFolder}>
+                    <Ionicons name="arrow-back" size={16} color="#2563EB" />
+                    <Text className="ml-1 text-xs text-primary">返回上一级</Text>
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
+                <Pressable className="flex-row items-center" onPress={() => void query.refetch()}>
+                  <Ionicons name="refresh" size={14} color="#2563EB" />
+                  <Text className="ml-1 text-xs text-primary">刷新列表</Text>
+                </Pressable>
+              </View>
+            );
+          }
+
+          // 渲染文件夹
+          if (item.type === 'dir') {
+            return (
+              <Pressable 
+                className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
+                onPress={() => handleFolderPress(item.path)}
+              >
+                <View className="flex-row items-center">
+                  <Ionicons name="folder" size={24} color="#F59E0B" />
+                  <Text className="ml-3 text-base font-medium text-text dark:text-dark-text">{item.name}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+              </Pressable>
+            );
+          }
+
+          // 渲染音乐文件（原本的 MemoryListItem）
+          const musicIndex = index - 1 - folders.length;
+          const isCurrent = currentIndex === musicIndex;
+          
           return (
             <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
-              <MemoryListItem item={item} onPress={() => void handlePlayAt(index)} />
-              {isCurrent ? (
+              <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
+              {isCurrent && (
                 <View className="flex-row items-center mb-2 ml-4">
                   <Ionicons name={playback.status === 'playing' ? 'musical-notes' : playback.status === 'error' ? 'alert-circle' : 'pause-circle'} size={12} color={playback.status === 'error' ? '#EF4444' : '#2563EB'} />
                   <Text className={['ml-1 text-[10px]', playback.status === 'error' ? 'text-danger' : 'text-primary'].join(' ')}>
                     {playback.status === 'playing' ? '正在播放' : playback.status === 'paused' ? '已暂停' : playback.status === 'error' ? '播放失败' : '当前曲目'}
                   </Text>
                 </View>
-              ) : null}
+              )}
             </View>
           );
         }}
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <Pressable className="mb-2 flex-row items-center" onPress={() => void query.refetch()}>
-            <Ionicons name="refresh" size={14} color="#2563EB" />
-            <Text className="ml-1 text-xs text-primary">刷新列表</Text>
-          </Pressable>
-        }
       />
-      {playback.current ? (
+      {playback.current && (
         <View className="absolute left-4 right-4 bottom-4">
           <MediaPlayerBar
             playback={playback}
             onTogglePlay={() => void handleTogglePlay()}
-            onSeekStart={handleSeekStart}
-            onSeekChange={handleSeekChange}
-            onSeekComplete={(sec) => void handleSeekComplete(sec)}
+            onSeekStart={(v) => { isSeekingRef.current = true; }}
+            onSeekChange={() => {}}
+            onSeekComplete={async (sec) => { await TrackPlayer.seekTo(sec); isSeekingRef.current = false; }}
             onPrevious={() => void handlePrevious()}
             onNext={() => void handleNext()}
             onStop={() => void handleStop()}
@@ -286,7 +288,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             hasNext={currentIndex >= 0 && currentIndex + 1 < items.length}
           />
         </View>
-      ) : null}
+      )}
     </ScreenContainer>
   );
 }
@@ -301,7 +303,7 @@ function buildMusicItems(files: GitHubContentItem[]): MemoryItem[] {
       kind: 'music',
       name: file.name,
       displayName: humanizeFileName(file.name),
-      path: file.path,
+      path: file.path, // 保留完整的音乐路径
       size: file.size,
       sha: file.sha,
       downloadUrl: file.download_url,
