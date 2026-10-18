@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native'; // 👈 引入 useFocusEffect
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import TrackPlayer, { Event, RepeatMode, State as TrackPlayerState, usePlaybackState, useProgress, useTrackPlayerEvents } from 'react-native-track-player';
 import type { Track } from 'react-native-track-player';
@@ -25,7 +26,6 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
-  // 🔥 记录当前在哪个目录
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const query = useGitHubFiles({ path: currentPath, depth: 1 });
 
@@ -37,39 +37,35 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 🔥 拆分文件夹和音乐
+  // 拆分文件夹和文件
   const { folders, items } = useMemo(() => {
     const files = query.data ?? [];
     const dirs: GitHubContentItem[] = [];
     const musicFiles: GitHubContentItem[] = [];
 
     for (const file of files) {
-      if (file.type === 'dir') {
-        dirs.push(file);
-      } else if (file.type === 'file') {
-        musicFiles.push(file);
-      }
+      if (file.type === 'dir') dirs.push(file);
+      else if (file.type === 'file') musicFiles.push(file);
     }
-
     return { folders: dirs, items: buildMusicItems(musicFiles) };
   }, [query.data]);
 
-  // 切换文件夹
-  const handleFolderPress = (path: string) => {
-    setCurrentPath(path);
-  };
+  // 🔥 核心修复：离开这个页面的一瞬间，立刻清空队列，让 BGM 接管
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        void TrackPlayer.reset().catch(() => undefined);
+      };
+    }, [])
+  );
 
-  // 返回上一级
+  const handleFolderPress = (path: string) => setCurrentPath(path);
   const handleGoBackFolder = () => {
     if (currentPath === GITHUB_PATHS.music) return;
     const parts = currentPath.split('/');
     parts.pop();
     setCurrentPath(parts.join('/') || GITHUB_PATHS.music);
   };
-
-  useEffect(() => {
-    return () => { void TrackPlayer.pause().catch(() => undefined); };
-  }, []);
 
   useEffect(() => {
     if (!playback.current || isSeekingRef.current) return;
@@ -111,7 +107,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items); // 只加入当前文件夹的音乐
+    const tracks = buildTracks(items); // 只播当前文件夹的
     await TrackPlayer.add(tracks);
     await TrackPlayer.setRepeatMode(RepeatMode.Queue);
     queueReadyRef.current = true;
@@ -124,7 +120,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     try {
       const item = items[index];
       if (!item) return;
-
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
       if (!queueReadyRef.current) {
@@ -195,7 +190,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   if (query.isLoading) return <ScreenContainer edges={['bottom']}><LoadingView message="正在加载…" fullScreen /></ScreenContainer>;
   if (query.isError) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" message="无法获取列表。" onRetry={() => query.refetch()} fullScreen /></ScreenContainer>;
-  if (items.length === 0 && folders.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="这里空空如也" message="往该文件夹传点音乐吧。" icon="musical-notes-outline" fullScreen /></ScreenContainer>;
+  if (items.length === 0 && folders.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="空空如也" message="往这里传点文件吧。" icon="folder-open-outline" fullScreen /></ScreenContainer>;
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
@@ -221,7 +216,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             );
           }
 
-          // 渲染文件夹
           if (item.type === 'dir') {
             return (
               <Pressable 
@@ -237,7 +231,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             );
           }
 
-          // 渲染音乐
           const musicIndex = index - 1 - folders.length;
           const isCurrent = currentIndex === musicIndex;
           return (
