@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, Text, View, useWindowDimensions, Modal, TouchableWithoutFeedback } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import WuliliAvatar from '@/components/WuliliAvatar';
-import EventModal from '@/components/EventModal';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
@@ -111,10 +109,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         }
 
         const greeting = speak({ forceCategory: 'greeting' });
-        // 🔥 严密防护：强转字符串，防止对象读取炸裂
-        if (greeting && (typeof greeting === 'string' || typeof greeting.text === 'string')) {
-          setDialogueText(String(typeof greeting === 'string' ? greeting : greeting.text));
-          setActiveModal('dialogue');
+        if (greeting) {
+          const text = typeof greeting === 'string' ? greeting : (greeting as any).text;
+          if (typeof text === 'string') {
+            setDialogueText(text);
+            setActiveModal('dialogue');
+          }
         }
       } catch (err) {
         console.warn('触发主页事件失败:', err);
@@ -130,23 +130,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   const getEventActions = () => {
     if (!eventConfig) return [];
-    const dismissAction = { label: '暂时不理她', icon: 'close-circle-outline', onPress: handleModalDismiss };
+    const dismissAction = { label: '暂时不理她', icon: '', onPress: handleModalDismiss };
 
     switch (eventConfig.type) {
       case 'sick':
       case 'period':
         return [
-          { label: '马上带她去药房', icon: 'medkit', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Medicine'); } },
+          { label: '马上带她去药房', icon: '', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Medicine'); } },
           dismissAction
         ];
       case 'hungry':
         return [
-          { label: '去厨房投喂', icon: 'restaurant', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Feed'); } },
-          { label: '让她先饿着', icon: 'time-outline', onPress: handleModalDismiss }
+          { label: '去厨房投喂', icon: '', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Feed'); } },
+          { label: '让她先饿着', icon: '', onPress: handleModalDismiss }
         ];
       case 'sleepy':
         return [
-          { label: '哄她睡觉', icon: 'moon', primary: true, onPress: () => { setActiveModal('none'); startSleep(); useWuliliStore.getState().markInteraction('sleep'); } },
+          { label: '哄她睡觉', icon: '', primary: true, onPress: () => { setActiveModal('none'); startSleep(); useWuliliStore.getState().markInteraction('sleep'); } },
           dismissAction
         ];
       default:
@@ -174,13 +174,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const canSleep = canStartSleep(energy);
   const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
+  // 🔥 彻底移除 Ionicons，用最安全的文字代替图标
   const actionButtons = [
-    { icon: 'restaurant', label: '投喂', onPress: () => navigation.navigate('Feed') },
-    { icon: 'game-controller', label: '娱乐', onPress: () => navigation.navigate('Entertain') },
-    { icon: 'videocam', label: '直播', onPress: () => navigation.navigate('Stream') },
-    { icon: 'bicycle', label: '运动', onPress: () => navigation.navigate('Exercise') },
-    { icon: 'medkit', label: '药房', onPress: () => navigation.navigate('Medicine') },
-    { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
+    { label: '投喂', onPress: () => navigation.navigate('Feed') },
+    { label: '娱乐', onPress: () => navigation.navigate('Entertain') },
+    { label: '直播', onPress: () => navigation.navigate('Stream') },
+    { label: '运动', onPress: () => navigation.navigate('Exercise') },
+    { label: '药房', onPress: () => navigation.navigate('Medicine') },
+    { label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
   return (
@@ -189,66 +190,86 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.1} characterVerticalBias={0.25} characterHeightOverflow={1.15} characterHorizontalOffset={90} />
         </View>
+        
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
               <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text>
             </View>
             <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="cash-outline" size={12} color="#FFFFFF" />
-              <Text style={{ marginLeft: 4, fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{formatNumber(coins)}</Text>
+              <Text style={{ marginLeft: 4, fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>💰 {formatNumber(coins)}</Text>
             </View>
           </View>
           {isStreaming && (
             <Pressable onPress={() => navigation.navigate('Stream')} style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.9)' }}>
-              <Ionicons name="radio" size={18} color="#FFFFFF" />
-              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>正在直播中</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已播 {formatDuration(streamElapsedMs)} · 点此查看</Text></View>
-              <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>🔴 正在直播中</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已播 {formatDuration(streamElapsedMs)} · 点此查看</Text></View>
             </Pressable>
           )}
           {isSleeping && (
             <View style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(99,102,241,0.9)' }}>
-              <Ionicons name="moon" size={18} color="#FFFFFF" />
-              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>雾璃正在睡觉</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
+              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>💤 雾璃正在睡觉</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
             </View>
           )}
         </View>
+        
         {!isSleeping && (
           <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.15 }}>
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 10 }}>
-                <Pressable onPress={btn.onPress} style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
-                  {/* 🔥 核心防崩：强制转字符串 */}
-                  <Ionicons name={String(btn.icon) as any} size={22} color="#FFFFFF" />
-                  <Text style={{ fontSize: 10, color: '#FFFFFF', marginTop: 2, fontWeight: '500' }}>{btn.label}</Text>
+                <Pressable onPress={btn.onPress} style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 14, color: '#FFFFFF', fontWeight: 'bold' }}>{btn.label}</Text>
                 </Pressable>
               </View>
             ))}
           </View>
         )}
+        
         {!isSleeping && (
           <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.15, width: 56, height: 56, borderRadius: 28, backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center' }}>
-            <Ionicons name="moon" size={24} color="#FFFFFF" />
+            <Text style={{ fontSize: 24 }}>🌙</Text>
           </Pressable>
         )}
+        
         <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
           {isSleeping ? (
             <Pressable onPress={handleWakeUp} style={{ backgroundColor: '#EF4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
-              <Ionicons name="sunny" size={20} color="#FFF" /><Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>叫醒她</Text>
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>叫醒她</Text>
             </Pressable>
           ) : (
             <Pressable onPress={() => navigation.navigate('Status')} style={{ backgroundColor: '#2563EB', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
-              <Ionicons name="heart-circle" size={20} color="#FFF" /><Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>查看雾璃的状态</Text>
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>查看雾璃的状态</Text>
             </Pressable>
           )}
         </View>
 
-        {activeModal === 'event' && eventConfig && (
-          <EventModal visible={true} title={eventConfig.title} message={eventConfig.msg} actions={getEventActions()} />
-        )}
-        {activeModal === 'dialogue' && (
-          <EventModal visible={true} title="雾璃" message={dialogueText} hideActions={true} onDismiss={() => setActiveModal('none')} />
-        )}
+        {/* 🔥 纯原生防崩弹窗 */}
+        <Modal visible={activeModal === 'event'} transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', textAlign: 'center', marginBottom: 16 }}>{eventConfig?.title}</Text>
+              <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 24 }}>{eventConfig?.msg}</Text>
+              <View>
+                {getEventActions().map((act, idx) => (
+                  <Pressable key={idx} onPress={act.onPress} style={[{ paddingVertical: 12, borderRadius: 12, borderWidth: 1, marginBottom: 12, alignItems: 'center' }, act.primary ? { backgroundColor: '#2563EB', borderColor: '#2563EB' } : { backgroundColor: 'transparent', borderColor: '#334155' }]}>
+                    <Text style={[{ fontWeight: '600' }, act.primary ? { color: '#FFFFFF' } : { color: '#CBD5E1' }]}>{act.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={activeModal === 'dialogue'} transparent animationType="fade">
+          <TouchableWithoutFeedback onPress={() => setActiveModal('none')}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC', textAlign: 'center', marginBottom: 16 }}>雾璃</Text>
+                <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>{dialogueText}</Text>
+                <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击空白处继续...</Text>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
       </View>
     </View>
   );
