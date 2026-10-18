@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import TrackPlayer, { RepeatMode, State, usePlaybackState } from 'react-native-track-player';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -38,11 +39,9 @@ export function useBgm() {
       const downloadUrl = data.download_url;
       if (!downloadUrl) throw new Error('未能获取下载链接');
 
-      // 检查当前播放器的队列
       const queue = await TrackPlayer.getQueue();
       const activeTrack = queue.length > 0 ? queue[await TrackPlayer.getActiveTrackIndex() || 0] : null;
 
-      // 如果队列里是回忆记录的歌，或者根本没歌，或者强制刷新，就清空重来
       if (forceReload || !activeTrack || activeTrack.id !== 'bgm') {
         await TrackPlayer.reset();
         await TrackPlayer.add({
@@ -56,7 +55,6 @@ export function useBgm() {
         lastPlayedUrlRef.current = downloadUrl;
       }
 
-      // 只要没在播放，就给它按下去！
       const state = await TrackPlayer.getState();
       if (state !== State.Playing) {
         await TrackPlayer.play();
@@ -66,22 +64,46 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // App 初次启动时加载
+  // 1. 初次加载
   useEffect(() => {
     void setupBgm();
   }, [setupBgm]);
 
-  // 页面重新获得焦点时加载
+  // 2. 页面聚焦时
   useFocusEffect(
     useCallback(() => {
       void setupBgm();
     }, [setupBgm])
   );
 
-  // 监听状态，如果被系统打断或暂停，尝试恢复
+  // 3. 监听播放器状态（被系统打断时恢复）
   useEffect(() => {
     if (playbackState.state === State.Paused || playbackState.state === State.Stopped || playbackState.state === State.None) {
       void setupBgm();
     }
   }, [playbackState.state, setupBgm]);
+
+  // 🔥 4. 监听 App 进入后台/被杀掉，自动暂停 BGM
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // App 切到后台，直接暂停 BGM（不 reset 队列，这样回来时能恢复）
+        try {
+          const state = await TrackPlayer.getState();
+          if (state === State.Playing) {
+            await TrackPlayer.pause();
+          }
+        } catch {}
+      } else if (nextAppState === 'active') {
+        // App 切回前台，如果刚才被暂停了，就恢复
+        void setupBgm();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [setupBgm]);
 }
