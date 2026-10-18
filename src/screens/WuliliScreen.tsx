@@ -31,7 +31,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
 
   const { speak } = useDialogue();
-  const { levelLabel } = useAffinity();
+  const affinityData = useAffinity();
+  const levelLabel = affinityData?.levelLabel || '初识';
   const { season } = useSeason();
   const { height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
