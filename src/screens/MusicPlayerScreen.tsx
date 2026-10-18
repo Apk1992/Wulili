@@ -44,7 +44,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [retryCount, setRetryCount] = useState<number>(0);
 
-  // 用 useRef 记录拖动状态（避免渲染循环）
   const isSeekingRef = useRef<boolean>(false);
   const seekPositionRef = useRef<number>(0);
   const queueReadyRef = useRef<boolean>(false);
@@ -58,56 +57,36 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     return buildMusicItems(files);
   }, [query.data]);
 
+  // 🔥 移除退出时的 reset，让音乐在后天继续放！
   useEffect(() => {
     return () => {
-      void TrackPlayer.reset().catch(() => undefined);
-      queueReadyRef.current = false;
-      if (retryTimerRef.current !== null) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
+      // 什么都不做，让 TrackPlayer 继续在后台播
     };
   }, []);
 
-  // 自动重试
   useEffect(() => {
     if (trackPlayerState.state === TrackPlayerState.Error && playback.current) {
       if (retryCount < MAX_RETRIES) {
         const next = retryCount + 1;
         setRetryCount(next);
-        if (retryTimerRef.current !== null) {
-          clearTimeout(retryTimerRef.current);
-        }
+        if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
         retryTimerRef.current = setTimeout(() => {
-          if (currentIndex >= 0) {
-            void replayCurrentIndex();
-          }
+          if (currentIndex >= 0) void replayCurrentIndex();
         }, 3000);
       } else {
-        setPlayback((prev) => ({
-          ...prev,
-          status: 'error',
-          error: '播放失败（已重试）',
-        }));
+        setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败（已重试）' }));
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackPlayerState.state]);
 
-  // 同步进度到 playback（拖动中暂停）
   useEffect(() => {
-    if (!playback.current) return;
-    if (isSeekingRef.current) return;
+    if (!playback.current || isSeekingRef.current) return;
 
     const state = trackPlayerState.state;
     let status: PlaybackState['status'] = 'idle';
     if (state === TrackPlayerState.Playing) status = 'playing';
     else if (state === TrackPlayerState.Paused) status = 'paused';
-    else if (
-      state === TrackPlayerState.Buffering ||
-      state === TrackPlayerState.Loading
-    )
-      status = 'loading';
+    else if (state === TrackPlayerState.Buffering || state === TrackPlayerState.Loading) status = 'loading';
     else if (state === TrackPlayerState.Ended) status = 'ended';
     else if (state === TrackPlayerState.Error) status = 'error';
     else if (state === TrackPlayerState.Stopped) status = 'ended';
@@ -118,14 +97,8 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       position: progress.position,
       duration: progress.duration || prev.duration,
     }));
-  }, [
-    trackPlayerState.state,
-    progress.position,
-    progress.duration,
-    playback.current,
-  ]);
+  }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
 
-  // 监听切歌
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
     try {
       const index = event.index;
@@ -142,9 +115,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
           error: null,
         }));
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   });
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
@@ -160,22 +131,15 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     }));
   }, []);
 
-  const ensureQueue = useCallback(
-    async (startIndex: number) => {
-      const token = getGitHubToken();
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      await TrackPlayer.reset();
-      const tracks = buildTracks(items);
-      await TrackPlayer.add(tracks);
-      queueReadyRef.current = true;
-      await TrackPlayer.skip(startIndex);
-      await TrackPlayer.play();
-      setCurrentIndex(startIndex);
-    },
-    [items, buildTracks],
-  );
+  const ensureQueue = useCallback(async (startIndex: number) => {
+    await TrackPlayer.reset();
+    const tracks = buildTracks(items);
+    await TrackPlayer.add(tracks);
+    queueReadyRef.current = true;
+    await TrackPlayer.skip(startIndex);
+    await TrackPlayer.play();
+    setCurrentIndex(startIndex);
+  }, [items, buildTracks]);
 
   const replayCurrentIndex = useCallback(async () => {
     if (currentIndex < 0 || currentIndex >= items.length) return;
@@ -183,57 +147,41 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
       await TrackPlayer.reset();
       queueReadyRef.current = false;
       await ensureQueue(currentIndex);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [currentIndex, items.length, ensureQueue]);
 
-  const handlePlayAt = useCallback(
-    async (index: number) => {
-      try {
-        const item = items[index];
-        if (!item) return;
+  const handlePlayAt = useCallback(async (index: number) => {
+    try {
+      const item = items[index];
+      if (!item) return;
 
-        setRetryCount(0);
-        isSeekingRef.current = false;
-        setPlayback({
-          current: item,
-          status: 'loading',
-          position: 0,
-          duration: 0,
-          error: null,
-        });
+      setRetryCount(0);
+      isSeekingRef.current = false;
+      setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
-        if (!queueReadyRef.current) {
-          await ensureQueue(index);
-        } else {
-          const activeIndex = await TrackPlayer.getActiveTrackIndex();
-          if (activeIndex === index) {
-            const state = (await TrackPlayer.getPlaybackState()).state;
-            if (state === TrackPlayerState.Playing) {
-              await TrackPlayer.pause();
-              setPlayback((prev) => ({ ...prev, status: 'paused' }));
-            } else {
-              await TrackPlayer.play();
-              setPlayback((prev) => ({ ...prev, status: 'playing' }));
-            }
+      if (!queueReadyRef.current) {
+        await ensureQueue(index);
+      } else {
+        const activeIndex = await TrackPlayer.getActiveTrackIndex();
+        if (activeIndex === index) {
+          const state = (await TrackPlayer.getPlaybackState()).state;
+          if (state === TrackPlayerState.Playing) {
+            await TrackPlayer.pause();
+            setPlayback((prev) => ({ ...prev, status: 'paused' }));
           } else {
-            await TrackPlayer.skip(index);
             await TrackPlayer.play();
-            setCurrentIndex(index);
+            setPlayback((prev) => ({ ...prev, status: 'playing' }));
           }
+        } else {
+          await TrackPlayer.skip(index);
+          await TrackPlayer.play();
+          setCurrentIndex(index);
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '播放失败';
-        setPlayback((prev) => ({
-          ...prev,
-          status: 'error',
-          error: message,
-        }));
       }
-    },
-    [items, ensureQueue],
-  );
+    } catch (error) {
+      setPlayback((prev) => ({ ...prev, status: 'error', error: error instanceof Error ? error.message : '播放失败' }));
+    }
+  }, [items, ensureQueue]);
 
   const handleTogglePlay = useCallback(async () => {
     try {
@@ -245,32 +193,19 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         await TrackPlayer.play();
         setPlayback((prev) => ({ ...prev, status: 'playing' }));
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
-  // ============ 拖动 ============
-  const handleSeekStart = useCallback((value: number) => {
-    isSeekingRef.current = true;
-    seekPositionRef.current = value;
-  }, []);
-
-  const handleSeekChange = useCallback((value: number) => {
-    seekPositionRef.current = value;
-  }, []);
-
+  const handleSeekStart = useCallback((value: number) => { isSeekingRef.current = true; seekPositionRef.current = value; }, []);
+  const handleSeekChange = useCallback((value: number) => { seekPositionRef.current = value; }, []);
   const handleSeekComplete = useCallback(async (value: number) => {
     try {
       await TrackPlayer.seekTo(value);
       setPlayback((prev) => ({ ...prev, position: value }));
-    } catch {
-      // ignore
-    } finally {
-      isSeekingRef.current = false;
-    }
+    } catch {} finally { isSeekingRef.current = false; }
   }, []);
 
+  // 🔥 修复后退逻辑，不再用容易崩溃的 skipToPrevious
   const handleNext = useCallback(async () => {
     try {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
@@ -278,125 +213,49 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         await TrackPlayer.skipToNext();
         await TrackPlayer.play();
       }
-    } catch {
-      // 已在最后一首
-    }
+    } catch {}
   }, [items.length]);
 
+  // 🔥 修复后退逻辑
   const handlePrevious = useCallback(async () => {
     try {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       if (typeof activeIndex === 'number' && activeIndex > 0) {
-        await TrackPlayer.skipToPrevious();
+        await TrackPlayer.skip(activeIndex - 1); // 手动计算索引，比 skipToPrevious 稳
         await TrackPlayer.play();
       }
-    } catch {
-      // 已在第一首
-    }
+    } catch {}
   }, []);
 
   const handleStop = useCallback(async () => {
     try {
       await TrackPlayer.reset();
       queueReadyRef.current = false;
-    } catch {
-      // ignore
-    }
+    } catch {}
     setCurrentIndex(-1);
-    setPlayback({
-      current: null,
-      status: 'idle',
-      position: 0,
-      duration: 0,
-      error: null,
-    });
+    setPlayback({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   }, []);
 
-  if (query.isLoading) {
-    return (
-      <ScreenContainer edges={['bottom']}>
-        <LoadingView message="正在加载音乐列表…" fullScreen />
-      </ScreenContainer>
-    );
-  }
-
-  if (query.isError) {
-    return (
-      <ScreenContainer edges={['bottom']}>
-        <ErrorView
-          title="加载失败"
-          message="无法获取音乐列表，请检查网络或 Token。"
-          onRetry={() => query.refetch()}
-          fullScreen
-        />
-      </ScreenContainer>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <ScreenContainer edges={['bottom']}>
-        <EmptyView
-          title="还没有音乐"
-          message="往仓库的 music/ 文件夹里上传一些音乐文件吧。"
-          icon="musical-notes-outline"
-          fullScreen
-        />
-      </ScreenContainer>
-    );
-  }
-
-  const hasPrevious = currentIndex > 0;
-  const hasNext = currentIndex >= 0 && currentIndex + 1 < items.length;
+  if (query.isLoading) return <ScreenContainer edges={['bottom']}><LoadingView message="正在加载音乐列表…" fullScreen /></ScreenContainer>;
+  if (query.isError) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" message="无法获取音乐列表，请检查网络或 Token。" onRetry={() => query.refetch()} fullScreen /></ScreenContainer>;
+  if (items.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="还没有音乐" message="往仓库的 music/ 文件夹里上传一些音乐文件吧。" icon="musical-notes-outline" fullScreen /></ScreenContainer>;
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingTop: 12,
-          paddingBottom: playback.current ? 220 : 24,
-        }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: playback.current ? 220 : 24 }}
         renderItem={({ item, index }) => {
           const isCurrent = currentIndex === index;
           return (
-            <View
-              className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}
-            >
-              <MemoryListItem
-                item={item}
-                onPress={() => void handlePlayAt(index)}
-              />
+            <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
+              <MemoryListItem item={item} onPress={() => void handlePlayAt(index)} />
               {isCurrent ? (
                 <View className="flex-row items-center mb-2 ml-4">
-                  <Ionicons
-                    name={
-                      playback.status === 'playing'
-                        ? 'musical-notes'
-                        : playback.status === 'error'
-                          ? 'alert-circle'
-                          : 'pause-circle'
-                    }
-                    size={12}
-                    color={playback.status === 'error' ? '#EF4444' : '#2563EB'}
-                  />
-                  <Text
-                    className={[
-                      'ml-1 text-[10px]',
-                      playback.status === 'error'
-                        ? 'text-danger'
-                        : 'text-primary',
-                    ].join(' ')}
-                  >
-                    {playback.status === 'playing'
-                      ? '正在播放'
-                      : playback.status === 'paused'
-                        ? '已暂停'
-                        : playback.status === 'error'
-                          ? '播放失败'
-                          : '当前曲目'}
+                  <Ionicons name={playback.status === 'playing' ? 'musical-notes' : playback.status === 'error' ? 'alert-circle' : 'pause-circle'} size={12} color={playback.status === 'error' ? '#EF4444' : '#2563EB'} />
+                  <Text className={['ml-1 text-[10px]', playback.status === 'error' ? 'text-danger' : 'text-primary'].join(' ')}>
+                    {playback.status === 'playing' ? '正在播放' : playback.status === 'paused' ? '已暂停' : playback.status === 'error' ? '播放失败' : '当前曲目'}
                   </Text>
                 </View>
               ) : null}
@@ -405,10 +264,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
         }}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          <Pressable
-            className="mb-2 flex-row items-center"
-            onPress={() => void query.refetch()}
-          >
+          <Pressable className="mb-2 flex-row items-center" onPress={() => void query.refetch()}>
             <Ionicons name="refresh" size={14} color="#2563EB" />
             <Text className="ml-1 text-xs text-primary">刷新列表</Text>
           </Pressable>
@@ -425,8 +281,8 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             onPrevious={() => void handlePrevious()}
             onNext={() => void handleNext()}
             onStop={() => void handleStop()}
-            hasPrevious={hasPrevious}
-            hasNext={hasNext}
+            hasPrevious={currentIndex > 0}
+            hasNext={currentIndex >= 0 && currentIndex + 1 < items.length}
           />
         </View>
       ) : null}
@@ -452,9 +308,7 @@ function buildMusicItems(files: GitHubContentItem[]): MemoryItem[] {
       source: 'repo',
     });
   }
-  return items.sort((a, b) =>
-    a.displayName.localeCompare(b.displayName, 'zh-CN'),
-  );
+  return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
 }
 
 export default MusicPlayerScreen;
