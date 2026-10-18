@@ -23,6 +23,7 @@ export interface WuliliAvatarProps {
   characterVerticalBias?: number;
   characterHeightOverflow?: number;
   characterBottomOffset?: number;
+  characterHorizontalOffset?: number; // 👈 新增：水平偏移量，正数向右
 }
 
 const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
@@ -37,6 +38,7 @@ export function WuliliAvatar({
   characterSizeRatio = 1.2,
   characterVerticalBias = 0.25,
   characterHeightOverflow = 1.5,
+  characterHorizontalOffset = 0, // 默认 0
 }: WuliliAvatarProps): React.JSX.Element {
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -67,14 +69,20 @@ export function WuliliAvatar({
   const characterHeight = fullScreen ? (screenHeight - topOffset) * characterHeightOverflow : size;
 
   const character = hideCharacter ? null : (
-    <RemoteImage
-      uri={avatarUri}
-      width={characterWidth}
-      height={characterHeight}
-      resizeMode="cover" // 🔥 恢复 cover，人物直接撑满，恢复完美大小！
-      fallbackIcon="person"
-      className="bg-transparent dark:bg-transparent"
-    />
+    <View
+      style={{
+        transform: [{ translateX: characterHorizontalOffset }], // 👈 核心：水平平移实现靠右出屏
+      }}
+    >
+      <RemoteImage
+        uri={avatarUri}
+        width={characterWidth}
+        height={characterHeight}
+        resizeMode="cover" 
+        fallbackIcon="person"
+        className="bg-transparent dark:bg-transparent"
+      />
+    </View>
   );
 
   if (fullScreen && sceneUri) {
