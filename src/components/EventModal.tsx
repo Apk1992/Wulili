@@ -12,7 +12,7 @@ export interface EventModalAction {
 export interface EventModalProps {
   visible: boolean;
   title: string;
-  message: string | any; // 允许传对象，内部强转
+  message: string | any;
   actions?: EventModalAction[];
   onDismiss?: () => void;
   hideActions?: boolean;
@@ -21,8 +21,7 @@ export interface EventModalProps {
 export function EventModal({ visible, title, message, actions = [], onDismiss, hideActions = false }: EventModalProps) {
   if (!visible) return null;
 
-  // 🔥 安全提取文本，防止对象引发渲染崩溃
-  const displayMessage = typeof message === 'string' ? message : (message?.text || message?.message || JSON.stringify(message) || '');
+  const displayMessage = typeof message === 'string' ? message : (message?.text || message?.message || String(message) || '');
 
   const content = (
     <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
@@ -38,19 +37,22 @@ export function EventModal({ visible, title, message, actions = [], onDismiss, h
       </Text>
 
       {!hideActions && (
-        <View style={{ gap: 12 }}>
+        <View>
           {actions.map((act, idx) => (
             <Pressable
               key={idx}
               onPress={act.onPress}
-              style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1 }, act.primary ? { backgroundColor: '#2563EB', borderColor: '#2563EB' } : { backgroundColor: 'transparent', borderColor: '#334155' }]}
+              style={[
+                { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 1, marginBottom: 12 },
+                act.primary ? { backgroundColor: '#2563EB', borderColor: '#2563EB' } : { backgroundColor: 'transparent', borderColor: '#334155' }
+              ]}
             >
               {act.icon && <Ionicons name={act.icon as any} size={18} color={act.primary ? '#FFFFFF' : '#64748B'} style={{ marginRight: 8 }} />}
               <Text style={[{ fontWeight: '600' }, act.primary ? { color: '#FFFFFF' } : { color: '#CBD5E1' }]}>{act.label}</Text>
             </Pressable>
           ))}
           {onDismiss && (
-            <Pressable onPress={onDismiss} style={{ paddingVertical: 8, alignItems: 'center', marginTop: 8 }}>
+            <Pressable onPress={onDismiss} style={{ paddingVertical: 8, alignItems: 'center', marginTop: 4 }}>
               <Text style={{ fontSize: 12, color: '#64748B' }}>点击空白处继续...</Text>
             </Pressable>
           )}
