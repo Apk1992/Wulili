@@ -12,7 +12,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
-import DialogueBubble from '@/components/DialogueBubble';
+import EventModal from '@/components/EventModal'; // 👈 引入统一弹窗
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -84,7 +84,6 @@ export function FoodDetailScreen({
   const isFull = hunger >= FULL_HUNGER_THRESHOLD;
   const dessertLimitReached = consecutiveDessert >= MAX_CONSECUTIVE_DESSERT;
 
-  // 逻辑判断：是否可喂
   let blockReason: string | null = null;
   if (isDessert) {
     if (dessertLimitReached) {
@@ -139,9 +138,10 @@ export function FoodDetailScreen({
         }
       }
 
+      // 弹窗结束后自动退回
       setTimeout(() => {
         navigation.goBack();
-      }, line ? 600 : 100);
+      }, line ? 2500 : 100);
     } finally {
       setSubmitting(false);
     }
@@ -154,6 +154,7 @@ export function FoodDetailScreen({
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* 内容原封不动... */}
         <View
           className="w-full bg-card dark:bg-dark-card items-center justify-center"
           style={{ height: screenHeight * 0.55 }}
@@ -173,62 +174,37 @@ export function FoodDetailScreen({
             <Text className="text-2xl font-bold text-text dark:text-dark-text flex-1">
               {food.name}
             </Text>
-            <View
-              className={[
-                'px-2 py-0.5 rounded-md mr-1',
-                isHealthy ? 'bg-success/15' : 'bg-danger/15',
-              ].join(' ')}
-            >
-              <Text
-                className={[
-                  'text-[10px] font-semibold',
-                  isHealthy ? 'text-success' : 'text-danger',
-                ].join(' ')}
-              >
+            {/* 标签块... */}
+            <View className={['px-2 py-0.5 rounded-md mr-1', isHealthy ? 'bg-success/15' : 'bg-danger/15'].join(' ')}>
+              <Text className={['text-[10px] font-semibold', isHealthy ? 'text-success' : 'text-danger'].join(' ')}>
                 {isHealthy ? '营养' : '放纵'}
               </Text>
             </View>
             {isDessert ? (
               <View className="px-2 py-0.5 rounded-md bg-warning/15">
-                <Text className="text-[10px] font-semibold text-warning">
-                  甜点
-                </Text>
+                <Text className="text-[10px] font-semibold text-warning">甜点</Text>
               </View>
             ) : null}
           </View>
 
-          <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">
-            {food.description}
-          </Text>
+          <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">{food.description}</Text>
 
           <View className="mt-3 flex-row items-center">
             <Ionicons name="cash" size={16} color="#2563EB" />
-            <Text className="ml-1 text-base font-bold text-primary">
-              {formatCoins(food.price)}
-            </Text>
-            <Text className="ml-3 text-xs text-muted dark:text-dark-muted">
-              当前金币 {formatCoins(coins)}
-            </Text>
+            <Text className="ml-1 text-base font-bold text-primary">{formatCoins(food.price)}</Text>
+            <Text className="ml-3 text-xs text-muted dark:text-dark-muted">当前金币 {formatCoins(coins)}</Text>
           </View>
         </View>
 
+        {/* 效果块... */}
         <View className="px-4 mt-4">
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            效果
-          </Text>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">效果</Text>
           <View className="rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border p-3">
             <EffectRow icon="restaurant" label="饱食" value={food.effect.hunger} color="#2563EB" />
             <EffectRow icon="happy" label="心情" value={food.effect.mood} color="#10B981" />
             <EffectRow icon="heart" label="健康" value={food.effect.health} color="#EF4444" />
             <EffectRow icon="flash" label="精力" value={food.effect.energy} color="#F59E0B" />
-            <EffectRow
-              icon="scale"
-              label="体重"
-              value={food.effect.weight}
-              color="#8B5CF6"
-              unit="kg"
-              decimals={2}
-            />
+            <EffectRow icon="scale" label="体重" value={food.effect.weight} color="#8B5CF6" unit="kg" decimals={2} />
           </View>
         </View>
 
@@ -236,24 +212,12 @@ export function FoodDetailScreen({
           <View className="px-4 mt-3">
             <View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center">
               <Ionicons name="alert-circle" size={16} color="#F59E0B" />
-              <Text className="ml-2 text-xs text-warning flex-1">
-                {blockReason}
-              </Text>
+              <Text className="ml-2 text-xs text-warning flex-1">{blockReason}</Text>
             </View>
           </View>
         ) : null}
 
         <View className="px-4 mt-5">
-          {dialogue ? (
-            <View className="mb-3">
-              <DialogueBubble
-                dialogue={dialogue}
-                onDismiss={() => setDialogue(null)}
-                autoDismissMs={10000}
-              />
-            </View>
-          ) : null}
-
           <Button
             label={submitting ? '投喂中…' : '确认投喂'}
             icon="checkmark"
@@ -264,36 +228,26 @@ export function FoodDetailScreen({
             disabled={!affordable || !canFeed}
           />
           <View className="mt-2">
-            <Button
-              label="取消"
-              variant="ghost"
-              size="md"
-              onPress={() => navigation.goBack()}
-            />
+            <Button label="取消" variant="ghost" size="md" onPress={() => navigation.goBack()} />
           </View>
         </View>
       </ScrollView>
+
+      {/* 👈 替换原 DialogueBubble 为全屏弹窗 */}
+      {dialogue && (
+        <EventModal
+          visible={true}
+          title="雾璃"
+          message={dialogue.text}
+          actions={[]}
+          onDismiss={() => setDialogue(null)}
+        />
+      )}
     </ScreenContainer>
   );
 }
 
-interface EffectRowProps {
-  icon: string;
-  label: string;
-  value: number;
-  color: string;
-  unit?: string;
-  decimals?: number;
-}
-
-function EffectRow({
-  icon,
-  label,
-  value,
-  color,
-  unit = '',
-  decimals = 0,
-}: EffectRowProps): React.JSX.Element {
+function EffectRow({ icon, label, value, color, unit = '', decimals = 0 }: any): React.JSX.Element {
   const isZero = Math.abs(value) < 0.001;
   const sign = value > 0 ? '+' : '';
   const display = isZero ? '0' : `${sign}${value.toFixed(decimals)}${unit}`;
@@ -303,16 +257,9 @@ function EffectRow({
     <View className="flex-row items-center justify-between py-1.5">
       <View className="flex-row items-center">
         <Ionicons name={icon} size={14} color={color} />
-        <Text className="ml-2 text-xs text-muted dark:text-dark-muted">
-          {label}
-        </Text>
+        <Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text>
       </View>
-      <Text
-        className="text-xs font-semibold"
-        style={{ color: valueColor }}
-      >
-        {display}
-      </Text>
+      <Text className="text-xs font-semibold" style={{ color: valueColor }}>{display}</Text>
     </View>
   );
 }
