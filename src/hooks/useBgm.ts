@@ -18,6 +18,14 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
+      // 🔥 核心复活机制：尝试获取状态，如果报错说明底层服务死了，立马重装！
+      try {
+        await TrackPlayer.getPlaybackState();
+      } catch (e) {
+        console.log('检测到播放器服务已死，正在重新初始化...');
+        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+      }
+
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
       const seasonStr = season || 'autumn';
@@ -30,17 +38,15 @@ export function useBgm() {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      // 🔥 强制检查当前播放队列
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 如果当前队列里有别人的歌（回忆音乐、视频），说明用户在听，BGM 绝不打扰
+      // 如果当前放的是回忆音乐，就不抢
       if (!force && activeTrack && activeTrack.id !== 'bgm') {
         return;
       }
 
-      // 如果队列空了，或者不是在放 BGM，强行塞入 BGM
       if (force || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
@@ -58,19 +64,17 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 首次进入时强力启动
+  // 第一次挂载直接强开
   useEffect(() => {
     void setupBgm(true);
   }, [setupBgm]);
 
-  // 每次回到主页时检查
   useFocusEffect(
     useCallback(() => {
       void setupBgm(false);
     }, [setupBgm])
   );
 
-  // 监听 App 前后台
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
