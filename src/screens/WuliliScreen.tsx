@@ -135,7 +135,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             hideCharacter={isSleeping}
             characterSizeRatio={1.1} 
             characterVerticalBias={0.25} 
-            characterHeightOverflow={1.2} 
+            characterHeightOverflow={1.1} 
             characterHorizontalOffset={80} // 👈 核心：人物向右平移 40 像素，头发完美出屏
           />
         </View>
