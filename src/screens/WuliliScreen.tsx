@@ -24,8 +24,6 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
-
-// 🔥 全局变量，记录玩家拒绝过的状态（关掉 App 就会重置）
 let dismissedEventType: string | null = null;
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
@@ -86,10 +84,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
       try {
         updateLoginStreak();
         setMood(computeMood());
-
         if (isSleeping || activeModal !== 'none') return;
 
-        // 判断并弹窗，如果玩家拒绝过且状态没解决，就不重复弹
         if (illness && illness.type !== 'none' && dismissedEventType !== 'sick') {
           setEventConfig({ title: '雾璃生病了', msg: '她看起来很难受，一直咳嗽。需要带她去药房吗？', type: 'sick' });
           setActiveModal('event');
@@ -115,8 +111,9 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         }
 
         const greeting = speak({ forceCategory: 'greeting' });
-        if (greeting && typeof greeting.text === 'string') {
-          setDialogueText(greeting.text);
+        // 🔥 严密防护：强转字符串，防止对象读取炸裂
+        if (greeting && (typeof greeting === 'string' || typeof greeting.text === 'string')) {
+          setDialogueText(String(typeof greeting === 'string' ? greeting : greeting.text));
           setActiveModal('dialogue');
         }
       } catch (err) {
@@ -126,10 +123,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   );
 
   const handleModalDismiss = () => {
-    if (eventConfig) {
-      // 🔥 如果玩家点了“暂时不理”，记录状态，本次运行不再弹出
-      dismissedEventType = eventConfig.type;
-    }
+    if (eventConfig) dismissedEventType = eventConfig.type;
     setActiveModal('none');
     setEventConfig(null);
   };
@@ -224,7 +218,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 10 }}>
                 <Pressable onPress={btn.onPress} style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
-                  <Ionicons name={btn.icon as any} size={22} color="#FFFFFF" />
+                  {/* 🔥 核心防崩：强制转字符串 */}
+                  <Ionicons name={String(btn.icon) as any} size={22} color="#FFFFFF" />
                   <Text style={{ fontSize: 10, color: '#FFFFFF', marginTop: 2, fontWeight: '500' }}>{btn.label}</Text>
                 </Pressable>
               </View>
