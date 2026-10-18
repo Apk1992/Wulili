@@ -1,12 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import {
+  Alert,
+  ScrollView,
+  Text,
+  View,
+  useWindowDimensions,
+  Modal,
+  Pressable,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
-import EventModal from '@/components/EventModal';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -14,7 +21,6 @@ import { useAffinity } from '@/hooks/useAffinity';
 import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { formatCoins } from '@/utils/format';
 import { FULL_HUNGER_THRESHOLD, MAX_CONSECUTIVE_DESSERT } from '@/types/wulili';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodDetail'>;
@@ -35,7 +41,9 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
 
   const { speak } = useDialogue();
   const { gain } = useAffinity();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
+  
+  // 🔥 不再用复杂的 Dialogue 对象，只存纯文本字符串！
+  const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const imagePath = useMemo(() => {
@@ -73,8 +81,10 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
       if (isDessert) recordDessert();
       gain(food.category === 'healthy' ? 1 : 0.5);
 
+      // 🔥 安全提取字符串，无论 speak 返回对象还是字符串
       const line = speak({ action: 'feed', foodCategory: food.category });
-      if (line) setDialogue(line);
+      const text = typeof line === 'string' ? line : line?.text || '谢谢你的投喂...';
+      setDialogueText(text);
 
       if (food.effect.health < 0) {
         if (Math.random() < Math.abs(food.effect.health) * 0.02) {
@@ -82,8 +92,13 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
           setTimeout(() => Alert.alert('注意', '雾璃的鼻炎好像又犯了……'), 800);
         }
       }
-      setTimeout(() => navigation.goBack(), line ? 2500 : 100);
     } finally { setSubmitting(false); }
+  };
+
+  // 关闭弹窗后，自动返回上一页
+  const handleCloseModal = () => {
+    setDialogueText(null);
+    navigation.goBack();
   };
 
   return (
@@ -124,16 +139,23 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
         </View>
       </ScrollView>
 
-      {/* 🔥 安全读取内容：不用管它原本是对象还是字符串 */}
-      {dialogue && (
-        <EventModal 
-          visible={true} 
-          title="雾璃" 
-          message={typeof dialogue === 'string' ? dialogue : (dialogue as any).text} 
-          hideActions={true} 
-          onDismiss={() => setDialogue(null)} 
-        />
-      )}
+      {/* 🔥 纯原生弹窗，绝无任何崩溃可能 */}
+      <Modal visible={dialogueText !== null} transparent animationType="fade">
+        <Pressable onPress={handleCloseModal} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                <Ionicons name="heart" size={32} color="#2563EB" />
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>雾璃</Text>
+            </View>
+            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>
+              {dialogueText}
+            </Text>
+            <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击任意位置继续...</Text>
+          </View>
+        </Pressable>
+      </Modal>
     </ScreenContainer>
   );
 }
