@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Alert, Text, View, ScrollView } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -18,7 +18,7 @@ import {
   computeDurationBonus,
 } from '@/data/streamConfig';
 import { aggregateBonus, describeAggregated } from '@/utils/equipmentBonus';
-import { formatCoins } from '@/utils/format';
+import { formatCoins, formatNumber } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
 import { clamp } from '@/utils/random';
 import type { Dialogue } from '@/types/dialogue';
@@ -146,226 +146,233 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
   const displayEarned = isLive ? streamState.accumulatedCoins : 0;
 
   return (
-    <ScreenContainer edges={['bottom']}>
-      <Card className="items-center py-6">
-        <View
-          className={[
-            'w-24 h-24 rounded-full items-center justify-center',
-            isLive ? 'bg-danger' : 'bg-primary',
-          ].join(' ')}
-        >
-          <Ionicons
-            name={isLive ? 'radio' : 'videocam'}
-            size={40}
-            color="#FFFFFF"
-          />
-        </View>
-
-        <Text className="mt-4 text-lg font-bold text-text dark:text-dark-text">
-          {isLive ? '正在直播中' : '准备开播'}
-        </Text>
-
-        {isLive ? (
-          <>
-            <Text className="text-xs text-muted dark:text-dark-muted mt-1">
-              已播 {formatDuration(elapsedMs)}
-            </Text>
-            <View className="flex-row items-end mt-3">
-              <Text className="text-3xl font-bold text-primary">
-                {displayEarned.toFixed(2)}
-              </Text>
-              <Text className="ml-1 text-sm text-muted dark:text-dark-muted mb-1">
-                金币
-              </Text>
-            </View>
-            <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
-              当前 {earningsPerSecond.toFixed(4)} 金币/秒 · 每小时约 {Math.round(earningsPerSecond * 3600)}
-            </Text>
-            <View className="mt-2 px-3 py-1 rounded-full bg-primary/10 dark:bg-primary/20">
-              <Text className="text-xs font-semibold text-primary">
-                时长加成 {durationInfo.label} ×{durationInfo.multiplier.toFixed(2)}
-              </Text>
-            </View>
-          </>
-        ) : (
-          <Text className="text-xs text-muted dark:text-dark-muted mt-1">
-            想播多久就播多久 · 越播越值钱 · 精力耗尽会自动结束
-          </Text>
-        )}
-
-        <View className="flex-row items-center mt-5 w-full">
-          {!isLive ? (
-            <Button
-              label="开始直播"
-              icon="videocam"
-              variant="primary"
-              onPress={handleStart}
-              disabled={!canStart}
-            />
-          ) : (
-            <Button
-              label="下播"
-              icon="stop"
-              variant="danger"
-              onPress={handleStop}
-            />
-          )}
-        </View>
-      </Card>
-
-      <View className="mt-3">
-        <Card>
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            直播等级 · Lv.{levelInfo.level}
-          </Text>
-          <View className="w-full rounded-full overflow-hidden h-2 bg-border dark:bg-dark-border">
-            <View
-              className="h-2 bg-primary"
-              style={{ width: `${Math.round(levelInfo.progressToNext * 100)}%` }}
+    <ScreenContainer edges={['bottom']} padded={false}>
+      {/* 🔥 核心修复：用 ScrollView 包裹，并增加底部 padding 留白 */}
+      <ScrollView 
+        className="flex-1 px-4 pt-4" 
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Card className="items-center py-6">
+          <View
+            className={[
+              'w-24 h-24 rounded-full items-center justify-center',
+              isLive ? 'bg-danger' : 'bg-primary',
+            ].join(' ')}
+          >
+            <Ionicons
+              name={isLive ? 'radio' : 'videocam'}
+              size={40}
+              color="#FFFFFF"
             />
           </View>
-          <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
-            累计直播 {formatDuration(wulili.totalStreamSeconds * 1000)} · 收入加成 +
-            {Math.round(levelInfo.bonusRate * 100)}%
-          </Text>
-        </Card>
-      </View>
 
-      {isLive ? (
+          <Text className="mt-4 text-lg font-bold text-text dark:text-dark-text">
+            {isLive ? '正在直播中' : '准备开播'}
+          </Text>
+
+          {isLive ? (
+            <>
+              <Text className="text-xs text-muted dark:text-dark-muted mt-1">
+                已播 {formatDuration(elapsedMs)}
+              </Text>
+              <View className="flex-row items-end mt-3">
+                <Text className="text-3xl font-bold text-primary">
+                  {displayEarned.toFixed(2)}
+                </Text>
+                <Text className="ml-1 text-sm text-muted dark:text-dark-muted mb-1">
+                  金币
+                </Text>
+              </View>
+              <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
+                当前 {earningsPerSecond.toFixed(4)} 金币/秒 · 每小时约 {Math.round(earningsPerSecond * 3600)}
+              </Text>
+              <View className="mt-2 px-3 py-1 rounded-full bg-primary/10 dark:bg-primary/20">
+                <Text className="text-xs font-semibold text-primary">
+                  时长加成 {durationInfo.label} ×{durationInfo.multiplier.toFixed(2)}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <Text className="text-xs text-muted dark:text-dark-muted mt-1">
+              想播多久就播多久 · 越播越值钱 · 精力耗尽会自动结束
+            </Text>
+          )}
+
+          <View className="flex-row items-center mt-5 w-full">
+            {!isLive ? (
+              <Button
+                label="开始直播"
+                icon="videocam"
+                variant="primary"
+                onPress={handleStart}
+                disabled={!canStart}
+              />
+            ) : (
+              <Button
+                label="下播"
+                icon="stop"
+                variant="danger"
+                onPress={handleStop}
+              />
+            )}
+          </View>
+        </Card>
+
         <View className="mt-3">
           <Card>
             <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-              时长加成档位
+              直播等级 · Lv.{levelInfo.level}
             </Text>
-            {STREAM_CONFIG.durationBonusTiers.map((tier) => {
-              const isCurrent = tier.multiplier === durationInfo.multiplier;
-              const reached =
-                streamState.totalSeconds / 3600 >= tier.minHours;
-              return (
-                <View
-                  key={tier.minHours}
-                  className="flex-row items-center justify-between py-1"
-                >
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name={
-                        isCurrent
-                          ? 'radio-button-on'
-                          : reached
-                            ? 'checkmark-circle'
-                            : 'ellipse-outline'
-                      }
-                      size={12}
-                      color={
-                        isCurrent ? '#2563EB' : reached ? '#10B981' : '#94A3B8'
-                      }
-                    />
-                    <Text
-                      className={[
-                        'ml-2 text-xs',
-                        isCurrent
-                          ? 'text-primary font-semibold'
-                          : reached
-                            ? 'text-text dark:text-dark-text'
-                            : 'text-muted dark:text-dark-muted',
-                      ].join(' ')}
-                    >
-                      {tier.minHours === 0
-                        ? '刚开始'
-                        : `${tier.minHours} 小时后`}{' '}
-                      · {tier.label}
-                    </Text>
-                  </View>
-                  <Text
-                    className={[
-                      'text-xs font-medium',
-                      isCurrent ? 'text-primary' : 'text-muted dark:text-dark-muted',
-                    ].join(' ')}
-                  >
-                    ×{tier.multiplier.toFixed(2)}
-                  </Text>
-                </View>
-              );
-            })}
+            <View className="w-full rounded-full overflow-hidden h-2 bg-border dark:bg-dark-border">
+              <View
+                className="h-2 bg-primary"
+                style={{ width: `${Math.round(levelInfo.progressToNext * 100)}%` }}
+              />
+            </View>
+            <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
+              累计直播 {formatDuration(wulili.totalStreamSeconds * 1000)} · 收入加成 +
+              {Math.round(levelInfo.bonusRate * 100)}%
+            </Text>
           </Card>
         </View>
-      ) : null}
 
-      <View className="mt-3">
-        <Card>
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            当前加成
-          </Text>
-          {bonusLines.length > 0 ? (
-            bonusLines.map((line) => (
-              <Text
-                key={line}
-                className="text-xs text-muted dark:text-dark-muted py-0.5"
-              >
-                · {line}
+        {isLive ? (
+          <View className="mt-3">
+            <Card>
+              <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+                时长加成档位
               </Text>
-            ))
-          ) : (
-            <Text className="text-xs text-muted dark:text-dark-muted">
-              无（去衣柜穿戴服饰/配饰来获得加成）
-            </Text>
-          )}
-        </Card>
-      </View>
-
-      <View className="mt-3">
-        <Card>
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
-            直播间状态
-          </Text>
-          <InfoRow label="精力" value={`${Math.round(energy)}/100`} />
-          <InfoRow label="健康" value={`${Math.round(health)}/100`} />
-          <InfoRow label="心情" value={`${Math.round(mood)}/100`} />
-          <InfoRow label="当前金币" value={formatCoins(coins)} />
-          {isLive ? (
-            <>
-              <InfoRow
-                label="收入速率"
-                value={`${earningsPerSecond.toFixed(4)} 金币/秒`}
-              />
-              <InfoRow
-                label="精力消耗"
-                value={`${energyCostPerSecond.toFixed(4)}/秒`}
-              />
-              <InfoRow
-                label="心情消耗"
-                value={`${moodCostPerSecond.toFixed(4)}/秒`}
-              />
-            </>
-          ) : null}
-        </Card>
-      </View>
-
-      <View className="mt-3">
-        {dialogue ? (
-          <DialogueBubble
-            dialogue={dialogue}
-            onDismiss={() => setDialogue(null)}
-            autoDismissMs={8000}
-          />
+              {STREAM_CONFIG.durationBonusTiers.map((tier) => {
+                const isCurrent = tier.multiplier === durationInfo.multiplier;
+                const reached =
+                  streamState.totalSeconds / 3600 >= tier.minHours;
+                return (
+                  <View
+                    key={tier.minHours}
+                    className="flex-row items-center justify-between py-1"
+                  >
+                    <View className="flex-row items-center">
+                      <Ionicons
+                        name={
+                          isCurrent
+                            ? 'radio-button-on'
+                            : reached
+                              ? 'checkmark-circle'
+                              : 'ellipse-outline'
+                        }
+                        size={12}
+                        color={
+                          isCurrent ? '#2563EB' : reached ? '#10B981' : '#94A3B8'
+                        }
+                      />
+                      <Text
+                        className={[
+                          'ml-2 text-xs',
+                          isCurrent
+                            ? 'text-primary font-semibold'
+                            : reached
+                              ? 'text-text dark:text-dark-text'
+                              : 'text-muted dark:text-dark-muted',
+                        ].join(' ')}
+                      >
+                        {tier.minHours === 0
+                          ? '刚开始'
+                          : `${tier.minHours} 小时后`}{' '}
+                        · {tier.label}
+                      </Text>
+                    </View>
+                    <Text
+                      className={[
+                        'text-xs font-medium',
+                        isCurrent ? 'text-primary' : 'text-muted dark:text-dark-muted',
+                      ].join(' ')}
+                    >
+                      ×{tier.multiplier.toFixed(2)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </Card>
+          </View>
         ) : null}
-      </View>
 
-      {isLive ? (
         <View className="mt-3">
-          <Text className="text-center text-[10px] text-muted dark:text-dark-muted">
-            可以随时离开此页面，直播会继续
-          </Text>
+          <Card>
+            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+              当前加成
+            </Text>
+            {bonusLines.length > 0 ? (
+              bonusLines.map((line) => (
+                <Text
+                  key={line}
+                  className="text-xs text-muted dark:text-dark-muted py-0.5"
+                >
+                  · {line}
+                </Text>
+              ))
+            ) : (
+              <Text className="text-xs text-muted dark:text-dark-muted">
+                无（去衣柜穿戴服饰/配饰来获得加成）
+              </Text>
+            )}
+          </Card>
         </View>
-      ) : (
+
         <View className="mt-3">
-          <Button
-            label="返回"
-            variant="ghost"
-            onPress={() => navigation.goBack()}
-          />
+          <Card>
+            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+              直播间状态
+            </Text>
+            <InfoRow label="精力" value={`${Math.round(energy)}/100`} />
+            <InfoRow label="健康" value={`${Math.round(health)}/100`} />
+            <InfoRow label="心情" value={`${Math.round(mood)}/100`} />
+            <InfoRow label="当前金币" value={formatCoins(coins)} />
+            {isLive ? (
+              <>
+                <InfoRow
+                  label="收入速率"
+                  value={`${earningsPerSecond.toFixed(4)} 金币/秒`}
+                />
+                <InfoRow
+                  label="精力消耗"
+                  value={`${energyCostPerSecond.toFixed(4)}/秒`}
+                />
+                <InfoRow
+                  label="心情消耗"
+                  value={`${moodCostPerSecond.toFixed(4)}/秒`}
+                />
+              </>
+            ) : null}
+          </Card>
         </View>
-      )}
+
+        <View className="mt-3">
+          {dialogue ? (
+            <DialogueBubble
+              dialogue={dialogue}
+              onDismiss={() => setDialogue(null)}
+              autoDismissMs={8000}
+            />
+          ) : null}
+        </View>
+
+        {isLive ? (
+          <View className="mt-3">
+            <Text className="text-center text-[10px] text-muted dark:text-dark-muted">
+              可以随时离开此页面，直播会继续
+            </Text>
+          </View>
+        ) : (
+          <View className="mt-3">
+            <Button
+              label="返回"
+              variant="ghost"
+              onPress={() => navigation.goBack()}
+            />
+          </View>
+        )}
+      </ScrollView>
     </ScreenContainer>
   );
 }
