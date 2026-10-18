@@ -44,7 +44,7 @@ export function MedicineDetailScreen({
   const { speak } = useDialogue();
   const { gain } = useAffinity();
   
-  // 字符串防崩状态
+  // 状态管理
   const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [healModal, setHealModal] = useState<{ title: string; msg: string } | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -72,6 +72,7 @@ export function MedicineDetailScreen({
     );
   }
 
+  // 二次校验：当前状态是否适合吃这个药
   let blockReason: string | null = null;
   if (medicine.relievesMenstrual) {
     if (!isInPeriod) {
@@ -115,35 +116,34 @@ export function MedicineDetailScreen({
         useWuliliStore.getState().clearIllness();
       }
 
-      // 🔥 提取纯文本
+      // 🔥 提取纯文本，触发台词弹窗
       const line = speak({ action: 'medicine' });
       const text = typeof line === 'string' ? line : (line as any)?.text || '感觉好多了...';
       setDialogueText(text);
 
+      // 🔥 关键修改：这里只准备 healModal 的数据，绝不使用 setTimeout 自动关闭
       if (curesCurrent) {
-        setTimeout(() => {
-          setDialogueText(null);
-          setHealModal({
-            title: '康复了',
-            msg: `雾璃的${ILLNESS_LABELS[illness.type]}好多了，脸色恢复了红润。`,
-          });
-        }, 2000);
+        setHealModal({
+          title: '康复了',
+          msg: `雾璃的${ILLNESS_LABELS[illness.type]}好多了，脸色恢复了红润。`,
+        });
       } else if (medicine.relievesMenstrual) {
-        setTimeout(() => {
-          setDialogueText(null);
-          setHealModal({
-            title: '好了点',
-            msg: '布洛芬生效了，12 小时内不适感都会减轻。',
-          });
-        }, 2000);
-      } else {
-        setTimeout(() => {
-          setDialogueText(null);
-          navigation.goBack();
-        }, 2000);
+        setHealModal({
+          title: '好了点',
+          msg: '布洛芬生效了，12 小时内不适感都会减轻。',
+        });
       }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 🔥 玩家点击台词弹窗时触发
+  const handleDialogueDismiss = () => {
+    setDialogueText(null);
+    // 如果没有需要弹的治愈提示，直接返回上一页
+    if (!healModal) {
+      navigation.goBack();
     }
   };
 
@@ -292,7 +292,7 @@ export function MedicineDetailScreen({
       {/* 🔥 吃药台词弹窗 */}
       <Modal visible={dialogueText !== null} transparent animationType="fade">
         <Pressable
-          onPress={() => setDialogueText(null)}
+          onPress={handleDialogueDismiss}
           style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
         >
           <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
@@ -310,7 +310,7 @@ export function MedicineDetailScreen({
         </Pressable>
       </Modal>
 
-      {/* 🔥 治愈提示弹窗 */}
+      {/* 🔥 治愈成功弹窗（必须在台词关闭后才显示） */}
       <Modal visible={healModal !== null && dialogueText === null} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
           <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
