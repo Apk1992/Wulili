@@ -1,19 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native'; // 👈 引入 useFocusEffect
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackPlayer, { Event, RepeatMode, State as TrackPlayerState, usePlaybackState, useProgress, useTrackPlayerEvents } from 'react-native-track-player';
 import type { Track } from 'react-native-track-player';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import MediaPlayerBar from '@/components/MediaPlayerBar';
 import MemoryListItem from '@/components/MemoryListItem';
-import LoadingView from '@/components/LoadingView';
 import ErrorView from '@/components/ErrorView';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
-import { useGitHubFiles } from '@/hooks/useGitHubRepo';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
@@ -24,36 +23,35 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
+const NEW_FILES_KEY = '@wulili/known_files';
 
 export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
-  // 🔥 核心修改：接收从 MemoryScreen 传过来的子文件夹路径，如果没有则默认从根目录开始
-  const [currentPath, setCurrentPath] = useState<string>(
-    route.params?.initialPath || GITHUB_PATHS.music
-  );
-  const query = useGitHubFiles({ path: currentPath, depth: 1 });
+  // 🔥 记录当前所在的文件夹路径
+  const [currentPath, setCurrentPath] = useState<string>(route.params?.initialPath || GITHUB_PATHS.music);
+  
+  // 🔥 请求状态
+  const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<boolean>(false);
 
+  // 🔥 播放状态
   const [playback, setPlayback] = useState<PlaybackState>({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
 
   const isSeekingRef = useRef<boolean>(false);
   const queueReadyRef = useRef<boolean>(false);
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 拆分文件夹和音乐
-  const { folders, items } = useMemo(() => {
-    const files = query.data ?? [];
-    const dirs: GitHubContentItem[] = [];
-    const musicFiles: GitHubContentItem[] = [];
+  // 加载已读记录
+  useEffect(() => {
+    void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
+      if (res) setKnownFiles(JSON.parse(res));
+    });
+  }, []);
 
-    for (const file of files) {
-      if (file.type === 'dir') dirs.push(file);
-      else if (file.type === 'file') musicFiles.push(file);
-    }
-    return { folders: dirs, items: buildMusicItems(musicFiles) };
-  }, [query.data]);
-
-  // 🔥 核心修复：离开这个页面的一瞬间，立刻清空队列，让 BGM 瞬间接管
+  // 🔥 核心修复：离开这个页面时，立刻停止音乐，让 BGM 接管
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -62,8 +60,48 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     }, [])
   );
 
+  // 🔥 自己发请求拉取数据
+  const fetchFolder = async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const token = getGitHubToken();
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
+      const res = await fetch(apiUrl, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+      });
+      if (!res.ok) throw new Error('获取失败');
+      const data = await res.json();
+      setRawData(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchFolder();
+    }, [currentPath])
+  );
+
+  // 拆分文件夹和音乐
+  const { folders, items } = useMemo(() => {
+    const dirs: GitHubContentItem[] = [];
+    const musicFiles: GitHubContentItem[] = [];
+
+    for (const file of rawData) {
+      if (file.type === 'dir') dirs.push(file);
+      else if (file.type === 'file') musicFiles.push(file);
+    }
+    return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles) };
+  }, [rawData, knownFiles]);
+
   // 切换文件夹
-  const handleFolderPress = (path: string) => setCurrentPath(path);
+  const handleFolderPress = (path: string) => {
+    setCurrentPath(path);
+  };
 
   // 返回上一级
   const handleGoBackFolder = () => {
@@ -73,6 +111,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || GITHUB_PATHS.music);
   };
 
+  // 播放状态同步
   useEffect(() => {
     if (!playback.current || isSeekingRef.current) return;
     const state = trackPlayerState.state;
@@ -113,9 +152,9 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items); // 只播当前文件夹的音乐
+    const tracks = buildTracks(items); // 只播当前文件夹的歌
     await TrackPlayer.add(tracks);
-    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表顺序播放，不是单曲循环
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表顺序循环
     queueReadyRef.current = true;
     await TrackPlayer.skip(startIndex);
     await TrackPlayer.play();
@@ -126,6 +165,11 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     try {
       const item = items[index];
       if (!item) return;
+
+      // 🔥 标记已读
+      const newKnown = { ...knownFiles, [item.sha || item.path]: true };
+      setKnownFiles(newKnown);
+      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
 
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
@@ -151,7 +195,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch (error) {
       setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
     }
-  }, [items, ensureQueue]);
+  }, [items, ensureQueue, knownFiles]);
 
   const handleTogglePlay = useCallback(async () => {
     try {
@@ -195,9 +239,9 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     setPlayback({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   }, []);
 
-  if (query.isLoading) return <ScreenContainer edges={['bottom']}><LoadingView message="正在加载…" fullScreen /></ScreenContainer>;
-  if (query.isError) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" message="无法获取列表。" onRetry={() => query.refetch()} fullScreen /></ScreenContainer>;
-  if (items.length === 0 && folders.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="空空如也" message="往这里传点文件吧。" icon="folder-open-outline" fullScreen /></ScreenContainer>;
+  if (loading) return <ScreenContainer edges={['bottom']}><View className="flex-1 items-center justify-center"><ActivityIndicator size="large" color="#2563EB" /><Text className="text-xs text-muted mt-4">加载中...</Text></View></ScreenContainer>;
+  if (error) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" message="无法获取列表。" onRetry={() => void fetchFolder()} fullScreen /></ScreenContainer>;
+  if (items.length === 0 && folders.length === 0) return <ScreenContainer edges={['bottom']}><EmptyView title="空空如也" message="这里没有文件。" icon="folder-open-outline" fullScreen /></ScreenContainer>;
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
@@ -215,7 +259,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
                     <Text className="ml-1 text-xs text-primary">返回上一级</Text>
                   </Pressable>
                 ) : <View />}
-                <Pressable className="flex-row items-center" onPress={() => void query.refetch()}>
+                <Pressable className="flex-row items-center" onPress={() => void fetchFolder()}>
                   <Ionicons name="refresh" size={14} color="#2563EB" />
                   <Text className="ml-1 text-xs text-primary">刷新</Text>
                 </Pressable>
@@ -223,7 +267,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             );
           }
 
-          // 渲染文件夹
           if (item.type === 'dir') {
             return (
               <Pressable 
@@ -239,12 +282,20 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             );
           }
 
-          // 渲染音乐文件
           const musicIndex = index - 1 - folders.length;
           const isCurrent = currentIndex === musicIndex;
+          
           return (
             <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
-              <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
+              <View className="relative">
+                <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
+                {/* 🔥 如果是没点过的新歌，显示 NEW */}
+                {item.isNew && (
+                  <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
+                    <Text className="text-[9px] text-white font-bold">NEW</Text>
+                  </View>
+                )}
+              </View>
               {isCurrent && (
                 <View className="flex-row items-center mb-2 ml-4">
                   <Ionicons name={playback.status === 'playing' ? 'musical-notes' : 'pause-circle'} size={12} color="#2563EB" />
@@ -276,13 +327,15 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   );
 }
 
-function buildMusicItems(files: GitHubContentItem[]): MemoryItem[] {
-  const items: MemoryItem[] = [];
+// 🔥 给音乐文件打上 NEW 标签
+function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, boolean>): any[] {
+  const items: any[] = [];
   for (const file of files) {
     const kind = detectMemoryKind(file.name);
     if (kind !== 'music') continue;
+    const uniqueId = file.sha || file.path;
     items.push({
-      id: file.sha || file.path,
+      id: uniqueId,
       kind: 'music',
       name: file.name,
       displayName: humanizeFileName(file.name),
@@ -292,6 +345,7 @@ function buildMusicItems(files: GitHubContentItem[]): MemoryItem[] {
       downloadUrl: file.download_url,
       updatedAt: null,
       source: 'repo',
+      isNew: !knownFiles[uniqueId],
     });
   }
   return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
