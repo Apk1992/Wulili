@@ -25,7 +25,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
-  // 🔥 记录当前处于哪个文件夹路径
+  // 🔥 记录当前在哪个目录
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const query = useGitHubFiles({ path: currentPath, depth: 1 });
 
@@ -37,15 +37,18 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 把拉取到的数据拆分为文件夹和音乐
+  // 🔥 拆分文件夹和音乐
   const { folders, items } = useMemo(() => {
     const files = query.data ?? [];
     const dirs: GitHubContentItem[] = [];
     const musicFiles: GitHubContentItem[] = [];
 
     for (const file of files) {
-      if (file.type === 'dir') dirs.push(file);
-      else if (file.type === 'file') musicFiles.push(file);
+      if (file.type === 'dir') {
+        dirs.push(file);
+      } else if (file.type === 'file') {
+        musicFiles.push(file);
+      }
     }
 
     return { folders: dirs, items: buildMusicItems(musicFiles) };
@@ -108,7 +111,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items); // 只加入当前文件夹的歌
+    const tracks = buildTracks(items); // 只加入当前文件夹的音乐
     await TrackPlayer.add(tracks);
     await TrackPlayer.setRepeatMode(RepeatMode.Queue);
     queueReadyRef.current = true;
@@ -197,7 +200,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <FlatList
-        // 把文件夹和音乐文件合在一起渲染
         data={[{ isFolderHeader: true } as any, ...folders, ...items]}
         keyExtractor={(item: any, index) => item.isFolderHeader ? 'header' : item.id || index.toString()}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: playback.current ? 220 : 24 }}
@@ -235,7 +237,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             );
           }
 
-          // 渲染歌曲
+          // 渲染音乐
           const musicIndex = index - 1 - folders.length;
           const isCurrent = currentIndex === musicIndex;
           return (
