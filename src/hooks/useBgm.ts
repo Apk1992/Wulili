@@ -10,7 +10,6 @@ export function useBgm() {
   const { season } = useSeason();
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
   const lastPlayedUrlRef = useRef<string | null>(null);
-  const playbackState = usePlaybackState();
 
   const setupBgm = useCallback(async (forceReload = false) => {
     if (!bgmEnabled) return;
@@ -40,12 +39,11 @@ export function useBgm() {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 🔥 核心：只要发现当前播放的不是我们的 BGM（说明是回忆音乐、视频残留，或者是空的），立刻强制清空！
+      // 🔥 只要发现队列里不是 BGM，立刻清空重置（防止回忆音乐残留卡住）
       if (activeTrack && activeTrack.id !== 'bgm') {
         await TrackPlayer.reset();
       }
 
-      // 如果队列是空的，或者歌换了，就重新加载
       if (forceReload || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({
@@ -59,7 +57,6 @@ export function useBgm() {
         lastPlayedUrlRef.current = downloadUrl;
       }
 
-      // 确保它在播放
       const state = await TrackPlayer.getState();
       if (state !== State.Playing) {
         await TrackPlayer.play();
@@ -69,26 +66,16 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 1. 初次加载
   useEffect(() => {
     void setupBgm();
   }, [setupBgm]);
 
-  // 2. 每次页面聚焦（从回忆记录退回主页）时，立刻抢占 BGM！
   useFocusEffect(
     useCallback(() => {
       void setupBgm();
     }, [setupBgm])
   );
 
-  // 3. 监听播放器状态（如果视频/音乐播完变成 Ended/Stopped，立刻接管）
-  useEffect(() => {
-    if (playbackState.state === State.Ended || playbackState.state === State.Stopped || playbackState.state === State.None) {
-      void setupBgm();
-    }
-  }, [playbackState.state, setupBgm]);
-
-  // 4. App 切后台/前台
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
