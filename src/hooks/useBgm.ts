@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
@@ -18,8 +19,12 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 🔥 核心修复：App 重开时强制重置播放器服务，防止被系统卡死
-      await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+      // 🔥 强制重置服务，防止被杀后不复活
+      try {
+        await TrackPlayer.getPlaybackState();
+      } catch (e) {
+        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+      }
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -37,10 +42,8 @@ export function useBgm() {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 如果当前不是 BGM，千万别抢（让回忆音乐正常播）
       if (activeTrack && activeTrack.id !== 'bgm') return;
 
-      // 如果队列空了、或者不是 BGM，就重新加载
       if (forceReload || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
