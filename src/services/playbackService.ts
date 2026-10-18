@@ -88,6 +88,6 @@ export async function playbackService(): Promise<void> {
  * App 被杀后的播放行为
  * 需要在 setupPlayer 里传这个参数
  */
-export const APP_KILLED_BEHAVIOR = AppKilledPlaybackBehavior.ContinuePlayback;
+export const APP_KILLED_BEHAVIOR = AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification;
 
 void TrackPlayerState;
