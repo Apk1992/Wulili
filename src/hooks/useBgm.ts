@@ -18,7 +18,6 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 🔥 检测并复活服务
       try {
         await TrackPlayer.getPlaybackState();
       } catch (e) {
@@ -41,7 +40,6 @@ export function useBgm() {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 如果不是 BGM 且不强制，就不抢
       if (!force && activeTrack && activeTrack.id !== 'bgm') {
         return;
       }
@@ -63,22 +61,29 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 首次加载强制
-  useEffect(() => {
-    void setupBgm(true);
-  }, [setupBgm]);
-
-  // 页面聚焦时强制（从音乐页退回来，直接覆盖）
   useFocusEffect(
     useCallback(() => {
-      void setupBgm(true); 
+      void setupBgm(true);
+      // 🔥 心跳检测：每 2 秒检查一次，如果 BGM 停了（且不是正在放其他歌），自动重新拉起！
+      const timer = setInterval(async () => {
+        try {
+          const activeTrack = await TrackPlayer.getActiveTrack();
+          if (activeTrack && activeTrack.id !== 'bgm') return; // 用户在听歌，别打扰
+          const state = await TrackPlayer.getState();
+          if (state !== State.Playing) {
+            void setupBgm(true);
+          }
+        } catch {}
+      }, 2000);
+
+      return () => clearInterval(timer);
     }, [setupBgm])
   );
 
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
-        void setupBgm(false);
+        void setupBgm(true);
       } else if (nextAppState === 'background' || nextAppState === 'inactive') {
         try {
           const activeTrack = await TrackPlayer.getActiveTrack();
