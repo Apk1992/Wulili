@@ -205,7 +205,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 睡觉按钮 */}
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, screenHeight * 0.25 }}>
+          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.25 }}>
              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
           </View>
         ) : null}
