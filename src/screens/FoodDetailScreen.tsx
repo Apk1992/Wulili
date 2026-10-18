@@ -42,7 +42,7 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
   const { speak } = useDialogue();
   const { gain } = useAffinity();
   
-  // 🔥 不再用复杂的 Dialogue 对象，只存纯文本字符串！
+  // 🔥 只存纯文本，彻底避免对象引发报错
   const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -53,7 +53,15 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
 
   const { url } = useGitHubImage(imagePath, true);
 
-  if (!food) return <ScreenContainer edges={['bottom']}><Text className="text-muted m-auto">找不到这道食物</Text></ScreenContainer>;
+  if (!food) {
+    return (
+      <ScreenContainer edges={['bottom']}>
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-muted dark:text-dark-muted">找不到这道食物</Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   const affordable = coins >= food.price;
   const isHealthy = food.category === 'healthy';
@@ -62,8 +70,11 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
   const dessertLimitReached = consecutiveDessert >= MAX_CONSECUTIVE_DESSERT;
 
   let blockReason: string | null = null;
-  if (isDessert && dessertLimitReached) blockReason = `她已经连续吃了 ${MAX_CONSECUTIVE_DESSERT} 个甜点，不能再吃了。`;
-  else if (!isDessert && isFull) blockReason = '她已经吃饱了，吃不下正餐了。';
+  if (isDessert && dessertLimitReached) {
+    blockReason = `她已经连续吃了 ${MAX_CONSECUTIVE_DESSERT} 个甜点，不能再吃了。`;
+  } else if (!isDessert && isFull) {
+    blockReason = '她已经吃饱了，吃不下正餐了。';
+  }
 
   const canFeed = !blockReason;
 
@@ -75,15 +86,21 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
     setSubmitting(true);
     try {
       addCoins(-food.price);
-      addStats({ hunger: food.effect.hunger, mood: food.effect.mood, health: food.effect.health, energy: food.effect.energy, weight: food.effect.weight });
+      addStats({
+        hunger: food.effect.hunger,
+        mood: food.effect.mood,
+        health: food.effect.health,
+        energy: food.effect.energy,
+        weight: food.effect.weight,
+      });
       markInteraction('feed');
       recordFoodCategory(food.category);
       if (isDessert) recordDessert();
       gain(food.category === 'healthy' ? 1 : 0.5);
 
-      // 🔥 安全提取字符串，无论 speak 返回对象还是字符串
+      // 🔥 安全提取字符串，避免对象解析
       const line = speak({ action: 'feed', foodCategory: food.category });
-      const text = typeof line === 'string' ? line : line?.text || '谢谢你的投喂...';
+      const text = typeof line === 'string' ? line : (line as any)?.text || '谢谢你的投喂...';
       setDialogueText(text);
 
       if (food.effect.health < 0) {
@@ -92,10 +109,11 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
           setTimeout(() => Alert.alert('注意', '雾璃的鼻炎好像又犯了……'), 800);
         }
       }
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  // 关闭弹窗后，自动返回上一页
   const handleCloseModal = () => {
     setDialogueText(null);
     navigation.goBack();
@@ -103,27 +121,71 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
-      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <View className="w-full bg-card dark:bg-dark-card items-center justify-center" style={{ height: screenHeight * 0.55 }}>
-          <RemoteImage uri={url} width={screenHeight * 0.45} height={screenHeight * 0.45} resizeMode="contain" fallbackIcon="restaurant" className="bg-transparent dark:bg-transparent" />
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          className="w-full bg-card dark:bg-dark-card items-center justify-center"
+          style={{ height: screenHeight * 0.55 }}
+        >
+          <RemoteImage
+            uri={url}
+            width={screenHeight * 0.45}
+            height={screenHeight * 0.45}
+            resizeMode="contain"
+            fallbackIcon="restaurant"
+            className="bg-transparent dark:bg-transparent"
+          />
         </View>
+
         <View className="px-4 pt-4">
           <View className="flex-row items-center">
-            <Text className="text-2xl font-bold text-text dark:text-dark-text flex-1">{food.name}</Text>
-            <View className={['px-2 py-0.5 rounded-md mr-1', isHealthy ? 'bg-success/15' : 'bg-danger/15'].join(' ')}>
-              <Text className={['text-[10px] font-semibold', isHealthy ? 'text-success' : 'text-danger'].join(' ')}>{isHealthy ? '营养' : '放纵'}</Text>
+            <Text className="text-2xl font-bold text-text dark:text-dark-text flex-1">
+              {food.name}
+            </Text>
+            <View
+              className={[
+                'px-2 py-0.5 rounded-md mr-1',
+                isHealthy ? 'bg-success/15' : 'bg-danger/15',
+              ].join(' ')}
+            >
+              <Text
+                className={[
+                  'text-[10px] font-semibold',
+                  isHealthy ? 'text-success' : 'text-danger',
+                ].join(' ')}
+              >
+                {isHealthy ? '营养' : '放纵'}
+              </Text>
             </View>
-            {isDessert && <View className="px-2 py-0.5 rounded-md bg-warning/15"><Text className="text-[10px] font-semibold text-warning">甜点</Text></View>}
+            {isDessert ? (
+              <View className="px-2 py-0.5 rounded-md bg-warning/15">
+                <Text className="text-[10px] font-semibold text-warning">甜点</Text>
+              </View>
+            ) : null}
           </View>
-          <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">{food.description}</Text>
+
+          <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">
+            {food.description}
+          </Text>
+
           <View className="mt-3 flex-row items-center">
             <Ionicons name="cash" size={16} color="#2563EB" />
-            <Text className="ml-1 text-base font-bold text-primary">{formatCoins(food.price)}</Text>
-            <Text className="ml-3 text-xs text-muted dark:text-dark-muted">当前金币 {formatCoins(coins)}</Text>
+            <Text className="ml-1 text-base font-bold text-primary">
+              {formatCoins(food.price)}
+            </Text>
+            <Text className="ml-3 text-xs text-muted dark:text-dark-muted">
+              当前金币 {formatCoins(coins)}
+            </Text>
           </View>
         </View>
+
         <View className="px-4 mt-4">
-          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">效果</Text>
+          <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">
+            效果
+          </Text>
           <View className="rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border p-3">
             <EffectRow icon="restaurant" label="饱食" value={food.effect.hunger} color="#2563EB" />
             <EffectRow icon="happy" label="心情" value={food.effect.mood} color="#10B981" />
@@ -132,16 +194,43 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
             <EffectRow icon="scale" label="体重" value={food.effect.weight} color="#8B5CF6" unit="kg" decimals={2} />
           </View>
         </View>
-        {blockReason && <View className="px-4 mt-3"><View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center"><Ionicons name="alert-circle" size={16} color="#F59E0B" /><Text className="ml-2 text-xs text-warning flex-1">{blockReason}</Text></View></View>}
+
+        {blockReason ? (
+          <View className="px-4 mt-3">
+            <View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center">
+              <Ionicons name="alert-circle" size={16} color="#F59E0B" />
+              <Text className="ml-2 text-xs text-warning flex-1">{blockReason}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <View className="px-4 mt-5">
-          <Button label={submitting ? '投喂中…' : '确认投喂'} icon="checkmark" variant={affordable && canFeed ? 'primary' : 'ghost'} size="lg" loading={submitting} onPress={handleConfirm} disabled={!affordable || !canFeed} />
-          <View className="mt-2"><Button label="取消" variant="ghost" size="md" onPress={() => navigation.goBack()} /></View>
+          <Button
+            label={submitting ? '投喂中…' : '确认投喂'}
+            icon="checkmark"
+            variant={affordable && canFeed ? 'primary' : 'ghost'}
+            size="lg"
+            loading={submitting}
+            onPress={handleConfirm}
+            disabled={!affordable || !canFeed}
+          />
+          <View className="mt-2">
+            <Button
+              label="取消"
+              variant="ghost"
+              size="md"
+              onPress={() => navigation.goBack()}
+            />
+          </View>
         </View>
       </ScrollView>
 
-      {/* 🔥 纯原生弹窗，绝无任何崩溃可能 */}
+      {/* 🔥 纯原生防崩弹窗 */}
       <Modal visible={dialogueText !== null} transparent animationType="fade">
-        <Pressable onPress={handleCloseModal} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+        <Pressable
+          onPress={handleCloseModal}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
+        >
           <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
             <View style={{ alignItems: 'center', marginBottom: 16 }}>
               <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
@@ -165,11 +254,18 @@ function EffectRow({ icon, label, value, color, unit = '', decimals = 0 }: any):
   const sign = value > 0 ? '+' : '';
   const display = isZero ? '0' : `${sign}${value.toFixed(decimals)}${unit}`;
   const valueColor = isZero ? '#94A3B8' : value > 0 ? color : '#EF4444';
+
   return (
     <View className="flex-row items-center justify-between py-1.5">
-      <View className="flex-row items-center"><Ionicons name={icon} size={14} color={color} /><Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text></View>
-      <Text className="text-xs font-semibold" style={{ color: valueColor }}>{display}</Text>
+      <View className="flex-row items-center">
+        <Ionicons name={icon} size={14} color={color} />
+        <Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text>
+      </View>
+      <Text className="text-xs font-semibold" style={{ color: valueColor }}>
+        {display}
+      </Text>
     </View>
   );
 }
+
 export default FoodDetailScreen;
