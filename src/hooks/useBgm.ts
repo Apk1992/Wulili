@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import TrackPlayer, { RepeatMode, State, usePlaybackState } from 'react-native-track-player';
-import { useFocusEffect } from '@react-navigation/native';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useSeason } from '@/hooks/useSeason';
 import { getGitHubToken } from '@/api/githubClient';
@@ -18,6 +17,16 @@ export function useBgm() {
     try {
       const token = getGitHubToken();
       if (!token) return;
+
+      // 1. 检查当前播放器里挂着的是什么
+      const queue = await TrackPlayer.getQueue();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null) ? queue[activeIndex] : null;
+
+      // 🔥 核心保护：如果当前播放的是回忆记录的音乐/视频（id 不是 bgm），直接给爷爬，绝对不许抢！
+      if (activeTrack && activeTrack.id !== 'bgm') {
+        return; 
+      }
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -39,10 +48,8 @@ export function useBgm() {
       const downloadUrl = data.download_url;
       if (!downloadUrl) throw new Error('未能获取下载链接');
 
-      const queue = await TrackPlayer.getQueue();
-      const activeTrack = queue.length > 0 ? queue[await TrackPlayer.getActiveTrackIndex() || 0] : null;
-
-      if (forceReload || !activeTrack || activeTrack.id !== 'bgm') {
+      // 2. 如果队列是空的，或者歌变了，才重新加载
+      if (forceReload || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({
           id: 'bgm',
@@ -69,39 +76,31 @@ export function useBgm() {
     void setupBgm();
   }, [setupBgm]);
 
-  // 2. 页面聚焦时
-  useFocusEffect(
-    useCallback(() => {
-      void setupBgm();
-    }, [setupBgm])
-  );
-
-  // 3. 监听播放器状态
+  // 2. 监听播放器状态变化（例如回忆记录退出了，或者 BGM 被暂停了）
   useEffect(() => {
-    if (playbackState.state === State.Paused || playbackState.state === State.Stopped || playbackState.state === State.None) {
+    if (!bgmEnabled) return;
+    
+    // 只要播放器状态变成 停止/结束/暂停，且没有在播放回忆（由 setupBgm 内部拦截），我们就恢复 BGM
+    if (playbackState.state === State.Paused || playbackState.state === State.Stopped || playbackState.state === State.Ended || playbackState.state === State.None) {
       void setupBgm();
     }
-  }, [playbackState.state, setupBgm]);
+  }, [playbackState.state, setupBgm, bgmEnabled]);
 
-  // 4. 监听 App 进入后台，暂停 BGM（防止后台疯狂耗电）
+  // 3. 监听 App 进入后台/回前台
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // 切到后台，暂停所有音频
         try {
-          const state = await TrackPlayer.getState();
-          if (state === State.Playing) {
-            // 切后台时直接暂停，等切回前台再恢复
-            await TrackPlayer.pause();
-          }
+          await TrackPlayer.pause();
         } catch {}
       } else if (nextAppState === 'active') {
-        // 切回前台时，立刻重新检测并播放
+        // 切回前台，自动恢复
         void setupBgm();
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
-
     return () => {
       subscription.remove();
     };
