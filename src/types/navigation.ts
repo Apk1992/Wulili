@@ -24,8 +24,8 @@ export type RootStackParamList = {
     kind: 'outfit' | 'accessory';
   };
   Status: undefined;
-  MusicPlayer: undefined;
-  VideoPlayer: undefined;
+  MusicPlayer: { initialPath?: string } | undefined;
+  VideoPlayer: { initialPath?: string } | undefined;
   NoteReader: {
     path: string;
     sha: string;
