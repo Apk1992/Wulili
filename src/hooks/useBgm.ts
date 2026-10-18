@@ -18,13 +18,8 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 🔥 绝杀 1：检测播放器是否活着，如果被系统/通知栏搞死了，强制复活！
-      try {
-        await TrackPlayer.getPlaybackState();
-      } catch (e) {
-        console.log('TrackPlayer 服务已死，正在尝试重新初始化...');
-        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
-      }
+      // 🔥 核心修复：App 重开时强制重置播放器服务，防止被系统卡死
+      await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -63,14 +58,8 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 每次回到主页/页面聚焦时检查
-  useFocusEffect(
-    useCallback(() => {
-      void setupBgm();
-    }, [setupBgm])
-  );
+  useFocusEffect(useCallback(() => { void setupBgm(); }, [setupBgm]));
 
-  // 每次切回前台时检查（防止在后台被系统杀）
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
