@@ -5,6 +5,8 @@ import {
   Text,
   View,
   useWindowDimensions,
+  Modal,
+  Pressable,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -12,7 +14,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
-import EventModal from '@/components/EventModal'; // 👈 使用全屏弹窗
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -21,7 +22,6 @@ import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { ILLNESS_LABELS } from '@/components/constants';
 import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import { formatCoins } from '@/utils/format';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicineDetail'>;
@@ -44,10 +44,10 @@ export function MedicineDetailScreen({
   const { speak } = useDialogue();
   const { gain } = useAffinity();
   
-  // 状态控制
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
-  const [submitting, setSubmitting] = useState<boolean>(false);
+  // 字符串防崩状态
+  const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [healModal, setHealModal] = useState<{ title: string; msg: string } | null>(null);
+  const [submitting, setSubmitting] = useState<boolean>(false);
 
   const menstrualInfo = useMemo(
     () => computeMenstrualInfo(menstrual),
@@ -67,15 +67,11 @@ export function MedicineDetailScreen({
       <ScreenContainer edges={['bottom']}>
         <View className="flex-1 items-center justify-center">
           <Text className="text-muted dark:text-dark-muted">找不到这种药</Text>
-          <View className="mt-4 w-40">
-            <Button label="返回" variant="ghost" onPress={() => navigation.goBack()} />
-          </View>
         </View>
       </ScreenContainer>
     );
   }
 
-  // 二次校验：当前状态是否适合吃这个药
   let blockReason: string | null = null;
   if (medicine.relievesMenstrual) {
     if (!isInPeriod) {
@@ -96,14 +92,8 @@ export function MedicineDetailScreen({
 
   const handleConfirm = async () => {
     if (submitting) return;
-    if (!affordable) {
-      Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
-      return;
-    }
-    if (!canTake) {
-      Alert.alert('不需要吃', blockReason ?? '');
-      return;
-    }
+    if (!affordable) return Alert.alert('金币不足', '先带雾璃去直播赚点钱吧。');
+    if (!canTake) return Alert.alert('不需要吃', blockReason ?? '');
 
     setSubmitting(true);
     try {
@@ -125,14 +115,14 @@ export function MedicineDetailScreen({
         useWuliliStore.getState().clearIllness();
       }
 
-      // 触发台词弹窗
+      // 🔥 提取纯文本
       const line = speak({ action: 'medicine' });
-      if (line) setDialogue(line);
+      const text = typeof line === 'string' ? line : (line as any)?.text || '感觉好多了...';
+      setDialogueText(text);
 
-      // 如果是治愈了，等台词播完，弹治愈提示框
       if (curesCurrent) {
         setTimeout(() => {
-          setDialogue(null); // 先关台词
+          setDialogueText(null);
           setHealModal({
             title: '康复了',
             msg: `雾璃的${ILLNESS_LABELS[illness.type]}好多了，脸色恢复了红润。`,
@@ -140,15 +130,17 @@ export function MedicineDetailScreen({
         }, 2000);
       } else if (medicine.relievesMenstrual) {
         setTimeout(() => {
-          setDialogue(null); // 先关台词
+          setDialogueText(null);
           setHealModal({
             title: '好了点',
             msg: '布洛芬生效了，12 小时内不适感都会减轻。',
           });
         }, 2000);
       } else {
-        // 普通吃药，没生病，播完台词直接退
-        setTimeout(() => navigation.goBack(), line ? 2000 : 100);
+        setTimeout(() => {
+          setDialogueText(null);
+          navigation.goBack();
+        }, 2000);
       }
     } finally {
       setSubmitting(false);
@@ -297,42 +289,49 @@ export function MedicineDetailScreen({
         </View>
       </ScrollView>
 
-      {/* 🔥 1. 雾璃吃药的台词弹窗 */}
-      {dialogue && (
-        <EventModal
-          visible={true}
-          title="雾璃"
-          message={typeof dialogue === 'string' ? dialogue : (dialogue as any).text}
-          hideActions={true}
-          onDismiss={() => {
-            setDialogue(null);
-            // 如果这时候有治病弹窗在排队，就立刻显示
-            if (healModal) return; 
-            // 如果只是普通吃药，点掉台词直接返回
-            if (!medicine.isTreatment && !medicine.relievesMenstrual) navigation.goBack();
-          }}
-        />
-      )}
+      {/* 🔥 吃药台词弹窗 */}
+      <Modal visible={dialogueText !== null} transparent animationType="fade">
+        <Pressable
+          onPress={() => setDialogueText(null)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
+        >
+          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                <Ionicons name="heart" size={32} color="#2563EB" />
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>雾璃</Text>
+            </View>
+            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>
+              {dialogueText}
+            </Text>
+            <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击任意位置继续...</Text>
+          </View>
+        </Pressable>
+      </Modal>
 
-      {/* 🔥 2. 治愈成功的弹窗 */}
-      {healModal && !dialogue && (
-        <EventModal
-          visible={true}
-          title={healModal.title}
-          message={healModal.msg}
-          actions={[
-            {
-              label: '太好了',
-              icon: 'checkmark-circle',
-              primary: true,
-              onPress: () => {
+      {/* 🔥 治愈提示弹窗 */}
+      <Modal visible={healModal !== null && dialogueText === null} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>{healModal?.title}</Text>
+            </View>
+            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 24 }}>
+              {healModal?.msg}
+            </Text>
+            <Pressable
+              onPress={() => {
                 setHealModal(null);
                 navigation.goBack();
-              }
-            }
-          ]}
-        />
-      )}
+              }}
+              style={{ backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 12, alignItems: 'center' }}
+            >
+              <Text style={{ color: '#FFF', fontWeight: '600' }}>太好了</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
