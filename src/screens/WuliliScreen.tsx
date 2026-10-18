@@ -4,11 +4,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Toast from 'react-native-toast-message'; // 👈 引入 Toast
 
 import ScreenContainer from '@/components/ScreenContainer';
 import WuliliAvatar from '@/components/WuliliAvatar';
 import Button from '@/components/Button';
+import EventModal from '@/components/EventModal'; // 引入弹窗
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
@@ -39,11 +39,17 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [now, setNow] = useState<number>(Date.now());
   const [mood, setMood] = useState<Mood>(() => computeMood());
 
+  // 弹窗状态机
+  const [activeModal, setActiveModal] = useState<'none' | 'dialogue' | 'event'>('none');
+  const [eventConfig, setEventConfig] = useState<{ title: string; msg: string; type: 'sick' | 'period' | 'hungry' | 'sleepy' | 'need_money' | 'boring' } | null>(null);
+  const [dialogueText, setDialogueText] = useState<string>('');
+
   const timeOfDay = getTimeOfDay();
   const illness = useWuliliStore((s) => s.state.illness);
   const menstrual = useWuliliStore((s) => s.state.menstrual);
   const coins = useWuliliStore((s) => s.state.coins);
   const energy = useWuliliStore((s) => s.state.stats.energy);
+  const satiety = useWuliliStore((s) => s.state.stats.satiety);
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
 
   const isStreaming = useStreamStore((s) => s.state.isStreaming);
@@ -73,53 +79,126 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  // 🔥 每次回到主页：用 Toast 显示打招呼，不再用占位的对话气泡
+  // 每次回到主页的触发逻辑
   useFocusEffect(
     useCallback(() => {
       updateLoginStreak();
       setMood(computeMood());
-      
-      // 如果生病了，弹 Toast 提醒
-      if (illness.type !== 'none' && !isSleeping) {
-        Toast.show({
-          type: 'error',
-          text1: '雾璃身体不舒服',
-          text2: '点击这里去药房看看',
-          position: 'bottom',
-          visibilityTime: 4000,
-          onPress: () => navigation.navigate('Medicine'),
+
+      if (isSleeping) return;
+
+      // 优先级 1：生病
+      if (illness.type !== 'none') {
+        setEventConfig({
+          title: '雾璃生病了',
+          msg: '她看起来很难受，一直咳嗽。需要带她去药房吗？',
+          type: 'sick',
         });
-      } else if (isInPeriod && !isSleeping) {
-        Toast.show({
-          type: 'info',
-          text1: '雾璃今天不太舒服（经期）',
-          text2: '点此去药房吃布洛芬',
-          position: 'bottom',
-          visibilityTime: 4000,
-          onPress: () => navigation.navigate('Medicine'),
-        });
+        setActiveModal('event');
+        return;
       }
 
-      // 聊天问候（纯文本弹窗）
-      if (!isSleeping) {
-        const greeting = speak({ forceCategory: 'greeting' });
-        if (greeting) {
-          setTimeout(() => {
-            Toast.show({
-              type: 'info',
-              text1: '雾璃',
-              text2: greeting.text,
-              position: 'top',
-              visibilityTime: 5000,
-            });
-          }, 500);
-        }
+      // 优先级 2：经期不适
+      if (isInPeriod && !menstrualInfo.isMedicineActive) {
+        setEventConfig({
+          title: '经期不适',
+          msg: '雾璃捂着肚子，脸色有点苍白，可能需要吃点布洛芬。',
+          type: 'period',
+        });
+        setActiveModal('event');
+        return;
       }
-    }, [illness.type, isInPeriod, isSleeping, speak, navigation, updateLoginStreak])
+
+      // 优先级 3：肚子饿了
+      if (satiety < 30) {
+        setEventConfig({
+          title: '她饿了',
+          msg: '肚子发出了咕咕的声音... 要给她弄点吃的吗？',
+          type: 'hungry',
+        });
+        setActiveModal('event');
+        return;
+      }
+
+      // 优先级 4：精力见底
+      if (energy < 20) {
+        setEventConfig({
+          title: '非常疲惫',
+          msg: '雾璃的眼皮在打架，看来今天真的累坏了。',
+          type: 'sleepy',
+        });
+        setActiveModal('event');
+        return;
+      }
+
+      // 优先级 5：日常打招呼
+      const greeting = speak({ forceCategory: 'greeting' });
+      if (greeting) {
+        setDialogueText(greeting.text);
+        setActiveModal('dialogue');
+      }
+    }, [illness.type, isInPeriod, menstrualInfo.isMedicineActive, satiety, energy, isSleeping, speak, updateLoginStreak])
   );
 
-  const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
-  const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
+  const handleModalDismiss = () => {
+    setActiveModal('none');
+    setEventConfig(null);
+  };
+
+  // 生成对应的行动按钮
+  const getEventActions = () => {
+    if (!eventConfig) return [];
+    
+    const dismissAction = { 
+      label: '暂时不理她', 
+      icon: 'close-circle-outline',
+      onPress: handleModalDismiss 
+    };
+
+    switch (eventConfig.type) {
+      case 'sick':
+      case 'period':
+        return [
+          { 
+            label: '马上带她去药房', 
+            icon: 'medkit', 
+            primary: true, 
+            onPress: () => { handleModalDismiss(); navigation.navigate('Medicine'); } 
+          },
+          dismissAction
+        ];
+      case 'hungry':
+        return [
+          { 
+            label: '去厨房投喂', 
+            icon: 'restaurant', 
+            primary: true, 
+            onPress: () => { handleModalDismiss(); navigation.navigate('Feed'); } 
+          },
+          { 
+            label: '让她先饿着', 
+            icon: 'time-outline',
+            onPress: handleModalDismiss 
+          }
+        ];
+      case 'sleepy':
+        return [
+          { 
+            label: '哄她睡觉', 
+            icon: 'moon', 
+            primary: true, 
+            onPress: () => { 
+              handleModalDismiss(); 
+              startSleep(); 
+              useWuliliStore.getState().markInteraction('sleep');
+            } 
+          },
+          dismissAction
+        ];
+      default:
+        return [dismissAction];
+    }
+  };
 
   const handleSleepPress = () => {
     if (isStreaming) return Alert.alert('正在直播', '要先下播才能睡觉哦。');
@@ -144,6 +223,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
+  const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
+  const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
   const canSleep = canStartSleep(energy);
   const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
@@ -172,7 +253,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center"><Ionicons name="cash-outline" size={12} color="#FFFFFF" /><Text className="ml-1 text-xs text-white font-medium">{formatNumber(coins)}</Text></View>
           </View>
 
-          {/* 保留直播横幅 */}
           {isStreaming ? (
             <Pressable onPress={() => navigation.navigate('Stream')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.9)' }}>
               <Ionicons name="radio" size={18} color="#FFFFFF" />
@@ -181,15 +261,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
-          {/* 保留睡觉横幅 */}
           {isSleeping ? (
             <View className="mb-2 rounded-2xl px-3 py-2 flex-row items-center" style={{ backgroundColor: 'rgba(99,102,241,0.9)' }}>
               <Ionicons name="moon" size={18} color="#FFFFFF" />
               <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text><Text className="text-white/80 text-[10px] mt-0.5">已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
             </View>
           ) : null}
-          
-          {/* 🔥 不舒适/经期提示条彻底移除，改用 Toast */}
         </View>
 
         {/* 左侧按钮 */}
@@ -205,7 +282,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 睡觉按钮 */}
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.25 }}>
+          <View style={{ position: 'absolute', right: 16, bottom: 140 }}>
              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
           </View>
         ) : null}
@@ -218,6 +295,26 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             <Button label="查看雾璃的状态" icon="heart-circle" variant="primary" size="lg" onPress={() => navigation.navigate('Status')} />
           )}
         </View>
+
+        {/* 全屏事件与台词弹窗 */}
+        {activeModal === 'event' && eventConfig && (
+          <EventModal
+            visible={true}
+            title={eventConfig.title}
+            message={eventConfig.msg}
+            actions={getEventActions()}
+          />
+        )}
+
+        {activeModal === 'dialogue' && (
+          <EventModal
+            visible={true}
+            title="雾璃"
+            message={dialogueText}
+            actions={[]}
+            onDismiss={handleModalDismiss}
+          />
+        )}
       </View>
     </ScreenContainer>
   );
