@@ -180,7 +180,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 🔥 左侧按钮区：top 稍微下移到 0.38，避开对话框 */}
         {!isSleeping ? (
-          <View className="absolute" style={{ left: 16, top: screenHeight * 0.20 }} pointerEvents="box-none">
+          <View className="absolute" style={{ left: 16, top: screenHeight * 0.25 }} pointerEvents="box-none">
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 8 }}>
                 <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
@@ -190,7 +190,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         ) : null}
 
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.20 }}>
+          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.25 }}>
              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
           </View>
         ) : null}
