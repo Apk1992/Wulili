@@ -14,23 +14,26 @@ export interface EventModalProps {
   title: string;
   message: string;
   actions: EventModalAction[];
-  onDismiss?: () => void;
+  onDismiss?: () => void; // 点击背景关闭（专门给台词用，事件弹窗不需要传这个）
 }
 
 export function EventModal({ visible, title, message, actions, onDismiss }: EventModalProps) {
   const content = (
     <View className="w-5/6 bg-card dark:bg-dark-card rounded-3xl p-6 shadow-2xl border border-border dark:border-dark-border">
+      {/* 头像/图标区 */}
       <View className="items-center mb-4">
         <View className="w-16 h-16 rounded-full bg-primary/20 items-center justify-center mb-2">
-          <Ionicons name="chatbubbles" size={32} color="#2563EB" />
+          <Ionicons name="heart" size={32} color="#2563EB" />
         </View>
         <Text className="text-lg font-bold text-text dark:text-dark-text">{title}</Text>
       </View>
 
+      {/* 内容区 */}
       <Text className="text-base text-center text-text dark:text-dark-text leading-6 mb-6">
         {message}
       </Text>
 
+      {/* 按钮区 */}
       <View className="gap-y-3">
         {actions.map((act, idx) => (
           <Pressable
@@ -58,7 +61,7 @@ export function EventModal({ visible, title, message, actions, onDismiss }: Even
         ))}
         {onDismiss && (
           <Pressable onPress={onDismiss} className="py-2 items-center mt-2">
-             <Text className="text-xs text-muted dark:text-dark-muted">点击空白处继续...</Text>
+             <Text className="text-xs text-muted dark:text-dark-muted animate-pulse">点击空白处继续...</Text>
           </Pressable>
         )}
       </View>
