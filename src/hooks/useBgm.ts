@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import TrackPlayer, { RepeatMode, State, usePlaybackState } from 'react-native-track-player';
+import TrackPlayer, { RepeatMode, State } from 'react-native-track-player';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useSeason } from '@/hooks/useSeason';
@@ -11,71 +11,47 @@ export function useBgm() {
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
   const lastPlayedUrlRef = useRef<string | null>(null);
 
-  const setupBgm = useCallback(async (forceReload = false) => {
+  const setupBgm = useCallback(async () => {
     if (!bgmEnabled) return;
-
     try {
       const token = getGitHubToken();
       if (!token) return;
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
-      const suffix = isNight ? 'night' : 'day';
       const seasonStr = season || 'autumn';
       
-      const filePath = `bgm/${seasonStr}_${suffix}.m4a`;
+      const filePath = `bgm/${seasonStr}_${isNight ? 'night' : 'day'}.m4a`;
       const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
 
-      const res = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
-      });
-
-      if (!res.ok) throw new Error(`API 请求失败: ${res.status}`);
+      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
       const data = await res.json();
       const downloadUrl = data.download_url;
-      if (!downloadUrl) throw new Error('未能获取下载链接');
 
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
-      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null) ? queue[activeIndex] : null;
 
-      // 🔥 只要发现队列里不是 BGM，立刻清空重置（防止回忆音乐残留卡住）
-      if (activeTrack && activeTrack.id !== 'bgm') {
-        await TrackPlayer.reset();
-      }
+      // 🔥 只要发现当前播放的不是 BGM（是回忆音乐或视频），BGM 坚决不抢！
+      if (activeTrack && activeTrack.id !== 'bgm') return;
 
-      if (forceReload || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
+      if (!activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
-        await TrackPlayer.add({
-          id: 'bgm',
-          url: downloadUrl,
-          title: `${seasonStr} ${suffix}`,
-          artist: 'Wulili',
-        });
+        await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
         await TrackPlayer.setRepeatMode(RepeatMode.Track);
         await TrackPlayer.setVolume(0.4);
         lastPlayedUrlRef.current = downloadUrl;
       }
 
       const state = await TrackPlayer.getState();
-      if (state !== State.Playing) {
-        await TrackPlayer.play();
-      }
-    } catch (err: any) {
-      console.warn('BGM Load Error:', err);
-    }
+      if (state !== State.Playing) await TrackPlayer.play();
+    } catch (err) {}
   }, [season, bgmEnabled]);
 
-  useEffect(() => {
-    void setupBgm();
-  }, [setupBgm]);
+  useFocusEffect(useCallback(() => { void setupBgm(); }, [setupBgm]));
 
-  useFocusEffect(
-    useCallback(() => {
-      void setupBgm();
-    }, [setupBgm])
-  );
-
+  // 切后台只暂停 BGM，如果是音乐/视频，不要管它！
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
@@ -87,7 +63,7 @@ export function useBgm() {
         void setupBgm();
       }
     };
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription.remove();
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
   }, [setupBgm]);
 }
