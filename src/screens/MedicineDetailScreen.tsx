@@ -1,18 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Alert,
-  ScrollView,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
-import EventModal from '@/components/EventModal'; // 👈 引入
+import EventModal from '@/components/EventModal';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -26,10 +20,7 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicineDetail'>;
 
-export function MedicineDetailScreen({
-  route,
-  navigation,
-}: Props): React.JSX.Element {
+export function MedicineDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { medicineId } = route.params;
   const { height: screenHeight } = useWindowDimensions();
 
@@ -46,45 +37,22 @@ export function MedicineDetailScreen({
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const menstrualInfo = useMemo(
-    () => computeMenstrualInfo(menstrual),
-    [menstrual],
-  );
+  const menstrualInfo = useMemo(() => computeMenstrualInfo(menstrual), [menstrual]);
   const isInPeriod = menstrualInfo.phase === 'period';
   const isMedicineActive = menstrualInfo.isMedicineActive;
 
-  const imagePath = useMemo(
-    () => (medicine ? `images/medicine/${medicine.image}` : null),
-    [medicine],
-  );
+  const imagePath = useMemo(() => (medicine ? `images/medicine/${medicine.image}` : null), [medicine]);
   const { url } = useGitHubImage(imagePath, true);
 
-  if (!medicine) {
-    return (
-      <ScreenContainer edges={['bottom']}>
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-muted dark:text-dark-muted">找不到这种药</Text>
-          <View className="mt-4 w-40">
-            <Button label="返回" variant="ghost" onPress={() => navigation.goBack()} />
-          </View>
-        </View>
-      </ScreenContainer>
-    );
-  }
+  if (!medicine) return <ScreenContainer edges={['bottom']}><Text className="text-muted m-auto">找不到这种药</Text></ScreenContainer>;
 
   let blockReason: string | null = null;
   if (medicine.relievesMenstrual) {
-    if (!isInPeriod) {
-      blockReason = '她肚子不痛，不需要吃这个。';
-    } else if (isMedicineActive) {
-      blockReason = '布洛芬还在生效中，不需要重复吃。';
-    }
+    if (!isInPeriod) blockReason = '她肚子不痛，不需要吃这个。';
+    else if (isMedicineActive) blockReason = '布洛芬还在生效中，不需要重复吃。';
   } else if (medicine.isTreatment) {
-    if (illness.type === 'none') {
-      blockReason = '她没有生病，不需要吃药。';
-    } else if (!medicine.cures.includes(illness.type)) {
-      blockReason = '这不对症，吃了没用。';
-    }
+    if (illness.type === 'none') blockReason = '她没有生病，不需要吃药。';
+    else if (!medicine.cures.includes(illness.type)) blockReason = '这不对症，吃了没用。';
   }
 
   const affordable = coins >= medicine.price;
@@ -109,25 +77,20 @@ export function MedicineDetailScreen({
       const line = speak({ action: 'medicine' });
       if (line) setDialogue(line);
 
-      if (curesCurrent) {
-        setTimeout(() => Alert.alert('康复了', `雾璃的${ILLNESS_LABELS[illness.type]}好多了。`), 600);
-      } else if (medicine.relievesMenstrual) {
-        setTimeout(() => Alert.alert('好了点', '布洛芬生效 12 小时，不适感减轻。'), 600);
-      }
+      if (curesCurrent) setTimeout(() => Alert.alert('康复了', `雾璃的${ILLNESS_LABELS[illness.type]}好多了。`), 600);
+      else if (medicine.relievesMenstrual) setTimeout(() => Alert.alert('好了点', '布洛芬生效 12 小时，不适感减轻。'), 600);
 
       setTimeout(() => navigation.goBack(), line ? 2500 : 100);
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {/* UI 内容... */}
         <View className="w-full bg-card dark:bg-dark-card items-center justify-center" style={{ height: screenHeight * 0.55 }}>
           <RemoteImage uri={url} width={screenHeight * 0.45} height={screenHeight * 0.45} resizeMode="contain" fallbackIcon="medkit" className="bg-transparent dark:bg-transparent" />
         </View>
-
         <View className="px-4 pt-4">
           <Text className="text-2xl font-bold text-text dark:text-dark-text">{medicine.name}</Text>
           <Text className="text-sm text-muted dark:text-dark-muted mt-2 leading-5">{medicine.description}</Text>
@@ -137,7 +100,6 @@ export function MedicineDetailScreen({
             <Text className="ml-3 text-xs text-muted dark:text-dark-muted">当前金币 {formatCoins(coins)}</Text>
           </View>
         </View>
-
         {medicine.cures.length > 0 ? (
           <View className="px-4 mt-4">
             <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">治疗病症</Text>
@@ -155,17 +117,10 @@ export function MedicineDetailScreen({
             </View>
           </View>
         ) : medicine.relievesMenstrual ? (
-          <View className="px-4 mt-4">
-            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">用途</Text>
-            <Text className="text-xs text-muted dark:text-dark-muted">缓解经期不适，药效持续 12 小时。</Text>
-          </View>
+          <View className="px-4 mt-4"><Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">用途</Text><Text className="text-xs text-muted dark:text-dark-muted">缓解经期不适，药效持续 12 小时。</Text></View>
         ) : (
-          <View className="px-4 mt-4">
-            <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">用途</Text>
-            <Text className="text-xs text-muted dark:text-dark-muted">日常保健。</Text>
-          </View>
+          <View className="px-4 mt-4"><Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">用途</Text><Text className="text-xs text-muted dark:text-dark-muted">日常保健。</Text></View>
         )}
-
         <View className="px-4 mt-4">
           <Text className="text-sm font-semibold text-text dark:text-dark-text mb-2">效果</Text>
           <View className="rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border p-3">
@@ -173,41 +128,16 @@ export function MedicineDetailScreen({
             <EffectRow icon="happy" label="恢复心情" value={medicine.moodRestore} color="#10B981" />
           </View>
         </View>
-
-        {blockReason ? (
-          <View className="px-4 mt-3">
-            <View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center">
-              <Ionicons name="alert-circle" size={16} color="#F59E0B" />
-              <Text className="ml-2 text-xs text-warning flex-1">{blockReason}</Text>
-            </View>
-          </View>
-        ) : null}
-
+        {blockReason && <View className="px-4 mt-3"><View className="rounded-2xl bg-warning/15 px-3 py-2 flex-row items-center"><Ionicons name="alert-circle" size={16} color="#F59E0B" /><Text className="ml-2 text-xs text-warning flex-1">{blockReason}</Text></View></View>}
         <View className="px-4 mt-5">
-          <Button
-            label={submitting ? '服用中…' : '确认服用'}
-            icon="checkmark"
-            variant={affordable && canTake ? 'primary' : 'ghost'}
-            size="lg"
-            loading={submitting}
-            onPress={handleConfirm}
-            disabled={!affordable || !canTake}
-          />
-          <View className="mt-2">
-            <Button label="取消" variant="ghost" size="md" onPress={() => navigation.goBack()} />
-          </View>
+          <Button label={submitting ? '服用中…' : '确认服用'} icon="checkmark" variant={affordable && canTake ? 'primary' : 'ghost'} size="lg" loading={submitting} onPress={handleConfirm} disabled={!affordable || !canTake} />
+          <View className="mt-2"><Button label="取消" variant="ghost" size="md" onPress={() => navigation.goBack()} /></View>
         </View>
       </ScrollView>
 
-      {/* 👈 全屏弹窗 */}
+      {/* 🔥 修复：用 hideActions 替代 actions={[]} */}
       {dialogue && (
-        <EventModal
-          visible={true}
-          title="雾璃"
-          message={dialogue.text}
-          actions={[]}
-          onDismiss={() => setDialogue(null)}
-        />
+        <EventModal visible={true} title="雾璃" message={dialogue.text} hideActions={true} onDismiss={() => setDialogue(null)} />
       )}
     </ScreenContainer>
   );
@@ -217,13 +147,9 @@ function EffectRow({ icon, label, value, color }: any): React.JSX.Element {
   const sign = value > 0 ? '+' : '';
   return (
     <View className="flex-row items-center justify-between py-1.5">
-      <View className="flex-row items-center">
-        <Ionicons name={icon} size={14} color={color} />
-        <Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text>
-      </View>
+      <View className="flex-row items-center"><Ionicons name={icon} size={14} color={color} /><Text className="ml-2 text-xs text-muted dark:text-dark-muted">{label}</Text></View>
       <Text className="text-xs font-semibold" style={{ color }}>{sign}{value}</Text>
     </View>
   );
 }
-
 export default MedicineDetailScreen;
