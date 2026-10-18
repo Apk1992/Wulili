@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl, Text, View, Pressable } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import CategoryTabs from '@/components/CategoryTabs';
@@ -11,8 +12,7 @@ import ErrorView from '@/components/ErrorView';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { useGitHubFiles } from '@/hooks/useGitHubRepo';
-import { useGitHubReleases } from '@/hooks/useGitHubReleases';
-import { collectVideoAssets } from '@/hooks/useGitHubReleases';
+import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
@@ -37,36 +37,19 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  const musicQuery = useGitHubFiles({
-    path: FOLDER_BY_KIND.music,
-    depth: 1,
-    enabled: activeKind === 'music',
-  });
-  const videoQuery = useGitHubFiles({
-    path: FOLDER_BY_KIND.video,
-    depth: 1,
-    enabled: activeKind === 'video',
-  });
-  const noteQuery = useGitHubFiles({
-    path: FOLDER_BY_KIND.note,
-    depth: 1,
-    enabled: activeKind === 'note',
-  });
+  const musicQuery = useGitHubFiles({ path: FOLDER_BY_KIND.music, depth: 1, enabled: activeKind === 'music' });
+  const videoQuery = useGitHubFiles({ path: FOLDER_BY_KIND.video, depth: 1, enabled: activeKind === 'video' });
+  const noteQuery = useGitHubFiles({ path: FOLDER_BY_KIND.note, depth: 1, enabled: activeKind === 'note' });
   const releasesQuery = useGitHubReleases(30);
 
-  const musicItems = useMemo(
-    () => buildItems(musicQuery.data ?? []),
-    [musicQuery.data],
-  );
+  // 🔥 核心修复：不再过滤掉文件夹（dir）
+  const musicItems = useMemo(() => buildItems(musicQuery.data ?? []), [musicQuery.data]);
   const videoItems = useMemo(() => {
     const repoItems = buildItems(videoQuery.data ?? []);
     const releaseItems = buildReleaseItems(releasesQuery.data ?? []);
     return [...releaseItems, ...repoItems];
   }, [videoQuery.data, releasesQuery.data]);
-  const noteItems = useMemo(
-    () => buildItems(noteQuery.data ?? []),
-    [noteQuery.data],
-  );
+  const noteItems = useMemo(() => buildItems(noteQuery.data ?? []), [noteQuery.data]);
 
   const counts = {
     music: musicItems.length,
@@ -74,18 +57,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     note: noteItems.length,
   };
 
-  const activeQuery =
-    activeKind === 'music'
-      ? musicQuery
-      : activeKind === 'video'
-        ? videoQuery
-        : noteQuery;
-  const activeItems =
-    activeKind === 'music'
-      ? musicItems
-      : activeKind === 'video'
-        ? videoItems
-        : noteItems;
+  const activeQuery = activeKind === 'music' ? musicQuery : activeKind === 'video' ? videoQuery : noteQuery;
+  const activeItems = activeKind === 'music' ? musicItems : activeKind === 'video' ? videoItems : noteItems;
 
   useFocusEffect(
     useCallback(() => {
@@ -93,25 +66,26 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       void videoQuery.refetch();
       void noteQuery.refetch();
       void releasesQuery.refetch();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        musicQuery.refetch(),
-        videoQuery.refetch(),
-        noteQuery.refetch(),
-        releasesQuery.refetch(),
-      ]);
+      await Promise.all([musicQuery.refetch(), videoQuery.refetch(), noteQuery.refetch(), releasesQuery.refetch()]);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handlePressItem = (item: MemoryItem) => {
+  const handlePressItem = (item: MemoryItem & { isFolder?: boolean }) => {
+    // 🔥 如果是文件夹，点进去
+    if (item.isFolder) {
+      if (item.kind === 'music') navigation.navigate('MusicPlayer', { initialPath: item.path });
+      else if (item.kind === 'video') navigation.navigate('VideoPlayer', { initialPath: item.path });
+      return;
+    }
+
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer');
       return;
@@ -120,11 +94,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       navigation.navigate('VideoPlayer');
       return;
     }
-    navigation.navigate('NoteReader', {
-      path: item.path,
-      sha: item.sha,
-      displayName: item.displayName,
-    });
+    navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
   };
 
   return (
@@ -136,45 +106,63 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       {activeQuery.isLoading ? (
         <LoadingView message="正在加载回忆…" fullScreen />
       ) : activeQuery.isError ? (
-        <ErrorView
-          title="加载失败"
-          message="无法连接到回忆仓库，请检查网络或 Token 设置。"
-          onRetry={() => activeQuery.refetch()}
-          fullScreen
-        />
+        <ErrorView title="加载失败" message="无法连接到回忆仓库，请检查网络或 Token 设置。" onRetry={() => activeQuery.refetch()} fullScreen />
       ) : activeItems.length === 0 ? (
-        <EmptyView
-          title="这里还是空的"
-          message={EMPTY_MESSAGES[activeKind]}
-          icon="cloud-outline"
-          fullScreen
-        />
+        <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
         <FlatList
           data={activeItems}
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
-          renderItem={({ item }) => (
-            <MemoryListItem item={item} onPress={handlePressItem} />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
+          renderItem={({ item }) => {
+            if ((item as any).isFolder) {
+              return (
+                <Pressable
+                  className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
+                  onPress={() => handlePressItem(item)}
+                >
+                  <View className="flex-row items-center">
+                    <Ionicons name="folder" size={24} color="#F59E0B" />
+                    <Text className="ml-3 text-base font-medium text-text dark:text-dark-text">{item.name}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                </Pressable>
+              );
+            }
+            return <MemoryListItem item={item} onPress={() => handlePressItem(item)} />;
+          }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <Text className="text-xs text-muted dark:text-dark-muted mb-2">
-              共 {activeItems.length} 项 · 下拉刷新
-            </Text>
-          }
+          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · 下拉刷新</Text>}
         />
       )}
     </ScreenContainer>
   );
 }
 
-function buildItems(files: GitHubContentItem[]): MemoryItem[] {
-  const items: MemoryItem[] = [];
+// 🔥 核心修改：现在会把文件夹（dir）也放进列表中，用 isFolder 标记
+function buildItems(files: GitHubContentItem[]): (MemoryItem & { isFolder?: boolean })[] {
+  const items: (MemoryItem & { isFolder?: boolean })[] = [];
   for (const file of files) {
+    // 如果是文件夹
+    if (file.type === 'dir') {
+      items.push({
+        id: file.sha || file.path,
+        kind: file.path.includes('music') ? 'music' : file.path.includes('videos') ? 'video' : 'note',
+        name: file.name,
+        displayName: file.name,
+        path: file.path,
+        size: 0,
+        sha: file.sha,
+        downloadUrl: '',
+        updatedAt: null,
+        source: 'repo',
+        isFolder: true, // 👈 标记为文件夹
+      });
+      continue;
+    }
+
+    // 如果是文件，保持原样
     const kind = detectMemoryKind(file.name);
     if (!kind) continue;
     items.push({
