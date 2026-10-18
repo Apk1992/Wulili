@@ -4,16 +4,15 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message'; // 👈 引入 Toast
 
 import ScreenContainer from '@/components/ScreenContainer';
 import WuliliAvatar from '@/components/WuliliAvatar';
-import DialogueBubble from '@/components/DialogueBubble';
 import Button from '@/components/Button';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
 import { useWuliliStore } from '@/store/useWuliliStore';
-import { useDialogueStore } from '@/store/useDialogueStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAffinity } from '@/hooks/useAffinity';
@@ -22,7 +21,6 @@ import { formatNumber } from '@/utils/format';
 import { SLEEP_CONFIG, canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
 import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import type { Mood, Season } from '@/types/wulili';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
@@ -35,10 +33,9 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
-  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
+  const { height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [now, setNow] = useState<number>(Date.now());
   const [mood, setMood] = useState<Mood>(() => computeMood());
 
@@ -65,7 +62,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (isSleeping) return 'images/scenes/bedroom_sleep.png';
     const seasonStr = season || 'autumn';
     const currentHour = new Date().getHours();
-    const isNight = currentHour >= 18 || currentHour < 6; 
+    const isNight = currentHour >= 18 || currentHour < 6;
     const suffix = isNight ? '_night' : '';
     return `images/scenes/living_${seasonStr}${suffix}.png`;
   }, [isSleeping, season]);
@@ -76,23 +73,50 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  useFocusEffect(useCallback(() => {
-    updateLoginStreak();
-    setMood(computeMood());
-    if (!isSleeping) {
-      const greeting = speak({ forceCategory: 'greeting' });
-      if (greeting) setDialogue(greeting);
-    }
-  }, []));
-
-  useEffect(() => {
-    if (!dialogue && !isSleeping) {
-      const lastText = useDialogueStore.getState().lastText;
-      if (lastText) {
-        setDialogue({ id: 'restored', text: lastText, category: 'idle', emotion: 'calm', triggers: [], weight: 1, cooldownHours: 0, once: false, source: 'default' });
+  // 🔥 每次回到主页：用 Toast 显示打招呼，不再用占位的对话气泡
+  useFocusEffect(
+    useCallback(() => {
+      updateLoginStreak();
+      setMood(computeMood());
+      
+      // 如果生病了，弹 Toast 提醒
+      if (illness.type !== 'none' && !isSleeping) {
+        Toast.show({
+          type: 'error',
+          text1: '雾璃身体不舒服',
+          text2: '点击这里去药房看看',
+          position: 'bottom',
+          visibilityTime: 4000,
+          onPress: () => navigation.navigate('Medicine'),
+        });
+      } else if (isInPeriod && !isSleeping) {
+        Toast.show({
+          type: 'info',
+          text1: '雾璃今天不太舒服（经期）',
+          text2: '点此去药房吃布洛芬',
+          position: 'bottom',
+          visibilityTime: 4000,
+          onPress: () => navigation.navigate('Medicine'),
+        });
       }
-    }
-  }, [dialogue, isSleeping]);
+
+      // 聊天问候（纯文本弹窗）
+      if (!isSleeping) {
+        const greeting = speak({ forceCategory: 'greeting' });
+        if (greeting) {
+          setTimeout(() => {
+            Toast.show({
+              type: 'info',
+              text1: '雾璃',
+              text2: greeting.text,
+              position: 'top',
+              visibilityTime: 5000,
+            });
+          }, 500);
+        }
+      }
+    }, [illness.type, isInPeriod, isSleeping, speak, navigation, updateLoginStreak])
+  );
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
   const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
@@ -103,7 +127,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (!canStartSleep(energy)) return Alert.alert('还不困', '雾璃现在精力充沛，不需要睡觉。');
     startSleep();
     useWuliliStore.getState().markInteraction('sleep');
-    setDialogue(null);
   };
 
   const handleWakeUp = () => {
@@ -127,25 +150,29 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
+        
+        {/* 背景与人物 */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <WuliliAvatar
             mood={displayMood}
             fullScreen
             sceneImage={sceneImage}
             hideCharacter={isSleeping}
-            characterSizeRatio={1.1} 
+            characterSizeRatio={1.2} 
             characterVerticalBias={0.25} 
-            characterHeightOverflow={1.1} 
-            characterHorizontalOffset={80} // 👈 核心：人物向右平移 40 像素，头发完美出屏
+            characterHeightOverflow={1.15} 
+            characterHorizontalOffset={40} 
           />
         </View>
 
+        {/* 顶部状态栏 */}
         <View className="absolute left-0 right-0 px-4" style={{ top: insets.top + 12 }} pointerEvents="box-none">
           <View className="flex-row items-center justify-between mb-2">
             <View className="rounded-full bg-black/50 px-3 py-1"><Text className="text-xs text-white font-medium">{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text></View>
             <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center"><Ionicons name="cash-outline" size={12} color="#FFFFFF" /><Text className="ml-1 text-xs text-white font-medium">{formatNumber(coins)}</Text></View>
           </View>
 
+          {/* 保留直播横幅 */}
           {isStreaming ? (
             <Pressable onPress={() => navigation.navigate('Stream')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.9)' }}>
               <Ionicons name="radio" size={18} color="#FFFFFF" />
@@ -154,47 +181,36 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             </Pressable>
           ) : null}
 
+          {/* 保留睡觉横幅 */}
           {isSleeping ? (
             <View className="mb-2 rounded-2xl px-3 py-2 flex-row items-center" style={{ backgroundColor: 'rgba(99,102,241,0.9)' }}>
               <Ionicons name="moon" size={18} color="#FFFFFF" />
               <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text><Text className="text-white/80 text-[10px] mt-0.5">已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
             </View>
           ) : null}
-
-          {isInPeriod && !isSleeping ? (
-            <Pressable onPress={() => navigation.navigate('Medicine')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(168,85,247,0.9)' }}>
-              <Ionicons name="water" size={16} color="#FFFFFF" /><View className="ml-2 flex-1"><Text className="text-white text-xs font-semibold">雾璃今天不太舒服 · 经期第 {menstrualInfo.dayInCycle} 天</Text></View><Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
-            </Pressable>
-          ) : null}
-
-          {illness.type !== 'none' && !isSleeping ? (
-            <Pressable onPress={() => navigation.navigate('Medicine')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.85)' }}>
-              <Ionicons name="medkit" size={16} color="#FFFFFF" /><Text className="ml-2 text-white text-xs font-medium">雾璃身体不舒服 · 去药房</Text>
-            </Pressable>
-          ) : null}
-
-          {dialogue && !isSleeping ? (
-            <View style={{ position: 'relative' }}><DialogueBubble dialogue={dialogue} onDismiss={() => setDialogue(null)} autoDismissMs={10000} /></View>
-          ) : null}
+          
+          {/* 🔥 不舒适/经期提示条彻底移除，改用 Toast */}
         </View>
 
-        {/* 🔥 左侧按钮区：top 稍微下移到 0.38，避开对话框 */}
+        {/* 左侧按钮 */}
         {!isSleeping ? (
-          <View className="absolute" style={{ left: 16, top: screenHeight * 0.25 }} pointerEvents="box-none">
+          <View className="absolute" style={{ left: 16, top: screenHeight * 0.32 }} pointerEvents="box-none">
             {actionButtons.map((btn) => (
-              <View key={btn.label} style={{ marginBottom: 8 }}>
+              <View key={btn.label} style={{ marginBottom: 10 }}>
                 <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
               </View>
             ))}
           </View>
         ) : null}
 
+        {/* 睡觉按钮 */}
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.25 }}>
+          <View style={{ position: 'absolute', right: 16, bottom: 140 }}>
              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
           </View>
         ) : null}
 
+        {/* 底部大按钮 */}
         <View className="absolute left-4 right-4" style={{ bottom: 24 }} pointerEvents="box-none">
           {isSleeping ? (
             <Button label="叫醒她" icon="sunny" variant="danger" size="lg" onPress={handleWakeUp} />
