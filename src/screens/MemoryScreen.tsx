@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator, Alert } from 'react-native';
+import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -22,16 +22,16 @@ import type { GitHubContentItem } from '@/types/github';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
-const FOLDER_BY_KIND: Record<MemoryKind, string> = {
+const BASE_PATHS: Record<MemoryKind, string> = {
   music: GITHUB_PATHS.music,
   video: GITHUB_PATHS.videos,
   note: GITHUB_PATHS.notes,
 };
 
 const EMPTY_MESSAGES: Record<MemoryKind, string> = {
-  music: '往仓库的 music/ 文件夹里上传一些音乐吧。',
-  video: '往仓库的 videos/ 文件夹或 Release 里上传一些视频吧。',
-  note: '往仓库的 notes/ 文件夹里上传一些读文吧。',
+  music: '往这个文件夹里上传一些音乐吧。',
+  video: '往这个文件夹里上传一些视频吧。',
+  note: '往这个文件夹里上传一些读文吧。',
 };
 
 const NEW_FILES_KEY = '@wulili/known_files';
@@ -40,6 +40,9 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
 
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
+  // 🔥 核心：记录当前所在的文件夹路径
+  const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
+
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
   
@@ -49,47 +52,37 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
+  // 加载已读记录
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 🔥 自动拉取子文件夹里的文件（拍平）
-  const fetchFolderRecursively = async (path: string, token: string): Promise<GitHubContentItem[]> => {
-    let results: GitHubContentItem[] = [];
-    const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
-    const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    
-    if (!Array.isArray(data)) return [];
-
-    for (const item of data) {
-      if (item.type === 'file') {
-        results.push(item);
-      } else if (item.type === 'dir') {
-        // 如果是视频或笔记，递归把里面的文件抓出来
-        if (activeKind !== 'music') {
-          const subFiles = await fetchFolderRecursively(item.path, token);
-          results = [...results, ...subFiles];
-        } else {
-          // 音乐保留文件夹层级
-          results.push(item); 
-        }
-      }
-    }
-    return results;
+  // 切换 Tab 时，重置回该 Tab 的根目录
+  const handleTabChange = (kind: MemoryKind) => {
+    setActiveKind(kind);
+    setCurrentPath(BASE_PATHS[kind]);
   };
 
-  const fetchData = async (showLoading = true) => {
+  // 自己发请求拉取当前路径下的数据
+  const fetchFolder = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(false);
     try {
       const token = getGitHubToken();
-      if (!token) throw new Error('无 Token');
-      const items = await fetchFolderRecursively(FOLDER_BY_KIND[activeKind], token);
-      setRawData(items);
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
+
+      const res = await fetch(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (!res.ok) throw new Error('获取失败');
+      const data = await res.json();
+      setRawData(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(true);
     } finally {
@@ -99,26 +92,36 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchData();
+      void fetchFolder();
       void releasesQuery.refetch();
-    }, [activeKind]),
+    }, [currentPath]), // 🔥 只要路径变了，立刻重新请求
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchData(false);
+    await fetchFolder(false);
     await releasesQuery.refetch();
     setRefreshing(false);
   };
 
+  // 返回上一级
+  const handleGoBackFolder = () => {
+    const basePath = BASE_PATHS[activeKind];
+    if (currentPath === basePath) return;
+    const parts = currentPath.split('/');
+    parts.pop();
+    setCurrentPath(parts.join('/') || basePath);
+  };
+
+  // 转换列表数据
   const activeItems = useMemo(() => {
-    if (activeKind === 'video' && releasesQuery.data) {
+    if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
       const repoItems = buildItems(rawData, 'video', knownFiles);
       const releaseItems = buildReleaseItems(releasesQuery.data);
       return [...releaseItems, ...repoItems];
     }
     return buildItems(rawData, activeKind, knownFiles);
-  }, [rawData, activeKind, knownFiles, releasesQuery.data]);
+  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
 
   const counts = {
     music: activeKind === 'music' ? activeItems.length : 0,
@@ -127,19 +130,22 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handlePressItem = (item: any) => {
+    // 如果点的是文件夹，进入下一层
+    if (item.isFolder) {
+      setCurrentPath(item.path);
+      return;
+    }
+
+    // 标记已读
     if (item.isNew) {
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
       void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     }
 
-    if (item.isFolder) {
-      if (item.kind === 'music') navigation.navigate('MusicPlayer', { initialPath: item.path });
-      return;
-    }
-
+    // 跳转播放/阅读
     if (item.kind === 'music') {
-      navigation.navigate('MusicPlayer');
+      navigation.navigate('MusicPlayer', { initialPath: currentPath });
     } else if (item.kind === 'video') {
       navigation.navigate('VideoPlayer');
     } else {
@@ -150,16 +156,26 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View className="px-4 pt-3">
-        <CategoryTabs active={activeKind} onChange={setActiveKind} counts={counts} />
+        <CategoryTabs active={activeKind} onChange={handleTabChange} counts={counts} />
       </View>
+
+      {/* 顶部显示当前路径的返回按钮 */}
+      {currentPath !== BASE_PATHS[activeKind] && (
+        <View className="px-4 py-2 flex-row items-center">
+          <Pressable className="flex-row items-center bg-card dark:bg-dark-card px-3 py-1.5 rounded-full border border-border dark:border-dark-border" onPress={handleGoBackFolder}>
+            <Ionicons name="arrow-back" size={14} color="#2563EB" />
+            <Text className="ml-1 text-xs text-primary font-medium">返回上一级</Text>
+          </Pressable>
+        </View>
+      )}
 
       {loading && !refreshing ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#2563EB" />
-          <Text className="text-xs text-muted mt-4">正在加载回忆…</Text>
+          <Text className="text-xs text-muted mt-4">正在加载…</Text>
         </View>
       ) : error ? (
-        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchData()} fullScreen />
+        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchFolder()} fullScreen />
       ) : activeItems.length === 0 ? (
         <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
@@ -168,6 +184,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
           renderItem={({ item }) => {
+            // 渲染文件夹
             if (item.isFolder) {
               return (
                 <Pressable
@@ -182,6 +199,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
                 </Pressable>
               );
             }
+            // 渲染文件
             return (
               <View className="relative">
                 <MemoryListItem item={item} onPress={() => handlePressItem(item)} />
@@ -202,7 +220,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 点击子文件夹时，里面的文件也会带上 NEW 标签了
+// 构建文件列表，此时 rawData 已经是当前路径下的数据
 function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   for (const file of files) {
@@ -237,7 +255,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId],
+        isNew: !knownFiles[uniqueId], // 🔥 NEW 逻辑，无论你在哪个文件夹里
       });
     }
   }
