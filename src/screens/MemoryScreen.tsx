@@ -15,6 +15,7 @@ import { useGitHubFiles } from '@/hooks/useGitHubRepo';
 import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
+import { useBgm } from '@/hooks/useBgm'; // 👈 引入 BGM
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
 import type { GitHubContentItem } from '@/types/github';
@@ -34,6 +35,9 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
 };
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
+  // 🔥 关键：在回忆页也激活 BGM，从播放器退出后能瞬间响
+  useBgm();
+
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
@@ -42,14 +46,13 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const noteQuery = useGitHubFiles({ path: FOLDER_BY_KIND.note, depth: 1, enabled: activeKind === 'note' });
   const releasesQuery = useGitHubReleases(30);
 
-  // 🔥 核心修复：不再过滤掉文件夹（dir）
-  const musicItems = useMemo(() => buildItems(musicQuery.data ?? []), [musicQuery.data]);
+  const musicItems = useMemo(() => buildItems(musicQuery.data ?? [], 'music'), [musicQuery.data]);
   const videoItems = useMemo(() => {
-    const repoItems = buildItems(videoQuery.data ?? []);
+    const repoItems = buildItems(videoQuery.data ?? [], 'video');
     const releaseItems = buildReleaseItems(releasesQuery.data ?? []);
     return [...releaseItems, ...repoItems];
   }, [videoQuery.data, releasesQuery.data]);
-  const noteItems = useMemo(() => buildItems(noteQuery.data ?? []), [noteQuery.data]);
+  const noteItems = useMemo(() => buildItems(noteQuery.data ?? [], 'note'), [noteQuery.data]);
 
   const counts = {
     music: musicItems.length,
@@ -78,11 +81,13 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
-  const handlePressItem = (item: MemoryItem & { isFolder?: boolean }) => {
-    // 🔥 如果是文件夹，点进去
+  const handlePressItem = (item: any) => {
+    // 🔥 点击文件夹
     if (item.isFolder) {
-      if (item.kind === 'music') navigation.navigate('MusicPlayer', { initialPath: item.path });
-      else if (item.kind === 'video') navigation.navigate('VideoPlayer', { initialPath: item.path });
+      if (item.kind === 'music') {
+        navigation.navigate('MusicPlayer', { initialPath: item.path });
+      }
+      // 如果以后要做视频文件夹，在这里加
       return;
     }
 
@@ -115,6 +120,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
           renderItem={({ item }) => {
+            // 渲染文件夹 UI
             if ((item as any).isFolder) {
               return (
                 <Pressable
@@ -129,6 +135,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
                 </Pressable>
               );
             }
+            // 渲染音乐文件 UI
             return <MemoryListItem item={item} onPress={() => handlePressItem(item)} />;
           }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
@@ -140,15 +147,16 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 核心修改：现在会把文件夹（dir）也放进列表中，用 isFolder 标记
-function buildItems(files: GitHubContentItem[]): (MemoryItem & { isFolder?: boolean })[] {
-  const items: (MemoryItem & { isFolder?: boolean })[] = [];
+// 🔥 修复：无论有没有扩展名，只要是 `dir`，就作为文件夹放进来
+function buildItems(files: GitHubContentItem[], type: MemoryKind): any[] {
+  const items: any[] = [];
+  
   for (const file of files) {
-    // 如果是文件夹
+    // 核心拦截：只要它是文件夹，无条件放进去
     if (file.type === 'dir') {
       items.push({
         id: file.sha || file.path,
-        kind: file.path.includes('music') ? 'music' : file.path.includes('videos') ? 'video' : 'note',
+        kind: type, // 标记它属于哪个 tab
         name: file.name,
         displayName: file.name,
         path: file.path,
@@ -157,28 +165,36 @@ function buildItems(files: GitHubContentItem[]): (MemoryItem & { isFolder?: bool
         downloadUrl: '',
         updatedAt: null,
         source: 'repo',
-        isFolder: true, // 👈 标记为文件夹
+        isFolder: true, // 👈 强制标记为文件夹
       });
       continue;
     }
 
-    // 如果是文件，保持原样
-    const kind = detectMemoryKind(file.name);
-    if (!kind) continue;
-    items.push({
-      id: file.sha || file.path,
-      kind,
-      name: file.name,
-      displayName: humanizeFileName(file.name),
-      path: file.path,
-      size: file.size,
-      sha: file.sha,
-      downloadUrl: file.download_url,
-      updatedAt: null,
-      source: 'repo',
-    });
+    // 如果是文件，照常判断
+    if (file.type === 'file') {
+      const kind = detectMemoryKind(file.name);
+      if (!kind) continue;
+      items.push({
+        id: file.sha || file.path,
+        kind,
+        name: file.name,
+        displayName: humanizeFileName(file.name),
+        path: file.path,
+        size: file.size,
+        sha: file.sha,
+        downloadUrl: file.download_url,
+        updatedAt: null,
+        source: 'repo',
+      });
+    }
   }
-  return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+  
+  // 排序时，把文件夹排在最前面
+  return items.sort((a, b) => {
+    if (a.isFolder && !b.isFolder) return -1;
+    if (!a.isFolder && b.isFolder) return 1;
+    return a.displayName.localeCompare(b.displayName, 'zh-CN');
+  });
 }
 
 function buildReleaseItems(releases: NonNullable<ReturnType<typeof useGitHubReleases>['data']>): MemoryItem[] {
