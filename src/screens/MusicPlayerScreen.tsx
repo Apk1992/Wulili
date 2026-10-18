@@ -25,8 +25,11 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
 
-export function MusicPlayerScreen({}: Props): React.JSX.Element {
-  const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
+export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
+  // 🔥 核心修改：接收从 MemoryScreen 传过来的子文件夹路径，如果没有则默认从根目录开始
+  const [currentPath, setCurrentPath] = useState<string>(
+    route.params?.initialPath || GITHUB_PATHS.music
+  );
   const query = useGitHubFiles({ path: currentPath, depth: 1 });
 
   const [playback, setPlayback] = useState<PlaybackState>({ current: null, status: 'idle', position: 0, duration: 0, error: null });
@@ -37,7 +40,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 拆分文件夹和文件
+  // 拆分文件夹和音乐
   const { folders, items } = useMemo(() => {
     const files = query.data ?? [];
     const dirs: GitHubContentItem[] = [];
@@ -50,7 +53,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     return { folders: dirs, items: buildMusicItems(musicFiles) };
   }, [query.data]);
 
-  // 🔥 核心修复：离开这个页面的一瞬间，立刻清空队列，让 BGM 接管
+  // 🔥 核心修复：离开这个页面的一瞬间，立刻清空队列，让 BGM 瞬间接管
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -59,7 +62,10 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     }, [])
   );
 
+  // 切换文件夹
   const handleFolderPress = (path: string) => setCurrentPath(path);
+
+  // 返回上一级
   const handleGoBackFolder = () => {
     if (currentPath === GITHUB_PATHS.music) return;
     const parts = currentPath.split('/');
@@ -107,9 +113,9 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items); // 只播当前文件夹的
+    const tracks = buildTracks(items); // 只播当前文件夹的音乐
     await TrackPlayer.add(tracks);
-    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表顺序播放，不是单曲循环
     queueReadyRef.current = true;
     await TrackPlayer.skip(startIndex);
     await TrackPlayer.play();
@@ -120,6 +126,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     try {
       const item = items[index];
       if (!item) return;
+
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
       if (!queueReadyRef.current) {
@@ -216,6 +223,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             );
           }
 
+          // 渲染文件夹
           if (item.type === 'dir') {
             return (
               <Pressable 
@@ -231,6 +239,7 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
             );
           }
 
+          // 渲染音乐文件
           const musicIndex = index - 1 - folders.length;
           const isCurrent = currentIndex === musicIndex;
           return (
