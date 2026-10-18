@@ -242,7 +242,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             characterSizeRatio={1.1} 
             characterVerticalBias={0.25} 
             characterHeightOverflow={1.15} 
-            characterHorizontalOffset={70} 
+            characterHorizontalOffset={100} 
           />
         </View>
 
@@ -271,7 +271,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 左侧按钮 */}
         {!isSleeping ? (
-          <View className="absolute" style={{ left: 16, top: screenHeight * 0.25 }} pointerEvents="box-none">
+          <View className="absolute" style={{ left: 16, top: screenHeight * 0.1 }} pointerEvents="box-none">
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 10 }}>
                 <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
@@ -282,7 +282,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 睡觉按钮 */}
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, bottom: 140 }}>
+          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.1 }}>
              <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
           </View>
         ) : null}
