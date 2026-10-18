@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, Text, View, useWindowDimensions, Modal, TouchableWithoutFeedback } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import ScreenContainer from '@/components/ScreenContainer';
 import WuliliAvatar from '@/components/WuliliAvatar';
-import Button from '@/components/Button';
-import EventModal from '@/components/EventModal';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
@@ -31,8 +28,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
 
   const { speak } = useDialogue();
-  const affinityData = useAffinity();
-  const levelLabel = affinityData?.levelLabel || '初识';
+  const { levelLabel } = useAffinity();
   const { season } = useSeason();
   const { height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -45,7 +41,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [dialogueText, setDialogueText] = useState<string>('');
 
   const timeOfDay = getTimeOfDay();
-  // 🔥 加上了可选链，防止 state 或 stats 为空时直接崩
   const illness = useWuliliStore((s) => s.state?.illness);
   const menstrual = useWuliliStore((s) => s.state?.menstrual);
   const coins = useWuliliStore((s) => s.state?.coins) ?? 0;
@@ -62,7 +57,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  // 🔥 防御 menstrual 为空的情况
   const menstrualInfo = useMemo(
     () => menstrual ? computeMenstrualInfo(menstrual) : { phase: 'unknown', isMedicineActive: false, dayInCycle: 0 },
     [menstrual, now]
@@ -92,35 +86,30 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         if (isSleeping) return;
 
-        // 优先级 1：生病
         if (illness && illness.type !== 'none') {
           setEventConfig({ title: '雾璃生病了', msg: '她看起来很难受，一直咳嗽。需要带她去药房吗？', type: 'sick' });
           setActiveModal('event');
           return;
         }
 
-        // 优先级 2：经期不适
         if (isInPeriod && !menstrualInfo.isMedicineActive) {
           setEventConfig({ title: '经期不适', msg: '雾璃捂着肚子，脸色有点苍白，可能需要吃点布洛芬。', type: 'period' });
           setActiveModal('event');
           return;
         }
 
-        // 优先级 3：肚子饿了
         if (satiety < 30) {
           setEventConfig({ title: '她饿了', msg: '肚子发出了咕咕的声音... 要给她弄点吃的吗？', type: 'hungry' });
           setActiveModal('event');
           return;
         }
 
-        // 优先级 4：精力见底
         if (energy < 20) {
           setEventConfig({ title: '非常疲惫', msg: '雾璃的眼皮在打架，看来今天真的累坏了。', type: 'sleepy' });
           setActiveModal('event');
           return;
         }
 
-        // 优先级 5：日常打招呼 (🔥 增加严密防护，防止 greeting 崩溃)
         const greeting = speak({ forceCategory: 'greeting' });
         if (greeting && typeof greeting.text === 'string') {
           setDialogueText(greeting.text);
@@ -137,32 +126,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     setEventConfig(null);
   };
 
-  const getEventActions = () => {
-    if (!eventConfig) return [];
-    const dismissAction = { label: '暂时不理她', icon: 'close-circle-outline', onPress: handleModalDismiss };
-
-    switch (eventConfig.type) {
-      case 'sick':
-      case 'period':
-        return [
-          { label: '马上带她去药房', icon: 'medkit', primary: true, onPress: () => { handleModalDismiss(); navigation.navigate('Medicine'); } },
-          dismissAction
-        ];
-      case 'hungry':
-        return [
-          { label: '去厨房投喂', icon: 'restaurant', primary: true, onPress: () => { handleModalDismiss(); navigation.navigate('Feed'); } },
-          { label: '让她先饿着', icon: 'time-outline', onPress: handleModalDismiss }
-        ];
-      case 'sleepy':
-        return [
-          { label: '哄她睡觉', icon: 'moon', primary: true, onPress: () => { handleModalDismiss(); startSleep(); useWuliliStore.getState().markInteraction('sleep'); } },
-          dismissAction
-        ];
-      default:
-        return [dismissAction];
-    }
-  };
-
   const handleSleepPress = () => {
     if (isStreaming) return Alert.alert('正在直播', '要先下播才能睡觉哦。');
     if (isSleeping) return handleWakeUp();
@@ -174,8 +137,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const handleWakeUp = () => {
     stopSleep();
     setMood('happy');
-    Alert.alert('已起床', `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + (sleepElapsedMs || 0) / 1000)}，精力恢复了一些。`);
+    const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
+    Alert.alert('已起床', `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + sleepElapsedMs / 1000)}，精力恢复了一些。`);
   };
+
+  const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
+  const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
+  const canSleep = canStartSleep(energy);
+  const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
   const actionButtons = [
     { icon: 'restaurant', label: '投喂', onPress: () => navigation.navigate('Feed') },
@@ -186,14 +155,11 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { icon: 'shirt', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
-  const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
-  const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
-  const canSleep = canStartSleep(energy);
-  const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
-
   return (
-    <ScreenContainer padded={false} edges={['bottom']}>
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
+        
+        {/* 背景与人物 */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <WuliliAvatar
             mood={displayMood}
@@ -207,61 +173,152 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           />
         </View>
 
-        <View className="absolute left-0 right-0 px-4" style={{ top: insets.top + 12 }} pointerEvents="box-none">
-          <View className="flex-row items-center justify-between mb-2">
-            <View className="rounded-full bg-black/50 px-3 py-1"><Text className="text-xs text-white font-medium">{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text></View>
-            <View className="rounded-full bg-black/50 px-3 py-1 flex-row items-center"><Ionicons name="cash-outline" size={12} color="#FFFFFF" /><Text className="ml-1 text-xs text-white font-medium">{formatNumber(coins)}</Text></View>
+        {/* 顶部状态栏 */}
+        <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
+              <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text>
+            </View>
+            <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="cash-outline" size={12} color="#FFFFFF" />
+              <Text style={{ marginLeft: 4, fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{formatNumber(coins)}</Text>
+            </View>
           </View>
 
           {isStreaming ? (
-            <Pressable onPress={() => navigation.navigate('Stream')} className="mb-2 rounded-2xl px-3 py-2 flex-row items-center active:opacity-80" style={{ backgroundColor: 'rgba(239,68,68,0.9)' }}>
+            <Pressable onPress={() => navigation.navigate('Stream')} style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.9)' }}>
               <Ionicons name="radio" size={18} color="#FFFFFF" />
-              <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">正在直播中</Text><Text className="text-white/80 text-[10px] mt-0.5">已播 {formatDuration(streamElapsedMs)} · 点此查看</Text></View>
+              <View style={{ marginLeft: 8, flex: 1 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>正在直播中</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已播 {formatDuration(streamElapsedMs)} · 点此查看</Text>
+              </View>
               <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
             </Pressable>
           ) : null}
 
           {isSleeping ? (
-            <View className="mb-2 rounded-2xl px-3 py-2 flex-row items-center" style={{ backgroundColor: 'rgba(99,102,241,0.9)' }}>
+            <View style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(99,102,241,0.9)' }}>
               <Ionicons name="moon" size={18} color="#FFFFFF" />
-              <View className="ml-2 flex-1"><Text className="text-white text-sm font-semibold">雾璃正在睡觉</Text><Text className="text-white/80 text-[10px] mt-0.5">已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
+              <View style={{ marginLeft: 8, flex: 1 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>雾璃正在睡觉</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text>
+              </View>
             </View>
           ) : null}
         </View>
 
+        {/* 左侧按钮 */}
         {!isSleeping ? (
-          <View className="absolute" style={{ left: 16, top: screenHeight * 0.1 }} pointerEvents="box-none">
+          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.15 }}>
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 10 }}>
-                <CircleButton icon={btn.icon} label={btn.label} onPress={btn.onPress} />
+                <Pressable onPress={btn.onPress} style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name={btn.icon} size={22} color="#FFFFFF" />
+                  <Text style={{ fontSize: 10, color: '#FFFFFF', marginTop: 2, fontWeight: '500' }}>{btn.label}</Text>
+                </Pressable>
               </View>
             ))}
           </View>
         ) : null}
 
+        {/* 睡觉按钮 */}
         {!isSleeping ? (
-          <View style={{ position: 'absolute', right: 16, top: screenHeight * 0.1 }}>
-             <SleepButton onPress={handleSleepPress} disabled={!canSleep} isSleeping={false} />
-          </View>
+          <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.15, width: 56, height: 56, borderRadius: 28, backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6 }}>
+            <Ionicons name="moon" size={24} color="#FFFFFF" />
+          </Pressable>
         ) : null}
 
-        <View className="absolute left-4 right-4" style={{ bottom: 24 }} pointerEvents="box-none">
+        {/* 底部大按钮 (用原生 Pressable 替代自定义 Button) */}
+        <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
           {isSleeping ? (
-            <Button label="叫醒她" icon="sunny" variant="danger" size="lg" onPress={handleWakeUp} />
+            <Pressable onPress={handleWakeUp} style={{ backgroundColor: '#EF4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+              <Ionicons name="sunny" size={20} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>叫醒她</Text>
+            </Pressable>
           ) : (
-            <Button label="查看雾璃的状态" icon="heart-circle" variant="primary" size="lg" onPress={() => navigation.navigate('Status')} />
+            <Pressable onPress={() => navigation.navigate('Status')} style={{ backgroundColor: '#2563EB', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+              <Ionicons name="heart-circle" size={20} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 8 }}>查看雾璃的状态</Text>
+            </Pressable>
           )}
         </View>
 
-        {activeModal === 'event' && eventConfig && (
-          <EventModal visible={true} title={eventConfig.title} message={eventConfig.msg} actions={getEventActions()} />
-        )}
+        {/* 全屏事件弹窗 */}
+        <Modal visible={activeModal !== 'none'} transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
+            
+            {/* 事件弹窗 */}
+            {activeModal === 'event' && eventConfig && (
+              <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+                <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                    <Ionicons name="heart" size={32} color="#2563EB" />
+                  </View>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>{eventConfig.title}</Text>
+                </View>
+                <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 24 }}>{eventConfig.msg}</Text>
+                
+                <View style={{ gap: 12 }}>
+                  {eventConfig.type === 'sick' || eventConfig.type === 'period' ? (
+                    <>
+                      <Pressable onPress={() => { handleModalDismiss(); navigation.navigate('Medicine'); }} style={{ backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="medkit" size={18} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#FFF', fontWeight: '600' }}>马上带她去药房</Text>
+                      </Pressable>
+                      <Pressable onPress={handleModalDismiss} style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="close-circle-outline" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#CBD5E1', fontWeight: '600' }}>暂时不理她</Text>
+                      </Pressable>
+                    </>
+                  ) : eventConfig.type === 'hungry' ? (
+                    <>
+                      <Pressable onPress={() => { handleModalDismiss(); navigation.navigate('Feed'); }} style={{ backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="restaurant" size={18} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#FFF', fontWeight: '600' }}>去厨房投喂</Text>
+                      </Pressable>
+                      <Pressable onPress={handleModalDismiss} style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="time-outline" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#CBD5E1', fontWeight: '600' }}>让她先饿着</Text>
+                      </Pressable>
+                    </>
+                  ) : eventConfig.type === 'sleepy' ? (
+                    <>
+                      <Pressable onPress={() => { handleModalDismiss(); startSleep(); useWuliliStore.getState().markInteraction('sleep'); }} style={{ backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="moon" size={18} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#FFF', fontWeight: '600' }}>哄她睡觉</Text>
+                      </Pressable>
+                      <Pressable onPress={handleModalDismiss} style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#334155', flexDirection: 'row', justifyContent: 'center' }}>
+                        <Ionicons name="close-circle-outline" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+                        <Text style={{ color: '#CBD5E1', fontWeight: '600' }}>暂时不理她</Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                </View>
+              </View>
+            )}
 
-        {activeModal === 'dialogue' && (
-          <EventModal visible={true} title="雾璃" message={dialogueText} actions={[]} onDismiss={handleModalDismiss} />
-        )}
+            {/* 台词弹窗 (点击任意地方关闭) */}
+            {activeModal === 'dialogue' && (
+              <TouchableWithoutFeedback onPress={handleModalDismiss}>
+                <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                  <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
+                    <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                        <Ionicons name="chatbubbles" size={32} color="#2563EB" />
+                      </View>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>雾璃</Text>
+                    </View>
+                    <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>{dialogueText}</Text>
+                    <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击空白处继续...</Text>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            )}
+
+          </View>
+        </Modal>
       </View>
-    </ScreenContainer>
+    </View>
   );
 }
 
@@ -274,22 +331,6 @@ function computeMood(): Mood {
   if (s.stats?.mood >= 80) return 'happy';
   if (s.affinity >= 60) return 'shy';
   return 'calm';
-}
-
-function SleepButton({ onPress, disabled, isSleeping }: { onPress: () => void; disabled: boolean; isSleeping: boolean }): React.JSX.Element {
-  return (
-    <Pressable onPress={onPress} disabled={disabled && !isSleeping} className="items-center justify-center rounded-full active:opacity-70" style={{ width: 56, height: 56, backgroundColor: disabled && !isSleeping ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 8 }}>
-      <Ionicons name={isSleeping ? 'sunny' : 'moon'} size={24} color="#FFFFFF" />
-    </Pressable>
-  );
-}
-
-function CircleButton({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }): React.JSX.Element {
-  return (
-    <Pressable onPress={onPress} className="items-center justify-center rounded-full active:opacity-90" style={{ width: 56, height: 56, backgroundColor: 'rgba(15,23,42,0.7)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)' }}>
-      <Ionicons name={icon} size={22} color="#FFFFFF" /><Text className="text-[10px] text-white mt-0.5 font-medium">{label}</Text>
-    </Pressable>
-  );
 }
 
 export default WuliliScreen;
