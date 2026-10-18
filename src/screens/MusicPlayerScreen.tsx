@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useIsFocused } from '@react-navigation/native'; // 👈 引入
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import TrackPlayer, {
   Event,
@@ -33,6 +34,7 @@ const MAX_RETRIES = 2;
 
 export function MusicPlayerScreen({}: Props): React.JSX.Element {
   const query = useGitHubFiles({ path: GITHUB_PATHS.music, depth: 1 });
+  const isFocused = useIsFocused(); // 👈 判断是否在页面上
 
   const [playback, setPlayback] = useState<PlaybackState>({
     current: null,
@@ -57,10 +59,11 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     return buildMusicItems(files);
   }, [query.data]);
 
-  // 🔥 移除退出时的 reset，让音乐在后天继续放！
+  // 🔥 离开页面时：强行清空音乐，让 BGM 立刻接管
   useEffect(() => {
     return () => {
-      // 什么都不做，让 TrackPlayer 继续在后台播
+      // 只要离开这个页面，就直接重置 TrackPlayer
+      void TrackPlayer.reset().catch(() => undefined);
     };
   }, []);
 
@@ -205,7 +208,6 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     } catch {} finally { isSeekingRef.current = false; }
   }, []);
 
-  // 🔥 修复后退逻辑，不再用容易崩溃的 skipToPrevious
   const handleNext = useCallback(async () => {
     try {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
@@ -216,12 +218,11 @@ export function MusicPlayerScreen({}: Props): React.JSX.Element {
     } catch {}
   }, [items.length]);
 
-  // 🔥 修复后退逻辑
   const handlePrevious = useCallback(async () => {
     try {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       if (typeof activeIndex === 'number' && activeIndex > 0) {
-        await TrackPlayer.skip(activeIndex - 1); // 手动计算索引，比 skipToPrevious 稳
+        await TrackPlayer.skip(activeIndex - 1);
         await TrackPlayer.play();
       }
     } catch {}
