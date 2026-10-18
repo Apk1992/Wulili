@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator } from 'react-native';
+import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator, Alert } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -43,40 +43,53 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
   
-  // 🔥 自己接管请求状态
   const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 加载已读记忆
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 🔥 核心修复：自己发请求拉取数据，绝对不经过旧的 Hook
-  const fetchFolder = async (showLoading = true) => {
+  // 🔥 自动拉取子文件夹里的文件（拍平）
+  const fetchFolderRecursively = async (path: string, token: string): Promise<GitHubContentItem[]> => {
+    let results: GitHubContentItem[] = [];
+    const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
+    const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    
+    if (!Array.isArray(data)) return [];
+
+    for (const item of data) {
+      if (item.type === 'file') {
+        results.push(item);
+      } else if (item.type === 'dir') {
+        // 如果是视频或笔记，递归把里面的文件抓出来
+        if (activeKind !== 'music') {
+          const subFiles = await fetchFolderRecursively(item.path, token);
+          results = [...results, ...subFiles];
+        } else {
+          // 音乐保留文件夹层级
+          results.push(item); 
+        }
+      }
+    }
+    return results;
+  };
+
+  const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(false);
     try {
       const token = getGitHubToken();
-      const path = FOLDER_BY_KIND[activeKind];
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
-
-      const res = await fetch(apiUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      });
-
-      if (!res.ok) throw new Error('获取失败');
-      const data = await res.json();
-      // 即使里面有文件夹，也会原样返回
-      setRawData(Array.isArray(data) ? data : []);
+      if (!token) throw new Error('无 Token');
+      const items = await fetchFolderRecursively(FOLDER_BY_KIND[activeKind], token);
+      setRawData(items);
     } catch (e) {
       setError(true);
     } finally {
@@ -86,19 +99,18 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchFolder();
+      void fetchData();
       void releasesQuery.refetch();
     }, [activeKind]),
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchFolder(false);
+    await fetchData(false);
     await releasesQuery.refetch();
     setRefreshing(false);
   };
 
-  // 转换并排序数据
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data) {
       const repoItems = buildItems(rawData, 'video', knownFiles);
@@ -147,7 +159,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           <Text className="text-xs text-muted mt-4">正在加载回忆…</Text>
         </View>
       ) : error ? (
-        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchFolder()} fullScreen />
+        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchData()} fullScreen />
       ) : activeItems.length === 0 ? (
         <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
@@ -190,10 +202,9 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 核心处理逻辑：不强求扩展名，只要 type 是 dir 就返回
+// 🔥 点击子文件夹时，里面的文件也会带上 NEW 标签了
 function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
-  
   for (const file of files) {
     if (file.type === 'dir') {
       items.push({
@@ -211,7 +222,6 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
       });
       continue;
     }
-
     if (file.type === 'file') {
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
@@ -227,11 +237,10 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId], // 🔥 判断是否为新文件
+        isNew: !knownFiles[uniqueId],
       });
     }
   }
-  
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
     if (!a.isFolder && b.isFolder) return 1;
