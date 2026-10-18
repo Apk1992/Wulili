@@ -6,7 +6,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import WuliliScreen from '@/screens/WuliliScreen';
 import MemoryScreen from '@/screens/MemoryScreen';
 import { useTheme } from '@/hooks/useTheme';
-import { useWuliliStore } from '@/store/useWuliliStore';
 import type { TabParamList } from '@/types/navigation';
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -41,28 +40,21 @@ export function TabNavigator(): React.JSX.Element {
         name="Wulili"
         component={WuliliScreen}
         options={{
+          title: '雾璃', // 🔥 必须加 title
           tabBarLabel: '雾璃',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? 'heart' : 'heart-outline'}
-              size={size}
-              color={color}
-            />
+            <Ionicons name={focused ? 'heart' : 'heart-outline'} size={size} color={color} />
           ),
-          tabBarBadge: undefined,
         }}
       />
       <Tab.Screen
         name="Memory"
         component={MemoryScreen}
         options={{
+          title: '记录', // 🔥 必须加 title
           tabBarLabel: '记录',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? 'library' : 'library-outline'}
-              size={size}
-              color={color}
-            />
+            <Ionicons name={focused ? 'library' : 'library-outline'} size={size} color={color} />
           ),
         }}
       />
@@ -84,7 +76,5 @@ export function TabBadge({ count }: BadgeProps): React.JSX.Element | null {
     </View>
   );
 }
-
-void useWuliliStore;
 
 export default TabNavigator;
