@@ -1,20 +1,20 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { FlatList, RefreshControl, Text, View, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import CategoryTabs from '@/components/CategoryTabs';
 import MemoryListItem from '@/components/MemoryListItem';
-import LoadingView from '@/components/LoadingView';
 import ErrorView from '@/components/ErrorView';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
-import { useGitHubFiles } from '@/hooks/useGitHubRepo';
 import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
+import { getGitHubToken } from '@/api/githubClient';
 import { useBgm } from '@/hooks/useBgm';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
@@ -34,57 +34,95 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往仓库的 notes/ 文件夹里上传一些读文吧。',
 };
 
+const NEW_FILES_KEY = '@wulili/known_files';
+
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
-  useBgm(); // 保证页面聚焦时能拉起 BGM
+  useBgm();
 
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
+  
+  // 🔥 自己接管请求状态
+  const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<boolean>(false);
 
-  const musicQuery = useGitHubFiles({ path: FOLDER_BY_KIND.music, depth: 1, enabled: activeKind === 'music' });
-  const videoQuery = useGitHubFiles({ path: FOLDER_BY_KIND.video, depth: 1, enabled: activeKind === 'video' });
-  const noteQuery = useGitHubFiles({ path: FOLDER_BY_KIND.note, depth: 1, enabled: activeKind === 'note' });
   const releasesQuery = useGitHubReleases(30);
 
-  // 🔥 核心修复：把 `type` 传进 buildItems 里，绝对不放过任何 dir
-  const musicItems = useMemo(() => buildItems(musicQuery.data ?? [], 'music'), [musicQuery.data]);
-  const videoItems = useMemo(() => {
-    const repoItems = buildItems(videoQuery.data ?? [], 'video');
-    const releaseItems = buildReleaseItems(releasesQuery.data ?? []);
-    return [...releaseItems, ...repoItems];
-  }, [videoQuery.data, releasesQuery.data]);
-  const noteItems = useMemo(() => buildItems(noteQuery.data ?? [], 'note'), [noteQuery.data]);
+  // 加载已读记忆
+  useEffect(() => {
+    void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
+      if (res) setKnownFiles(JSON.parse(res));
+    });
+  }, []);
 
-  const counts = {
-    music: musicItems.length,
-    video: videoItems.length,
-    note: noteItems.length,
+  // 🔥 核心修复：自己发请求拉取数据，绝对不经过旧的 Hook
+  const fetchFolder = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(false);
+    try {
+      const token = getGitHubToken();
+      const path = FOLDER_BY_KIND[activeKind];
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
+
+      const res = await fetch(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (!res.ok) throw new Error('获取失败');
+      const data = await res.json();
+      // 即使里面有文件夹，也会原样返回
+      setRawData(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const activeQuery = activeKind === 'music' ? musicQuery : activeKind === 'video' ? videoQuery : noteQuery;
-  const activeItems = activeKind === 'music' ? musicItems : activeKind === 'video' ? videoItems : noteItems;
 
   useFocusEffect(
     useCallback(() => {
-      void musicQuery.refetch();
-      void videoQuery.refetch();
-      void noteQuery.refetch();
+      void fetchFolder();
       void releasesQuery.refetch();
-    }, []),
+    }, [activeKind]),
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try {
-      await Promise.all([musicQuery.refetch(), videoQuery.refetch(), noteQuery.refetch(), releasesQuery.refetch()]);
-    } finally {
-      setRefreshing(false);
+    await fetchFolder(false);
+    await releasesQuery.refetch();
+    setRefreshing(false);
+  };
+
+  // 转换并排序数据
+  const activeItems = useMemo(() => {
+    if (activeKind === 'video' && releasesQuery.data) {
+      const repoItems = buildItems(rawData, 'video', knownFiles);
+      const releaseItems = buildReleaseItems(releasesQuery.data);
+      return [...releaseItems, ...repoItems];
     }
+    return buildItems(rawData, activeKind, knownFiles);
+  }, [rawData, activeKind, knownFiles, releasesQuery.data]);
+
+  const counts = {
+    music: activeKind === 'music' ? activeItems.length : 0,
+    video: activeKind === 'video' ? activeItems.length : 0,
+    note: activeKind === 'note' ? activeItems.length : 0,
   };
 
   const handlePressItem = (item: any) => {
+    if (item.isNew) {
+      const newKnown = { ...knownFiles, [item.sha || item.path]: true };
+      setKnownFiles(newKnown);
+      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+    }
+
     if (item.isFolder) {
       if (item.kind === 'music') navigation.navigate('MusicPlayer', { initialPath: item.path });
-      // 如果你以后要做视频文件夹播放，可以在此扩展
       return;
     }
 
@@ -103,10 +141,13 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
         <CategoryTabs active={activeKind} onChange={setActiveKind} counts={counts} />
       </View>
 
-      {activeQuery.isLoading ? (
-        <LoadingView message="正在加载回忆…" fullScreen />
-      ) : activeQuery.isError ? (
-        <ErrorView title="加载失败" message="无法连接到回忆仓库，请检查网络或 Token 设置。" onRetry={() => activeQuery.refetch()} fullScreen />
+      {loading && !refreshing ? (
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#2563EB" />
+          <Text className="text-xs text-muted mt-4">正在加载回忆…</Text>
+        </View>
+      ) : error ? (
+        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchFolder()} fullScreen />
       ) : activeItems.length === 0 ? (
         <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
@@ -115,8 +156,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
           renderItem={({ item }) => {
-            // 渲染文件夹
-            if ((item as any).isFolder) {
+            if (item.isFolder) {
               return (
                 <Pressable
                   className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
@@ -130,8 +170,16 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
                 </Pressable>
               );
             }
-            // 渲染文件
-            return <MemoryListItem item={item} onPress={() => handlePressItem(item)} />;
+            return (
+              <View className="relative">
+                <MemoryListItem item={item} onPress={() => handlePressItem(item)} />
+                {item.isNew && (
+                  <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
+                    <Text className="text-[9px] text-white font-bold">NEW</Text>
+                  </View>
+                )}
+              </View>
+            );
           }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
@@ -142,8 +190,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 强制把 dir 放进去，不让任何过滤逻辑杀掉它
-function buildItems(files: GitHubContentItem[], type: MemoryKind): any[] {
+// 🔥 核心处理逻辑：不强求扩展名，只要 type 是 dir 就返回
+function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   
   for (const file of files) {
@@ -159,7 +207,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind): any[] {
         downloadUrl: '',
         updatedAt: null,
         source: 'repo',
-        isFolder: true, // 标记文件夹
+        isFolder: true,
       });
       continue;
     }
@@ -167,8 +215,9 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind): any[] {
     if (file.type === 'file') {
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
+      const uniqueId = file.sha || file.path;
       items.push({
-        id: file.sha || file.path,
+        id: uniqueId,
         kind,
         name: file.name,
         displayName: humanizeFileName(file.name),
@@ -178,11 +227,11 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind): any[] {
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
+        isNew: !knownFiles[uniqueId], // 🔥 判断是否为新文件
       });
     }
   }
   
-  // 把文件夹排前面，文件排后面
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
     if (!a.isFolder && b.isFolder) return 1;
