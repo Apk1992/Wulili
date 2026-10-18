@@ -18,11 +18,10 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 🔥 核心复活机制：尝试获取状态，如果报错说明底层服务死了，立马重装！
+      // 🔥 检测并复活服务
       try {
         await TrackPlayer.getPlaybackState();
       } catch (e) {
-        console.log('检测到播放器服务已死，正在重新初始化...');
         await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
       }
 
@@ -42,7 +41,7 @@ export function useBgm() {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 如果当前放的是回忆音乐，就不抢
+      // 如果不是 BGM 且不强制，就不抢
       if (!force && activeTrack && activeTrack.id !== 'bgm') {
         return;
       }
@@ -64,14 +63,15 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 第一次挂载直接强开
+  // 首次加载强制
   useEffect(() => {
     void setupBgm(true);
   }, [setupBgm]);
 
+  // 页面聚焦时强制（从音乐页退回来，直接覆盖）
   useFocusEffect(
     useCallback(() => {
-      void setupBgm(false);
+      void setupBgm(true); 
     }, [setupBgm])
   );
 
