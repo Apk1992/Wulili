@@ -89,7 +89,6 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        {/* UI 内容... */}
         <View className="w-full bg-card dark:bg-dark-card items-center justify-center" style={{ height: screenHeight * 0.55 }}>
           <RemoteImage uri={url} width={screenHeight * 0.45} height={screenHeight * 0.45} resizeMode="contain" fallbackIcon="restaurant" className="bg-transparent dark:bg-transparent" />
         </View>
@@ -125,9 +124,15 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
         </View>
       </ScrollView>
 
-      {/* 🔥 修复：用 hideActions 替代 actions={[]}，防止底层报错 */}
+      {/* 🔥 安全读取内容：不用管它原本是对象还是字符串 */}
       {dialogue && (
-        <EventModal visible={true} title="雾璃" message={dialogue.text} hideActions={true} onDismiss={() => setDialogue(null)} />
+        <EventModal 
+          visible={true} 
+          title="雾璃" 
+          message={typeof dialogue === 'string' ? dialogue : (dialogue as any).text} 
+          hideActions={true} 
+          onDismiss={() => setDialogue(null)} 
+        />
       )}
     </ScreenContainer>
   );
