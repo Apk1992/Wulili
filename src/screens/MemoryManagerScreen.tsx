@@ -27,7 +27,7 @@ type FolderKey = 'music' | 'videos' | 'notes';
 const FOLDERS: Array<{ key: FolderKey; label: string }> = [
   { key: 'music', label: '音乐' },
   { key: 'videos', label: '视频' },
-  { key: 'notes', label: '读文' },
+  { key: 'notes', label: '笔记' },
 ];
 
 export function MemoryManagerScreen({}: Props): React.JSX.Element {
