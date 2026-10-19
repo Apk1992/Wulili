@@ -1,72 +1,77 @@
 import { AppState, AppStateStatus } from 'react-native';
-import Sound from 'react-native-sound';
-import TrackPlayer, { Event, State } from 'react-native-track-player';
+import TrackPlayer, { State, RepeatMode, Event } from 'react-native-track-player';
 import { getGitHubToken } from '@/api/githubClient';
 
-Sound.setCategory('Playback');
-
 class BgmManager {
-  private sound: Sound | null = null;
   private currentUrl: string | null = null;
   private season: string = 'autumn';
   private isAppActive: boolean = true;
-  private isLoading: boolean = false; // 🔥 防止并发加载
-  private isMutedByMedia: boolean = false; // 🔥 是否有音乐在放
+  private isMutedByMedia: boolean = false;
+  private retryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-    
-    TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
+
+    TrackPlayer.addEventListener(Event.PlaybackState, async (event) => {
       if (event.state === State.Playing) {
         this.isMutedByMedia = true;
-        this.pause();
-      } else if (event.state === State.Paused || event.state === State.Stopped || event.state === State.Ended) {
+      } else if (
+        event.state === State.Paused ||
+        event.state === State.Stopped ||
+        event.state === State.Ended ||
+        event.state === State.None
+      ) {
         this.isMutedByMedia = false;
-        this.resume();
+        // 如果没声音了，尝试恢复
+        await this.resume();
       }
     });
 
-    // 🔥 启动 2 秒一次的保活心跳
-    setInterval(() => {
-      if (!this.isAppActive || this.isMutedByMedia || this.isLoading) return;
-      if (this.sound && !this.sound.isPlaying()) {
-        this.sound.play();
-      }
-    }, 2000);
+    // 🔥 启动保活定时器（每 3 秒检查一次）
+    this.retryTimer = setInterval(() => {
+      if (!this.isAppActive || this.isMutedByMedia) return;
+      void this.resume();
+    }, 3000);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
-      Sound.setActive(true);
-      // 切回前台时，稍微延迟一下再恢复，避开系统音频通道的切换期
-      setTimeout(() => {
-        if (!this.sound) void this.loadAndPlay();
-        else this.resume();
-      }, 500);
-    } else {
-      this.pause();
+      void this.resume();
     }
   };
 
   public setSeason(newSeason: string) {
     if (this.season !== newSeason) {
       this.season = newSeason;
-      this.release();
-      void this.loadAndPlay();
+      void this.loadAndPlay(true);
     }
   }
 
-  public async loadAndPlay() {
-    if (this.isLoading) return;
-    this.isLoading = true;
-
+  // 🔥 检查是否有音乐在放
+  private async isMusicPlaying(): Promise<boolean> {
     try {
+      const queue = await TrackPlayer.getQueue();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0)
+        ? queue[activeIndex]
+        : null;
+      if (!activeTrack) return false;
+      if (activeTrack.id === 'bgm') return false;
+      const state = await TrackPlayer.getState();
+      return state === State.Playing;
+    } catch {
+      return false;
+    }
+  }
+
+  public async loadAndPlay(force = false) {
+    try {
+      if (!this.isAppActive) return;
       const token = getGitHubToken();
-      if (!token) {
-        this.isLoading = false;
-        return;
-      }
+      if (!token) return;
+
+      if (await this.isMusicPlaying()) return;
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -77,74 +82,75 @@ class BgmManager {
       const res = await fetch(apiUrl, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
       });
-      if (!res.ok) {
-        this.isLoading = false;
-        return;
-      }
+      if (!res.ok) return;
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      if (this.currentUrl === downloadUrl && this.sound) {
-        this.resume();
-        this.isLoading = false;
+      const queue = await TrackPlayer.getQueue();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0)
+        ? queue[activeIndex]
+        : null;
+
+      // 已经是这首 BGM，只需恢复
+      if (!force && activeTrack && activeTrack.id === 'bgm' && this.currentUrl === downloadUrl) {
+        const state = await TrackPlayer.getState();
+        if (state !== State.Playing) {
+          await TrackPlayer.play();
+        }
         return;
       }
 
-      this.release();
-      Sound.setActive(true);
-
-      this.sound = new Sound(downloadUrl, undefined, (error) => {
-        this.isLoading = false;
-        if (error) {
-          console.warn('BGM 加载失败:', error);
-          return;
-        }
-        this.currentUrl = downloadUrl;
-        if (this.sound) {
-          this.sound.setVolume(0.4);
-          this.sound.setNumberOfLoops(-1);
-          // 延时 800ms 后强启，避开系统冷启动的死锁
-          setTimeout(() => {
-            if (!this.isMutedByMedia && this.isAppActive) {
-              this.sound?.play();
-            }
-          }, 800);
-        }
+      // 重新装载
+      await TrackPlayer.reset();
+      await TrackPlayer.add({
+        id: 'bgm',
+        url: downloadUrl,
+        title: 'BGM',
+        artist: 'Wulili',
       });
+      await TrackPlayer.setRepeatMode(RepeatMode.Track);
+      await TrackPlayer.setVolume(0.4);
+      this.currentUrl = downloadUrl;
+      
+      if (!this.isMutedByMedia) {
+        await TrackPlayer.play();
+      }
     } catch (err) {
-      this.isLoading = false;
       console.warn('BGM 异常:', err);
     }
   }
 
-  private pause() {
-    if (this.sound && this.sound.isPlaying()) {
-      this.sound.pause();
-    }
+  public async resume() {
+    try {
+      if (!this.isAppActive || this.isMutedByMedia) return;
+      if (await this.isMusicPlaying()) return;
+
+      const queue = await TrackPlayer.getQueue();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0)
+        ? queue[activeIndex]
+        : null;
+
+      if (activeTrack && activeTrack.id === 'bgm') {
+        const state = await TrackPlayer.getState();
+        if (state !== State.Playing) {
+          await TrackPlayer.play();
+        }
+      } else if (!activeTrack) {
+        await this.loadAndPlay();
+      }
+    } catch {}
   }
 
-  private resume() {
-    if (!this.sound || this.isMutedByMedia || !this.isAppActive) return;
-    if (!this.sound.isPlaying()) {
-      this.sound.play();
-    }
-  }
-
-  public release() {
-    if (this.sound) {
-      this.sound.stop();
-      this.sound.release();
-      this.sound = null;
-    }
-  }
-
-  public suspendForVideo() {
+  public async suspendForVideo() {
     this.isMutedByMedia = true;
-    this.pause();
+    try { await TrackPlayer.pause(); } catch {}
   }
-  public resumeFromVideo() {
+
+  public async resumeFromVideo() {
     this.isMutedByMedia = false;
-    this.resume();
+    await this.resume();
   }
 }
 
