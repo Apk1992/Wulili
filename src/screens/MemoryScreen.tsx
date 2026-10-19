@@ -34,7 +34,7 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-const NEW_FILES_KEY = '@wulili/known_files_v2'; // 🔥 全新版本 key
+const NEW_FILES_KEY = '@wulili/known_files_final';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
@@ -53,7 +53,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
-      if (res) setKnownFiles(JSON.parse(res));
+      setKnownFiles(res ? JSON.parse(res) : {});
     });
   }, []);
 
@@ -64,23 +64,21 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const fetchDeepTree = async (path: string, token: string): Promise<GitHubContentItem[]> => {
     let results: GitHubContentItem[] = [];
-    const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
     try {
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
       const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
       if (!res.ok) return [];
       const data = await res.json();
       if (!Array.isArray(data)) return [];
-
       for (const item of data) {
-        if (item.type === 'file') {
-          results.push(item);
-        } else if (item.type === 'dir') {
+        if (item.type === 'file') results.push(item);
+        else if (item.type === 'dir') {
           results.push(item);
           const subFiles = await fetchDeepTree(item.path, token);
           results = [...results, ...subFiles];
         }
       }
-    } catch (e) {}
+    } catch {}
     return results;
   };
 
@@ -97,11 +95,9 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       const currentData = await currentRes.json();
       setRawData(Array.isArray(currentData) ? currentData : []);
 
-      const rootPath = BASE_PATHS[activeKind];
-      const deepFiles = await fetchDeepTree(rootPath, token);
+      const deepFiles = await fetchDeepTree(BASE_PATHS[activeKind], token);
       setAllFilesDeep(deepFiles);
-
-    } catch (e) {
+    } catch {
       setError(true);
     } finally {
       setLoading(false);
@@ -130,19 +126,14 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 生成文件夹指纹（按文件名排序取哈希）
-  const getFolderFingerprint = (folderPath: string) => {
-    const files = allFilesDeep.filter(f => f.type === 'file' && f.path.startsWith(folderPath + '/'));
-    const names = files.map(f => f.name).sort();
-    return `${names.length}_${names.join('|').length}_${names[0] || ''}_${names[names.length - 1] || ''}`;
-  };
-
+  // 🔥 核心逻辑：点进文件夹，把所有子文件全部标记已读
   const handleFolderPress = async (folderPath: string) => {
-    const newKnown = { ...knownFiles };
-    // 🔥 记录文件夹的指纹，而不是 sha
-    newKnown[folderPath] = true;
-    newKnown[`fp_${folderPath}`] = getFolderFingerprint(folderPath);
-
+    const newKnown = { ...knownFiles, [folderPath]: true };
+    const subFiles = allFilesDeep.filter(f => f.path.startsWith(folderPath + '/') && f.type === 'file');
+    for (const file of subFiles) {
+      newKnown[file.sha || file.path] = true;
+      newKnown[file.path] = true;
+    }
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     setCurrentPath(folderPath);
@@ -152,6 +143,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     if (item.isFolder) {
       void handleFolderPress(item.path);
       return;
+    }
+    // 单个文件点击直接标记已读
+    if (item.isNew) {
+      const newKnown = { ...knownFiles, [item.sha || item.path]: true, [item.path]: true };
+      setKnownFiles(newKnown);
+      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     }
 
     if (item.kind === 'music') {
@@ -249,7 +246,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 用文件夹指纹判断 NEW
+// 🔥 文件 NEW 判断保持原有逻辑
 function buildItems(
   files: GitHubContentItem[],
   type: MemoryKind,
@@ -260,13 +257,12 @@ function buildItems(
   
   for (const file of files) {
     if (file.type === 'dir') {
-      const subNames = allFilesDeep
-        .filter(f => f.type === 'file' && f.path.startsWith(file.path + '/'))
-        .map(f => f.name)
-        .sort();
-      const fingerprint = `${subNames.length}_${subNames.join('|').length}_${subNames[0] || ''}_${subNames[subNames.length - 1] || ''}`;
-      const storedFingerprint = knownFiles[`fp_${file.path}`];
-      
+      const hasNewFile = allFilesDeep.some(f => 
+        f.type === 'file' && 
+        f.path.startsWith(file.path + '/') && 
+        !knownFiles[f.sha || f.path] && 
+        !knownFiles[f.path]
+      );
       items.push({
         id: file.sha || file.path,
         kind: type,
@@ -279,8 +275,7 @@ function buildItems(
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        // 🔥 如果指纹变了（或没存过），就是 NEW
-        isNew: storedFingerprint !== fingerprint,
+        isNew: hasNewFile,
       });
       continue;
     }
