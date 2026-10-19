@@ -40,9 +40,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
 
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
-  // 🔥 核心：记录当前所在的文件夹路径
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
-
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
   
@@ -52,37 +50,46 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 加载已读记录
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 切换 Tab 时，重置回该 Tab 的根目录
   const handleTabChange = (kind: MemoryKind) => {
     setActiveKind(kind);
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  // 自己发请求拉取当前路径下的数据
-  const fetchFolder = async (showLoading = true) => {
+  // 🔥 递归拉取（并拍平），虽然我们要保留层级，但需要知道所有子文件的 SHA 来判断 NEW
+  const fetchFolderRecursively = async (path: string, token: string): Promise<GitHubContentItem[]> => {
+    let results: GitHubContentItem[] = [];
+    const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
+    const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+
+    for (const item of data) {
+      if (item.type === 'file') {
+        results.push(item);
+      } else if (item.type === 'dir') {
+        results.push(item);
+        const subFiles = await fetchFolderRecursively(item.path, token);
+        results = [...results, ...subFiles];
+      }
+    }
+    return results;
+  };
+
+  const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(false);
     try {
       const token = getGitHubToken();
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
-
-      const res = await fetch(apiUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      });
-
-      if (!res.ok) throw new Error('获取失败');
-      const data = await res.json();
-      setRawData(Array.isArray(data) ? data : []);
+      if (!token) throw new Error('无 Token');
+      const items = await fetchFolderRecursively(currentPath, token);
+      setRawData(items);
     } catch (e) {
       setError(true);
     } finally {
@@ -92,19 +99,18 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchFolder();
+      void fetchData();
       void releasesQuery.refetch();
-    }, [currentPath]), // 🔥 只要路径变了，立刻重新请求
+    }, [currentPath]),
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchFolder(false);
+    await fetchData(false);
     await releasesQuery.refetch();
     setRefreshing(false);
   };
 
-  // 返回上一级
   const handleGoBackFolder = () => {
     const basePath = BASE_PATHS[activeKind];
     if (currentPath === basePath) return;
@@ -113,37 +119,40 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 转换列表数据
-  const activeItems = useMemo(() => {
-    if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
-      const repoItems = buildItems(rawData, 'video', knownFiles);
-      const releaseItems = buildReleaseItems(releasesQuery.data);
-      return [...releaseItems, ...repoItems];
-    }
-    return buildItems(rawData, activeKind, knownFiles);
-  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
+  // 🔥 点击文件夹，一键把里面的所有文件标为已读
+  const handleFolderPress = async (folderPath: string) => {
+    const token = getGitHubToken();
+    if (!token) return;
 
-  const counts = {
-    music: activeKind === 'music' ? activeItems.length : 0,
-    video: activeKind === 'video' ? activeItems.length : 0,
-    note: activeKind === 'note' ? activeItems.length : 0,
+    // 获取该文件夹下的所有文件
+    const subItems = await fetchFolderRecursively(folderPath, token);
+    const newKnown = { ...knownFiles };
+    
+    // 把该文件夹本身，以及里面所有的文件和文件夹，全部设为已读
+    newKnown[folderPath] = true; 
+    for (const item of subItems) {
+      newKnown[item.path] = true;
+      if (item.sha) newKnown[item.sha] = true;
+    }
+
+    setKnownFiles(newKnown);
+    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+    setCurrentPath(folderPath);
   };
 
   const handlePressItem = (item: any) => {
-    // 如果点的是文件夹，进入下一层
     if (item.isFolder) {
-      setCurrentPath(item.path);
+      void handleFolderPress(item.path);
       return;
     }
 
-    // 标记已读
+    // 如果点的是单个文件
     if (item.isNew) {
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
       void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     }
 
-    // 跳转播放/阅读
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer', { initialPath: currentPath });
     } else if (item.kind === 'video') {
@@ -153,13 +162,27 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
+  const activeItems = useMemo(() => {
+    if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
+      const repoItems = buildItems(rawData, 'video', knownFiles, currentPath);
+      const releaseItems = buildReleaseItems(releasesQuery.data);
+      return [...releaseItems, ...repoItems];
+    }
+    return buildItems(rawData, activeKind, knownFiles, currentPath);
+  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
+
+  const counts = {
+    music: activeKind === 'music' ? activeItems.length : 0,
+    video: activeKind === 'video' ? activeItems.length : 0,
+    note: activeKind === 'note' ? activeItems.length : 0,
+  };
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <View className="px-4 pt-3">
         <CategoryTabs active={activeKind} onChange={handleTabChange} counts={counts} />
       </View>
 
-      {/* 顶部显示当前路径的返回按钮 */}
       {currentPath !== BASE_PATHS[activeKind] && (
         <View className="px-4 py-2 flex-row items-center">
           <Pressable className="flex-row items-center bg-card dark:bg-dark-card px-3 py-1.5 rounded-full border border-border dark:border-dark-border" onPress={handleGoBackFolder}>
@@ -175,7 +198,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           <Text className="text-xs text-muted mt-4">正在加载…</Text>
         </View>
       ) : error ? (
-        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchFolder()} fullScreen />
+        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchData()} fullScreen />
       ) : activeItems.length === 0 ? (
         <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
@@ -184,22 +207,27 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
           renderItem={({ item }) => {
-            // 渲染文件夹
             if (item.isFolder) {
               return (
-                <Pressable
-                  className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
-                  onPress={() => handlePressItem(item)}
-                >
-                  <View className="flex-row items-center">
-                    <Ionicons name="folder" size={24} color="#F59E0B" />
-                    <Text className="ml-3 text-base font-medium text-text dark:text-dark-text">{item.name}</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                </Pressable>
+                <View className="relative">
+                  <Pressable
+                    className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
+                    onPress={() => handlePressItem(item)}
+                  >
+                    <View className="flex-row items-center">
+                      <Ionicons name="folder" size={24} color="#F59E0B" />
+                      <Text className="ml-3 text-base font-medium text-text dark:text-dark-text">{item.name}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                  </Pressable>
+                  {item.isNew && (
+                    <View className="absolute top-2 right-8 bg-danger px-1.5 py-0.5 rounded-full">
+                      <Text className="text-[9px] text-white font-bold">NEW</Text>
+                    </View>
+                  )}
+                </View>
               );
             }
-            // 渲染文件
             return (
               <View className="relative">
                 <MemoryListItem item={item} onPress={() => handlePressItem(item)} />
@@ -220,11 +248,24 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 构建文件列表，此时 rawData 已经是当前路径下的数据
-function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
+function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>, currentPath: string): any[] {
   const items: any[] = [];
-  for (const file of files) {
+  
+  // 获取属于当前目录的直接文件/文件夹
+  const currentLevelFiles = files.filter(f => {
+    const parentPath = f.path.substring(0, f.path.lastIndexOf('/'));
+    return parentPath === currentPath;
+  });
+
+  for (const file of currentLevelFiles) {
     if (file.type === 'dir') {
+      // 检查这个子文件夹下，是否有未读文件
+      const hasNewFile = files.some(f => 
+        f.type === 'file' && 
+        f.path.startsWith(file.path + '/') && 
+        !knownFiles[f.sha || f.path]
+      );
+
       items.push({
         id: file.sha || file.path,
         kind: type,
@@ -237,13 +278,17 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         updatedAt: null,
         source: 'repo',
         isFolder: true,
+        // 🔥 如果文件夹里有新文件，或者文件夹路径本身没被点过，显示 NEW
+        isNew: hasNewFile || !knownFiles[file.path], 
       });
       continue;
     }
+    
     if (file.type === 'file') {
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
       const uniqueId = file.sha || file.path;
+
       items.push({
         id: uniqueId,
         kind,
@@ -255,10 +300,11 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId], // 🔥 NEW 逻辑，无论你在哪个文件夹里
+        isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
       });
     }
   }
+  
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
     if (!a.isFolder && b.isFolder) return 1;
