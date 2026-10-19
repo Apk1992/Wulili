@@ -100,17 +100,40 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  const handleFolderPress = (folderPath: string) => {
+  // 🔥 核心修改：点文件夹时把文件夹本身和里面的文件全设为已读
+  const handleFolderPress = async (folderPath: string) => {
+    const token = getGitHubToken();
+    if (!token) return;
+
+    const newKnown = { ...knownFiles, [folderPath]: true };
+    
+    try {
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${folderPath}`;
+      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            if (item.type === 'file') {
+              newKnown[item.sha || item.path] = true;
+              newKnown[item.path] = true;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    setKnownFiles(newKnown);
+    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     setCurrentPath(folderPath);
   };
 
   const handlePressItem = (item: any) => {
     if (item.isFolder) {
-      handleFolderPress(item.path);
+      void handleFolderPress(item.path);
       return;
     }
 
-    // 点击后将该文件标记为已读
     if (item.isNew) {
       const newKnown = { ...knownFiles, [item.sha || item.path]: true, [item.path]: true };
       setKnownFiles(newKnown);
@@ -212,13 +235,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 彻底修复文件夹 NEW 判定，只根据当前层级文件做判定
+// 🔥 优化后的 buildItems，文件夹自己也会正确判断 NEW
 function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   
   for (const file of files) {
     if (file.type === 'dir') {
-      // 这个文件夹本身如果没被标记过，就算它有新东西（因为拍平拉取没了，我们这里保守显示 NEW）
       const folderId = file.sha || file.path;
       items.push({
         id: folderId,
@@ -232,6 +254,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         updatedAt: null,
         source: 'repo',
         isFolder: true,
+        // 只要文件夹路径没被点过，就显示 NEW
         isNew: !knownFiles[folderId] && !knownFiles[file.path],
       });
       continue;
