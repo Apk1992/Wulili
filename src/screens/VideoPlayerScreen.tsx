@@ -49,12 +49,12 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   // 🔥 自动挂起/恢复 BGM
   useEffect(() => {
     if (current) {
-      bgmManager.suspendForVideo();
+      void bgmManager.suspendForVideo();
     } else {
-      bgmManager.resumeFromVideo();
+      void bgmManager.resumeFromVideo();
     }
     return () => {
-      bgmManager.resumeFromVideo();
+      void bgmManager.resumeFromVideo();
     };
   }, [current]);
 
@@ -67,11 +67,19 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   const videoSource = useMemo(() => {
     if (!current) return null;
     const token = getGitHubToken();
+    
+    // 🔥 核心修复：带上唯一 ID 参数，强制绕过视频缓存，解决第二次卡顿问题
+    const bustCacheQuery = `?t=${current.id}`;
+
     if (current.source === 'release') {
-      return { uri: current.downloadUrl ?? '' };
+      const baseUrl = current.downloadUrl ?? '';
+      // 如果原链接已经有 ?，用 & 拼接
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      return { uri: `${baseUrl}${sep}t=${current.id}` };
     }
+
     return {
-      uri: `${RAW_BASE}/${current.path}`,
+      uri: `${RAW_BASE}/${current.path}${bustCacheQuery}`,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     };
   }, [current]);
@@ -137,7 +145,6 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
           style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
         >
           <Video
-            // 🔥 核心修复：每次换视频强制重建播放器，避免 0.07 秒卡顿
             key={`small-${current.id}`}
             source={videoSource ?? { uri: '' }}
             style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
@@ -149,7 +156,10 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
               setError(null);
             }}
             onProgress={(data) => setPosition(data.currentTime)}
-            onError={() => setError('无法播放该视频')}
+            onError={(e) => {
+              console.warn('Video Error:', e);
+              setError('无法播放该视频');
+            }}
             onEnd={closePlayer}
           />
           <Pressable
@@ -216,7 +226,6 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
             <SafeAreaView edges={['top', 'bottom']} className="flex-1">
               <View className="flex-1 items-center justify-center">
                 <Video
-                  // 🔥 核心修复：全屏也强制重建
                   key={`full-${current.id}`}
                   source={videoSource ?? { uri: '' }}
                   style={{ width: '100%', height: '100%' }}
