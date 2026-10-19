@@ -11,24 +11,34 @@ export function useBgm() {
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
   const lastPlayedUrlRef = useRef<string | null>(null);
 
-  const setupBgm = useCallback(async (force = false) => {
+  const setupBgm = useCallback(async (forcePlay = false) => {
     if (!bgmEnabled) return;
 
     try {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 检测并复活服务
+      // 1. 检查底层服务是否存活
       try {
         await TrackPlayer.getPlaybackState();
       } catch (e) {
         await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
       }
 
+      // 2. 获取当前的播放状态
+      const queue = await TrackPlayer.getQueue();
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
+
+      // 🔥 核心逻辑：如果当前在放音乐/视频（不是bgm），直接退出，绝对不抢
+      if (activeTrack && activeTrack.id !== 'bgm') {
+        return;
+      }
+
+      // 3. 准备 BGM 链接
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
       const seasonStr = season || 'autumn';
-      
       const filePath = `bgm/${seasonStr}_${isNight ? 'night' : 'day'}.m4a`;
       const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
 
@@ -37,52 +47,37 @@ export function useBgm() {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      const queue = await TrackPlayer.getQueue();
-      const activeIndex = await TrackPlayer.getActiveTrackIndex();
-      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
-
-      if (!force && activeTrack && activeTrack.id !== 'bgm') {
-        return;
-      }
-
-      if (force || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
+      // 4. 如果没加载过 BGM，或者歌变了，就重新装载（但如果是恢复，就不用重置）
+      if (!activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
+        await TrackPlayer.setRepeatMode(RepeatMode.Track); // 循环
+        await TrackPlayer.setVolume(0.4);
         lastPlayedUrlRef.current = downloadUrl;
       }
 
-      // 🔥 强制单曲循环，永不停止
-      await TrackPlayer.setRepeatMode(RepeatMode.Track);
-      await TrackPlayer.setVolume(0.4);
-
+      // 5. 如果目标是播放，就 play
       const state = await TrackPlayer.getState();
       if (state !== State.Playing) {
         await TrackPlayer.play();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('BGM 异常:', err);
     }
   }, [season, bgmEnabled]);
 
+  // 每次回到主页（或者进入回忆主页），强行检查并恢复 BGM
   useFocusEffect(
     useCallback(() => {
       void setupBgm(true);
-      const timer = setInterval(async () => {
-        try {
-          const activeTrack = await TrackPlayer.getActiveTrack();
-          if (activeTrack && activeTrack.id !== 'bgm') return;
-          const state = await TrackPlayer.getState();
-          if (state !== State.Playing) void setupBgm(true);
-        } catch {}
-      }, 2000);
-      return () => clearInterval(timer);
     }, [setupBgm])
   );
 
+  // 切后台暂停，切回前台恢复
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
-        void setupBgm(true);
+        void setupBgm(false);
       } else if (nextAppState === 'background' || nextAppState === 'inactive') {
         try {
           const activeTrack = await TrackPlayer.getActiveTrack();
