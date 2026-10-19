@@ -11,7 +11,6 @@ export function useBgm() {
   useEffect(() => {
     if (bgmEnabled) {
       bgmManager.setSeason(season || 'autumn');
-      void bgmManager.loadAndPlay();
     }
   }, [season, bgmEnabled]);
 
