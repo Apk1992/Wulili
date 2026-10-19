@@ -18,6 +18,7 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
+      // 检测并复活服务
       try {
         await TrackPlayer.getPlaybackState();
       } catch (e) {
@@ -50,7 +51,7 @@ export function useBgm() {
         lastPlayedUrlRef.current = downloadUrl;
       }
 
-      // 🔥 核心修复：只要走到这，必须强制设为单曲循环！防止2分钟后自然死亡
+      // 🔥 强制单曲循环，永不停止
       await TrackPlayer.setRepeatMode(RepeatMode.Track);
       await TrackPlayer.setVolume(0.4);
 
