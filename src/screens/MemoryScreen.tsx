@@ -50,6 +50,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
+  // 1. 初始化：加载本地的已读缓存
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
@@ -61,7 +62,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  // 🔥 递归拉取（并拍平），虽然我们要保留层级，但需要知道所有子文件的 SHA 来判断 NEW
   const fetchFolderRecursively = async (path: string, token: string): Promise<GitHubContentItem[]> => {
     let results: GitHubContentItem[] = [];
     const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
@@ -119,7 +119,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 点击文件夹，一键把里面的所有文件标为已读
+  // 🔥 点开文件夹时的逻辑：只把【文件夹本身】和【里面的文件】标记为已读（清掉 NEW）
   const handleFolderPress = async (folderPath: string) => {
     const token = getGitHubToken();
     if (!token) return;
@@ -128,8 +128,10 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     const subItems = await fetchFolderRecursively(folderPath, token);
     const newKnown = { ...knownFiles };
     
-    // 把该文件夹本身，以及里面所有的文件和文件夹，全部设为已读
+    // 标记文件夹本身为已读，这样它不会再亮 NEW
     newKnown[folderPath] = true; 
+    
+    // 标记里面的文件为已读（但如果在外面没点开它们，它们会有红点，只有在里面才没有）
     for (const item of subItems) {
       newKnown[item.path] = true;
       if (item.sha) newKnown[item.sha] = true;
@@ -146,7 +148,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
-    // 如果点的是单个文件
     if (item.isNew) {
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
@@ -162,6 +163,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
+  // 构建视图模型
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
       const repoItems = buildItems(rawData, 'video', knownFiles, currentPath);
@@ -263,7 +265,8 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
       const hasNewFile = files.some(f => 
         f.type === 'file' && 
         f.path.startsWith(file.path + '/') && 
-        !knownFiles[f.sha || f.path]
+        !knownFiles[f.sha || f.path] && // 里面的文件没被点过
+        !knownFiles[f.path]
       );
 
       items.push({
@@ -278,7 +281,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        // 🔥 如果文件夹里有新文件，或者文件夹路径本身没被点过，显示 NEW
+        // 🔥 如果里面没看过的文件，或者文件夹路径本身没被点过，显示 NEW
         isNew: hasNewFile || !knownFiles[file.path], 
       });
       continue;
@@ -300,6 +303,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
+        // 只要 SHA 没记录，或者路径没记录，就算 NEW
         isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
       });
     }
