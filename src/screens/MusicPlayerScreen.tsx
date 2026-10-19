@@ -26,15 +26,10 @@ const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`
 const NEW_FILES_KEY = '@wulili/known_files';
 
 export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
-  // 🔥 记录当前所在的文件夹路径
   const [currentPath, setCurrentPath] = useState<string>(route.params?.initialPath || GITHUB_PATHS.music);
-  
-  // 🔥 请求状态
   const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
-
-  // 🔥 播放状态
   const [playback, setPlayback] = useState<PlaybackState>({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
@@ -44,23 +39,21 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 加载已读记录
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 🔥 核心修复：离开这个页面时，立刻停止音乐，让 BGM 接管
+  // 🔥 核心修复：离开时只 stop 不 reset，保留服务活性，BGM 才能秒接
   useFocusEffect(
     useCallback(() => {
       return () => {
-        void TrackPlayer.reset().catch(() => undefined);
+        void TrackPlayer.stop().catch(() => undefined);
       };
     }, [])
   );
 
-  // 🔥 自己发请求拉取数据
   const fetchFolder = async () => {
     setLoading(true);
     setError(false);
@@ -80,17 +73,11 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     }
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      void fetchFolder();
-    }, [currentPath])
-  );
+  useFocusEffect(useCallback(() => { void fetchFolder(); }, [currentPath]));
 
-  // 拆分文件夹和音乐
   const { folders, items } = useMemo(() => {
     const dirs: GitHubContentItem[] = [];
     const musicFiles: GitHubContentItem[] = [];
-
     for (const file of rawData) {
       if (file.type === 'dir') dirs.push(file);
       else if (file.type === 'file') musicFiles.push(file);
@@ -98,12 +85,8 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles) };
   }, [rawData, knownFiles]);
 
-  // 切换文件夹
-  const handleFolderPress = (path: string) => {
-    setCurrentPath(path);
-  };
-
-  // 返回上一级
+  const handleFolderPress = (path: string) => setCurrentPath(path);
+  
   const handleGoBackFolder = () => {
     if (currentPath === GITHUB_PATHS.music) return;
     const parts = currentPath.split('/');
@@ -111,7 +94,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || GITHUB_PATHS.music);
   };
 
-  // 播放状态同步
   useEffect(() => {
     if (!playback.current || isSeekingRef.current) return;
     const state = trackPlayerState.state;
@@ -122,7 +104,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     else if (state === TrackPlayerState.Ended) status = 'ended';
     else if (state === TrackPlayerState.Error) status = 'error';
     else if (state === TrackPlayerState.Stopped) status = 'ended';
-
     setPlayback((prev) => ({ ...prev, status, position: progress.position, duration: progress.duration || prev.duration }));
   }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
 
@@ -152,9 +133,9 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   const ensureQueue = useCallback(async (startIndex: number) => {
     await TrackPlayer.reset();
-    const tracks = buildTracks(items); // 只播当前文件夹的歌
+    const tracks = buildTracks(items);
     await TrackPlayer.add(tracks);
-    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表顺序循环
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
     queueReadyRef.current = true;
     await TrackPlayer.skip(startIndex);
     await TrackPlayer.play();
@@ -165,8 +146,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     try {
       const item = items[index];
       if (!item) return;
-
-      // 🔥 标记已读
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
       void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
@@ -232,7 +211,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   const handleStop = useCallback(async () => {
     try {
-      await TrackPlayer.reset();
+      await TrackPlayer.stop();
       queueReadyRef.current = false;
     } catch {}
     setCurrentIndex(-1);
@@ -289,7 +268,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
               <View className="relative">
                 <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
-                {/* 🔥 如果是没点过的新歌，显示 NEW */}
                 {item.isNew && (
                   <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
                     <Text className="text-[9px] text-white font-bold">NEW</Text>
@@ -327,7 +305,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 给音乐文件打上 NEW 标签
 function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   for (const file of files) {
