@@ -180,7 +180,7 @@ export const INITIAL_WULILI_STATE: WuliliState = {
     weight: 52,
   },
   coins: 100,
-  affinity: 10,
+  affinity: 0,
   illness: {
     type: 'none',
     since: null,
