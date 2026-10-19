@@ -3,7 +3,6 @@ import Sound from 'react-native-sound';
 import TrackPlayer, { Event, State } from 'react-native-track-player';
 import { getGitHubToken } from '@/api/githubClient';
 
-// 开启允许通过 HTTP 播放
 Sound.setCategory('Playback');
 
 class BgmManager {
@@ -11,13 +10,12 @@ class BgmManager {
   private currentUrl: string | null = null;
   private isMuted: boolean = false;
   private isAppActive: boolean = true;
+  private isExternallySuspended: boolean = false; // 🔥 新增：供视频页强行暂停
   private season: string = 'autumn';
 
   constructor() {
-    // 监听 App 前后台
     AppState.addEventListener('change', this.handleAppStateChange);
     
-    // 监听 TrackPlayer（音乐/视频），一旦开始播放就暂停 BGM
     TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
       if (event.state === State.Playing) {
         this.isMuted = true;
@@ -27,6 +25,16 @@ class BgmManager {
         this.play();
       }
     });
+  }
+
+  // 供视频页面调用
+  public setSuspended(suspended: boolean) {
+    this.isExternallySuspended = suspended;
+    if (suspended) {
+      this.pause();
+    } else {
+      this.play();
+    }
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -64,15 +72,13 @@ class BgmManager {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      // 如果正在播放同一首歌，且不需要强制刷新，直接返回
       if (!forceReload && this.currentUrl === downloadUrl && this.sound) {
-        if (!this.isMuted && this.isAppActive && !this.sound.isPlaying()) {
+        if (!this.isMuted && this.isAppActive && !this.isExternallySuspended && !this.sound.isPlaying()) {
           this.sound.play();
         }
         return;
       }
 
-      // 🔥 关键：在加载新歌之前，必须释放旧的
       this.stopAndRelease();
 
       Sound.setActive(true);
@@ -86,10 +92,9 @@ class BgmManager {
         if (!this.sound) return;
 
         this.sound.setVolume(0.4);
-        this.sound.setNumberOfLoops(-1); // 无限循环
+        this.sound.setNumberOfLoops(-1);
         
-        // 只有在没被静音、且App在前台时，才播放
-        if (!this.isMuted && this.isAppActive) {
+        if (!this.isMuted && this.isAppActive && !this.isExternallySuspended) {
           this.sound.play();
         }
       });
@@ -99,7 +104,7 @@ class BgmManager {
   }
 
   private play() {
-    if (this.sound && !this.isMuted && this.isAppActive) {
+    if (this.sound && !this.isMuted && this.isAppActive && !this.isExternallySuspended) {
       if (!this.sound.isPlaying()) {
         this.sound.play();
       }
@@ -121,5 +126,4 @@ class BgmManager {
   }
 }
 
-// 导出全局唯一实例
 export const bgmManager = new BgmManager();
