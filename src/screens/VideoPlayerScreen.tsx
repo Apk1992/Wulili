@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import Video, { type VideoRef } from 'react-native-video';
+import Video from 'react-native-video';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ScreenContainer from '@/components/ScreenContainer';
@@ -24,7 +24,7 @@ import { getGitHubToken } from '@/api/githubClient';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
-import { bgmManager } from '@/services/bgmManager'; // 👈 引入
+import { bgmManager } from '@/services/bgmManager'; // 👈 BGM 挂起/恢复
 import type { MemoryItem } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
 import type { RootStackParamList } from '@/types/navigation';
@@ -46,15 +46,15 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState<boolean>(false);
 
-  // 🔥 核心：只要选中了视频（current 不为 null），就挂起 BGM
+  // 🔥 自动挂起/恢复 BGM
   useEffect(() => {
     if (current) {
-      void bgmManager.suspendForVideo();
+      bgmManager.suspendForVideo();
     } else {
-      void bgmManager.resumeFromVideo();
+      bgmManager.resumeFromVideo();
     }
     return () => {
-      void bgmManager.resumeFromVideo();
+      bgmManager.resumeFromVideo();
     };
   }, [current]);
 
@@ -137,6 +137,8 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
           style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
         >
           <Video
+            // 🔥 核心修复：每次换视频强制重建播放器，避免 0.07 秒卡顿
+            key={`small-${current.id}`}
             source={videoSource ?? { uri: '' }}
             style={{ width: SCREEN_WIDTH, height: SMALL_VIDEO_HEIGHT }}
             resizeMode="contain"
@@ -214,6 +216,8 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
             <SafeAreaView edges={['top', 'bottom']} className="flex-1">
               <View className="flex-1 items-center justify-center">
                 <Video
+                  // 🔥 核心修复：全屏也强制重建
+                  key={`full-${current.id}`}
                   source={videoSource ?? { uri: '' }}
                   style={{ width: '100%', height: '100%' }}
                   resizeMode="contain"
@@ -330,9 +334,7 @@ function buildRepoItems(files: GitHubContentItem[]): MemoryItem[] {
 }
 
 function buildReleaseItems(
-  releases: NonNullable<
-    ReturnType<typeof useGitHubReleases>['data']
-  >,
+  releases: NonNullable<ReturnType<typeof useGitHubReleases>['data']>,
 ): MemoryItem[] {
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => ({
