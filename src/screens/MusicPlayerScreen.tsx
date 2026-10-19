@@ -40,14 +40,14 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 加载已读缓存（用于 NEW 标签）
+  // 1. 加载已读缓存
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 🔥 核心：离开这个页面的一瞬间，停止播放，让 react-native-sound 的 BGM 瞬间复活
+  // 2. 离开页面时，强制中断音乐，恢复 BGM
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -56,6 +56,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     }, [])
   );
 
+  // 3. 拉取当前目录内容
   const fetchFolder = async () => {
     setLoading(true);
     setError(false);
@@ -77,6 +78,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   useFocusEffect(useCallback(() => { void fetchFolder(); }, [currentPath]));
 
+  // 4. 拆分文件夹和音乐（传入 knownFiles 计算 NEW 标签）
   const { folders, items } = useMemo(() => {
     const dirs: GitHubContentItem[] = [];
     const musicFiles: GitHubContentItem[] = [];
@@ -138,7 +140,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     await TrackPlayer.reset();
     const tracks = buildTracks(items);
     await TrackPlayer.add(tracks);
-    await TrackPlayer.setRepeatMode(RepeatMode.Queue); // 列表循环
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
     queueReadyRef.current = true;
     await TrackPlayer.skip(startIndex);
     await TrackPlayer.play();
@@ -150,7 +152,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       const item = items[index];
       if (!item) return;
 
-      // 播放时立刻消除 NEW 标记
+      // 🔥 标记已读，并立刻同步到本地缓存
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
       void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
@@ -273,6 +275,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
               <View className="relative">
                 <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
+                {/* 🔥 渲染 NEW 标签 */}
                 {item.isNew && (
                   <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
                     <Text className="text-[9px] text-white font-bold">NEW</Text>
@@ -310,6 +313,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   );
 }
 
+// 🔥 构建列表数据，这里传入 knownFiles 判断 NEW
 function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   for (const file of files) {
@@ -327,6 +331,7 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
       downloadUrl: file.download_url,
       updatedAt: null,
       source: 'repo',
+      // 如果没看过就显示 NEW
       isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
     });
   }
