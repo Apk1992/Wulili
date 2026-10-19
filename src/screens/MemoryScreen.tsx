@@ -48,8 +48,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
 
+  // 存储整个仓库下的所有文件，用于精确判断文件夹 NEW
+  const [allFilesDeep, setAllFilesDeep] = useState<GitHubContentItem[]>([]);
+
   const releasesQuery = useGitHubReleases(30);
 
+  // 1. 初始化缓存
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
@@ -61,16 +65,46 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  const fetchFolder = async (showLoading = true) => {
+  // 2. 递归拉取整个目录树（深扫），为了知道每个文件夹里到底有没有新文件
+  const fetchDeepTree = async (path: string, token: string): Promise<GitHubContentItem[]> => {
+    let results: GitHubContentItem[] = [];
+    const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
+    const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+
+    for (const item of data) {
+      if (item.type === 'file') {
+        results.push(item);
+      } else if (item.type === 'dir') {
+        results.push(item);
+        const subFiles = await fetchDeepTree(item.path, token);
+        results = [...results, ...subFiles];
+      }
+    }
+    return results;
+  };
+
+  const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(false);
     try {
       const token = getGitHubToken();
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
-      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
-      if (!res.ok) throw new Error('获取失败');
-      const data = await res.json();
-      setRawData(Array.isArray(data) ? data : []);
+      if (!token) throw new Error('无 Token');
+
+      // 拉取当前显示路径
+      const currentApiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
+      const currentRes = await fetch(currentApiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+      if (!currentRes.ok) throw new Error('获取失败');
+      const currentData = await currentRes.json();
+      setRawData(Array.isArray(currentData) ? currentData : []);
+
+      // 静默在后台拉取整个根目录树，用于判定文件夹 NEW
+      const rootPath = BASE_PATHS[activeKind];
+      const deepFiles = await fetchDeepTree(rootPath, token);
+      setAllFilesDeep(deepFiles);
+
     } catch (e) {
       setError(true);
     } finally {
@@ -80,14 +114,14 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchFolder();
+      void fetchData();
       void releasesQuery.refetch();
-    }, [currentPath]),
+    }, [currentPath, activeKind]),
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchFolder(false);
+    await fetchData(false);
     await releasesQuery.refetch();
     setRefreshing(false);
   };
@@ -100,28 +134,21 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 核心修改：点文件夹时把文件夹本身和里面的文件全设为已读
+  // 3. 点进文件夹时，把该文件夹和里面所有深层的文件全部标记为已读
   const handleFolderPress = async (folderPath: string) => {
     const token = getGitHubToken();
     if (!token) return;
 
-    const newKnown = { ...knownFiles, [folderPath]: true };
-    
-    try {
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${folderPath}`;
-      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          for (const item of data) {
-            if (item.type === 'file') {
-              newKnown[item.sha || item.path] = true;
-              newKnown[item.path] = true;
-            }
-          }
-        }
-      }
-    } catch (e) {}
+    const newKnown = { ...knownFiles };
+    // 先把文件夹本身标记为已读
+    newKnown[folderPath] = true;
+
+    // 把已经被深扫拉取到的子文件全部标记为已读
+    const subFiles = allFilesDeep.filter(f => f.path.startsWith(folderPath + '/') && f.type === 'file');
+    for (const file of subFiles) {
+      newKnown[file.sha || file.path] = true;
+      newKnown[file.path] = true;
+    }
 
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
@@ -149,14 +176,15 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
+  // 4. 计算列表数据，文件夹的 NEW 依赖深扫的 allFilesDeep
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
-      const repoItems = buildItems(rawData, 'video', knownFiles);
+      const repoItems = buildItems(rawData, 'video', knownFiles, allFilesDeep);
       const releaseItems = buildReleaseItems(releasesQuery.data);
       return [...releaseItems, ...repoItems];
     }
-    return buildItems(rawData, activeKind, knownFiles);
-  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
+    return buildItems(rawData, activeKind, knownFiles, allFilesDeep);
+  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath, allFilesDeep]);
 
   const counts = {
     music: activeKind === 'music' ? activeItems.length : 0,
@@ -185,7 +213,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           <Text className="text-xs text-muted mt-4">正在加载…</Text>
         </View>
       ) : error ? (
-        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchFolder()} fullScreen />
+        <ErrorView title="加载失败" message="无法连接到仓库，请检查网络。" onRetry={() => void fetchData()} fullScreen />
       ) : activeItems.length === 0 ? (
         <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="cloud-outline" fullScreen />
       ) : (
@@ -235,15 +263,27 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 优化后的 buildItems，文件夹自己也会正确判断 NEW
-function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
+// 🔥 核心：结合深扫数据，只要文件夹深处有没看过的文件，就显示 NEW
+function buildItems(
+  files: GitHubContentItem[], 
+  type: MemoryKind, 
+  knownFiles: Record<string, boolean>, 
+  allFilesDeep: GitHubContentItem[]
+): any[] {
   const items: any[] = [];
   
   for (const file of files) {
     if (file.type === 'dir') {
-      const folderId = file.sha || file.path;
+      // 检查这个文件夹深处是否有未读文件
+      const hasNewFile = allFilesDeep.some(f => 
+        f.type === 'file' && 
+        f.path.startsWith(file.path + '/') && 
+        !knownFiles[f.sha || f.path] && 
+        !knownFiles[f.path]
+      );
+
       items.push({
-        id: folderId,
+        id: file.sha || file.path,
         kind: type,
         name: file.name,
         displayName: file.name,
@@ -254,8 +294,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        // 只要文件夹路径没被点过，就显示 NEW
-        isNew: !knownFiles[folderId] && !knownFiles[file.path],
+        isNew: hasNewFile, // 只要有未读，就亮 NEW
       });
       continue;
     }
