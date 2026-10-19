@@ -18,24 +18,22 @@ export function useBgm() {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 1. 检查底层服务是否存活
+      // 检查底层服务
       try {
         await TrackPlayer.getPlaybackState();
       } catch (e) {
         await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
       }
 
-      // 2. 获取当前的播放状态
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
       const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0) ? queue[activeIndex] : null;
 
-      // 🔥 核心逻辑：如果当前在放音乐/视频（不是bgm），直接退出，绝对不抢
-      if (activeTrack && activeTrack.id !== 'bgm') {
+      // 🔥 如果当前放的是音乐/视频，BGM 就不插手
+      if (!forcePlay && activeTrack && activeTrack.id !== 'bgm') {
         return;
       }
 
-      // 3. 准备 BGM 链接
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
       const seasonStr = season || 'autumn';
@@ -47,16 +45,15 @@ export function useBgm() {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      // 4. 如果没加载过 BGM，或者歌变了，就重新装载（但如果是恢复，就不用重置）
+      // 如果不是 BGM，就强行装载 BGM
       if (!activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
-        await TrackPlayer.setRepeatMode(RepeatMode.Track); // 循环
+        await TrackPlayer.setRepeatMode(RepeatMode.Track); // 🔥 单曲循环永不歇
         await TrackPlayer.setVolume(0.4);
         lastPlayedUrlRef.current = downloadUrl;
       }
 
-      // 5. 如果目标是播放，就 play
       const state = await TrackPlayer.getState();
       if (state !== State.Playing) {
         await TrackPlayer.play();
@@ -66,14 +63,14 @@ export function useBgm() {
     }
   }, [season, bgmEnabled]);
 
-  // 每次回到主页（或者进入回忆主页），强行检查并恢复 BGM
+  // 🔥 当聚焦到带有 useBgm 的页面（主页、记录页）时，立刻检查并恢复
   useFocusEffect(
     useCallback(() => {
-      void setupBgm(true);
+      void setupBgm(true); // 强制拉起
     }, [setupBgm])
   );
 
-  // 切后台暂停，切回前台恢复
+  // 切后台/切前台监控
   useEffect(() => {
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
