@@ -50,6 +50,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
+  // 1. 初始化时加载已读缓存
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) setKnownFiles(JSON.parse(res));
@@ -61,6 +62,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
+  // 2. 递归拉取目录，拍平子文件，用于计算文件夹的 NEW
   const fetchFolderRecursively = async (path: string, token: string): Promise<GitHubContentItem[]> => {
     let results: GitHubContentItem[] = [];
     const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
@@ -118,6 +120,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
+  // 🔥 点击文件夹时，标记里面所有文件为已读
   const handleFolderPress = async (folderPath: string) => {
     const token = getGitHubToken();
     if (!token) return;
@@ -143,6 +146,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
+    // 🔥 标记已读
     if (item.isNew) {
       const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
@@ -152,7 +156,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer', { initialPath: currentPath });
     } else if (item.kind === 'video') {
-      navigation.navigate('VideoPlayer');
+      navigation.navigate('VideoPlayer', { initialPath: currentPath });
     } else {
       navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
     }
@@ -244,6 +248,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
+// 🔥 统一处理文件夹和文件的 NEW 标签
 function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>, currentPath: string): any[] {
   const items: any[] = [];
   
@@ -254,6 +259,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
 
   for (const file of currentLevelFiles) {
     if (file.type === 'dir') {
+      // 检查这个文件夹下有没有未读文件
       const hasNewFile = files.some(f => 
         f.type === 'file' && 
         f.path.startsWith(file.path + '/') && 
