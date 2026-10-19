@@ -12,21 +12,18 @@ export interface MenstrualConfigData {
 }
 
 export const MENSTRUAL_CONFIG: MenstrualConfigData = {
-  // 基础周期 28 天
   baseCycleDays: 28,
-  // 延后 0-5 天
   delayMinDays: 0,
   delayMaxDays: 5,
-  // 经期 5 天
   periodDays: 5,
-  // 排卵期 14-16 天
   ovulationStartDay: 14,
   ovulationEndDay: 16,
-  // 布洛芬药效 12 小时
   medicineDurationHours: 12,
-  // 药效减轻 70%
   medicineReliefPercent: 0.7,
 };
+
+// 🔥 新增：固定起始时间 2026-10-19 00:00:00
+const FIXED_START_DATE = new Date('2026-10-19T00:00:00').getTime();
 
 export interface MenstrualPhaseInfo {
   phase: MenstrualPhase;
@@ -52,8 +49,10 @@ export function getPhaseForDay(day: number): MenstrualPhase {
 export function computeMenstrualInfo(
   state: MenstrualState,
 ): MenstrualPhaseInfo {
-  // 未初始化周期 → 立即开始第一天（首次进 App 时）
-  if (!state.cycleStartAt) {
+  const now = Date.now();
+  
+  // 如果当前时间早于 2026-10-19，就先按未开始算（或者玩家想提前算，也可以改成直接当作第一天）
+  if (now < FIXED_START_DATE) {
     return {
       phase: 'safe',
       dayInCycle: 0,
@@ -64,11 +63,16 @@ export function computeMenstrualInfo(
     };
   }
 
-  const now = Date.now();
-  const cycleMs = state.cycleLengthDays * 24 * 60 * 60 * 1000;
-  const elapsedMs = now - state.cycleStartAt;
-  const dayInCycle = Math.floor(elapsedMs / (24 * 60 * 60 * 1000)) + 1;
-  const daysUntilNextPeriod = Math.max(0, state.cycleLengthDays - dayInCycle);
+  // 计算自固定起始日以来过去了多少天
+  const elapsedMs = now - FIXED_START_DATE;
+  const elapsedDays = Math.floor(elapsedMs / (24 * 60 * 60 * 1000));
+
+  // 计算当前是周期的第几天 (1-28)
+  // 如果没有写延后逻辑，可以用 baseCycleDays。如果要延后，可以用 state.cycleLengthDays
+  const cycleLength = state.cycleLengthDays || MENSTRUAL_CONFIG.baseCycleDays;
+  const dayInCycle = (elapsedDays % cycleLength) + 1;
+
+  const daysUntilNextPeriod = Math.max(0, cycleLength - dayInCycle);
 
   const phase = getPhaseForDay(dayInCycle);
   const isMedicineActive = state.medicineExpireAt !== null && now < state.medicineExpireAt;
@@ -81,8 +85,6 @@ export function computeMenstrualInfo(
     label: PHASE_LABELS[phase],
     description: PHASE_DESCRIPTIONS[phase],
   };
-
-  void cycleMs;
 }
 
 export const PHASE_LABELS: Record<MenstrualPhase, string> = {
