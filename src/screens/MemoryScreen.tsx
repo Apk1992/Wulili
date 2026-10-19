@@ -42,9 +42,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  
-  // 只存已读的文件 SHA/路径，不存文件夹路径
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
+  
   const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
@@ -119,7 +118,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 点击文件夹，只把里面的文件标记为已读（这样文件夹的 NEW 就消失了，但没点过的文件在别的目录还是 NEW）
   const handleFolderPress = async (folderPath: string) => {
     const token = getGitHubToken();
     if (!token) return;
@@ -246,7 +244,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 关键：文件夹的 NEW 取决于里面的文件是否有新文件。文件 NEW 取决于它自己是否被看过。
 function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>, currentPath: string): any[] {
   const items: any[] = [];
   
@@ -257,7 +254,6 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
 
   for (const file of currentLevelFiles) {
     if (file.type === 'dir') {
-      // 检查这个子文件夹下，是否有没被看过的文件
       const hasNewFile = files.some(f => 
         f.type === 'file' && 
         f.path.startsWith(file.path + '/') && 
@@ -277,7 +273,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        isNew: hasNewFile, // 只有里面有新文件，才算 NEW
+        isNew: hasNewFile,
       });
       continue;
     }
@@ -298,7 +294,7 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId] && !knownFiles[file.path], // 没被点过，就是 NEW
+        isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
       });
     }
   }
