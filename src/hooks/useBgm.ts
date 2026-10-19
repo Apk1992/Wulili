@@ -47,10 +47,12 @@ export function useBgm() {
       if (force || !activeTrack || activeTrack.id !== 'bgm' || lastPlayedUrlRef.current !== downloadUrl) {
         await TrackPlayer.reset();
         await TrackPlayer.add({ id: 'bgm', url: downloadUrl, title: 'BGM', artist: 'Wulili' });
-        await TrackPlayer.setRepeatMode(RepeatMode.Track);
-        await TrackPlayer.setVolume(0.4);
         lastPlayedUrlRef.current = downloadUrl;
       }
+
+      // 🔥 核心修复：只要走到这，必须强制设为单曲循环！防止2分钟后自然死亡
+      await TrackPlayer.setRepeatMode(RepeatMode.Track);
+      await TrackPlayer.setVolume(0.4);
 
       const state = await TrackPlayer.getState();
       if (state !== State.Playing) {
@@ -64,18 +66,14 @@ export function useBgm() {
   useFocusEffect(
     useCallback(() => {
       void setupBgm(true);
-      // 🔥 心跳检测：每 2 秒检查一次，如果 BGM 停了（且不是正在放其他歌），自动重新拉起！
       const timer = setInterval(async () => {
         try {
           const activeTrack = await TrackPlayer.getActiveTrack();
-          if (activeTrack && activeTrack.id !== 'bgm') return; // 用户在听歌，别打扰
+          if (activeTrack && activeTrack.id !== 'bgm') return;
           const state = await TrackPlayer.getState();
-          if (state !== State.Playing) {
-            void setupBgm(true);
-          }
+          if (state !== State.Playing) void setupBgm(true);
         } catch {}
       }, 2000);
-
       return () => clearInterval(timer);
     }, [setupBgm])
   );
