@@ -28,12 +28,14 @@ class BgmManager {
       const token = getGitHubToken();
       if (!token) return;
 
-      // 🔥 核心：检查当前播放器里挂的是什么
+      // 检查播放器里当前是什么
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
-      const activeTrack = (activeIndex !== undefined && activeIndex !== null) ? queue[activeIndex] : null;
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0)
+        ? queue[activeIndex]
+        : null;
 
-      // 如果当前正在播放回忆记录（音乐/视频），绝对不要抢
+      // 🔥 如果正在放音乐/视频，不抢
       if (activeTrack && activeTrack.id !== 'bgm') {
         return;
       }
@@ -51,7 +53,7 @@ class BgmManager {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      // 如果已经是 BGM 且没在播，直接 play
+      // 如果已经是这首 BGM 且没在播，直接播
       if (activeTrack && activeTrack.id === 'bgm' && this.currentUrl === downloadUrl) {
         const state = await TrackPlayer.getState();
         if (state !== State.Playing) {
@@ -78,18 +80,21 @@ class BgmManager {
     }
   }
 
-  // 供视频页面调用
+  // 供视频页面调用（暂停 BGM，不销毁队列）
   public async suspendForVideo() {
     try {
       await TrackPlayer.pause();
     } catch {}
   }
 
+  // 供视频页面调用（退出视频时恢复）
   public async resumeFromVideo() {
     try {
       const queue = await TrackPlayer.getQueue();
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
-      const activeTrack = (activeIndex !== undefined && activeIndex !== null) ? queue[activeIndex] : null;
+      const activeTrack = (activeIndex !== undefined && activeIndex !== null && queue.length > 0)
+        ? queue[activeIndex]
+        : null;
       if (activeTrack && activeTrack.id === 'bgm') {
         await TrackPlayer.play();
       } else if (!activeTrack) {
