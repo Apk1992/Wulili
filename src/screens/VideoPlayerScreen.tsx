@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -27,6 +27,7 @@ import { getGitHubToken } from '@/api/githubClient';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
+import { bgmManager } from '@/services/bgmManager'; // 👈 引入 BGM 管理器
 import type { MemoryItem } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
 import type { RootStackParamList } from '@/types/navigation';
@@ -47,6 +48,18 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   const [duration, setDuration] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState<boolean>(false);
+
+  // 🔥 核心：利用 useEffect 监听视频状态，自动控制 BGM
+  // 只要正在播放视频（小屏或全屏），就挂起 BGM。退出或暂停时恢复。
+  useEffect(() => {
+    const isPlaying = !!current;
+    bgmManager.setSuspended(isPlaying);
+    
+    // 组件卸载时（比如退出了这个页面），确保 BGM 恢复
+    return () => {
+      bgmManager.setSuspended(false);
+    };
+  }, [current]);
 
   const items = useMemo(() => {
     const repoItems = buildRepoItems(repoQuery.data ?? []);
