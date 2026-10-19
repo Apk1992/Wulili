@@ -19,15 +19,12 @@ import ErrorView from '@/components/ErrorView';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { useGitHubFiles } from '@/hooks/useGitHubRepo';
-import {
-  useGitHubReleases,
-  collectVideoAssets,
-} from '@/hooks/useGitHubReleases';
+import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
 import { getGitHubToken } from '@/api/githubClient';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
-import { bgmManager } from '@/services/bgmManager'; // 👈 引入 BGM 管理器
+import { bgmManager } from '@/services/bgmManager'; // 👈 引入
 import type { MemoryItem } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
 import type { RootStackParamList } from '@/types/navigation';
@@ -49,15 +46,15 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState<boolean>(false);
 
-  // 🔥 核心：利用 useEffect 监听视频状态，自动控制 BGM
-  // 只要正在播放视频（小屏或全屏），就挂起 BGM。退出或暂停时恢复。
+  // 🔥 核心：只要选中了视频（current 不为 null），就挂起 BGM
   useEffect(() => {
-    const isPlaying = !!current;
-    bgmManager.setSuspended(isPlaying);
-    
-    // 组件卸载时（比如退出了这个页面），确保 BGM 恢复
+    if (current) {
+      void bgmManager.suspendForVideo();
+    } else {
+      void bgmManager.resumeFromVideo();
+    }
     return () => {
-      bgmManager.setSuspended(false);
+      void bgmManager.resumeFromVideo();
     };
   }, [current]);
 
