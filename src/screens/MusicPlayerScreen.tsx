@@ -33,23 +33,19 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   
   const [playback, setPlayback] = useState<PlaybackState>({ current: null, status: 'idle', position: 0, duration: 0, error: null });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
-  
-  // 🔥 强依赖 knownFiles，必须加载完成才能渲染列表
-  const [knownFiles, setKnownFiles] = useState<Record<string, boolean> | null>(null);
+  const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
 
   const isSeekingRef = useRef<boolean>(false);
   const queueReadyRef = useRef<boolean>(false);
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  // 1. 加载已读缓存
   useEffect(() => {
     void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
-      setKnownFiles(res ? JSON.parse(res) : {});
+      if (res) setKnownFiles(JSON.parse(res));
     });
   }, []);
 
-  // 2. 离开页面强制停止播放，交还 BGM
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -79,7 +75,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   useFocusEffect(useCallback(() => { void fetchFolder(); }, [currentPath]));
 
-  // 3. 拆分并计算 NEW
   const { folders, items } = useMemo(() => {
     const dirs: GitHubContentItem[] = [];
     const musicFiles: GitHubContentItem[] = [];
@@ -87,8 +82,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       if (file.type === 'dir') dirs.push(file);
       else if (file.type === 'file') musicFiles.push(file);
     }
-    // 如果 knownFiles 还没加载完，暂时给个空对象避免闪退
-    return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles || {}) };
+    return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles) };
   }, [rawData, knownFiles]);
 
   const handleFolderPress = (path: string) => setCurrentPath(path);
@@ -100,47 +94,91 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || GITHUB_PATHS.music);
   };
 
-  // ... 播放逻辑 (和之前一样，这里省略为了长度，保留你原来的 handlePlayAt, handleTogglePlay 等)
+  useEffect(() => {
+    if (!playback.current || isSeekingRef.current) return;
+    const state = trackPlayerState.state;
+    let status: PlaybackState['status'] = 'idle';
+    if (state === TrackPlayerState.Playing) status = 'playing';
+    else if (state === TrackPlayerState.Paused) status = 'paused';
+    else if (state === TrackPlayerState.Buffering || state === TrackPlayerState.Loading) status = 'loading';
+    else if (state === TrackPlayerState.Ended) status = 'ended';
+    else if (state === TrackPlayerState.Error) status = 'error';
+    else if (state === TrackPlayerState.Stopped) status = 'ended';
+
+    setPlayback((prev) => ({ ...prev, status, position: progress.position, duration: progress.duration || prev.duration }));
+  }, [trackPlayerState.state, progress.position, progress.duration, playback.current]);
+
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
+    try {
+      const index = event.index;
+      if (typeof index === 'number' && index >= 0 && index < items.length) {
+        setCurrentIndex(index);
+        isSeekingRef.current = false;
+        setPlayback((prev) => ({ ...prev, current: items[index], status: 'loading', position: 0, duration: 0, error: null }));
+      }
+    } catch {}
+  });
+
+  const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
+    const token = getGitHubToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return musicItems.map((item) => ({
+      id: item.id,
+      url: `${RAW_BASE}/${item.path}`,
+      title: humanizeFileName(item.displayName),
+      artist: '雾璃',
+      headers,
+    }));
+  }, []);
+
+  const ensureQueue = useCallback(async (startIndex: number) => {
+    await TrackPlayer.reset();
+    const tracks = buildTracks(items);
+    await TrackPlayer.add(tracks);
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+    queueReadyRef.current = true;
+    await TrackPlayer.skip(startIndex);
+    await TrackPlayer.play();
+    setCurrentIndex(startIndex);
+  }, [items, buildTracks]);
 
   const handlePlayAt = useCallback(async (index: number) => {
     try {
       const item = items[index];
       if (!item) return;
 
-      // 🔥 点击后标记已读，更新缓存
-      const newKnown = { ...(knownFiles || {}), [item.sha || item.path]: true, [item.path]: true };
+      const newKnown = { ...knownFiles, [item.sha || item.path]: true, [item.path]: true };
       setKnownFiles(newKnown);
-      await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
 
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
-      
-      // 这里是你原本的播放逻辑...
-      const token = getGitHubToken();
-      const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-      
-      const tracks = items.map((it) => ({
-        id: it.id,
-        url: `${RAW_BASE}/${it.path}`,
-        title: humanizeFileName(it.displayName),
-        artist: '雾璃',
-        headers,
-      }));
 
-      await TrackPlayer.reset();
-      await TrackPlayer.add(tracks);
-      await TrackPlayer.setRepeatMode(RepeatMode.Queue);
-      await TrackPlayer.skip(index);
-      await TrackPlayer.play();
-      setCurrentIndex(index);
-
+      if (!queueReadyRef.current) {
+        await ensureQueue(index);
+      } else {
+        const activeIndex = await TrackPlayer.getActiveTrackIndex();
+        if (activeIndex === index) {
+          const state = (await TrackPlayer.getPlaybackState()).state;
+          if (state === TrackPlayerState.Playing) {
+            await TrackPlayer.pause();
+            setPlayback((prev) => ({ ...prev, status: 'paused' }));
+          } else {
+            await TrackPlayer.play();
+            setPlayback((prev) => ({ ...prev, status: 'playing' }));
+          }
+        } else {
+          await TrackPlayer.skip(index);
+          await TrackPlayer.play();
+          setCurrentIndex(index);
+        }
+      }
     } catch (error) {
       setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
     }
-  }, [items, knownFiles]);
+  }, [items, ensureQueue, knownFiles]);
 
-  // 播放控制 (快进、暂停) 与你之前一样
-  const handleTogglePlay = async () => {
+  const handleTogglePlay = useCallback(async () => {
     try {
       const state = (await TrackPlayer.getPlaybackState()).state;
       if (state === TrackPlayerState.Playing) {
@@ -151,7 +189,55 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
         setPlayback((prev) => ({ ...prev, status: 'playing' }));
       }
     } catch {}
-  };
+  }, []);
+
+  // 🔥 恢复：进度条拖动逻辑
+  const handleSeekStart = useCallback((value: number) => {
+    isSeekingRef.current = true;
+  }, []);
+
+  const handleSeekChange = useCallback((value: number) => {
+    // 可选：在拖动时实时更新 text，这里不用管
+  }, []);
+
+  const handleSeekComplete = useCallback(async (value: number) => {
+    try {
+      await TrackPlayer.seekTo(value);
+      setPlayback((prev) => ({ ...prev, position: value }));
+    } catch {} finally {
+      isSeekingRef.current = false;
+    }
+  }, []);
+
+  // 🔥 恢复：上一首/下一首逻辑
+  const handleNext = useCallback(async () => {
+    try {
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      if (typeof activeIndex === 'number' && activeIndex + 1 < items.length) {
+        await TrackPlayer.skipToNext();
+        await TrackPlayer.play();
+      }
+    } catch {}
+  }, [items.length]);
+
+  const handlePrevious = useCallback(async () => {
+    try {
+      const activeIndex = await TrackPlayer.getActiveTrackIndex();
+      if (typeof activeIndex === 'number' && activeIndex > 0) {
+        await TrackPlayer.skip(activeIndex - 1);
+        await TrackPlayer.play();
+      }
+    } catch {}
+  }, []);
+
+  const handleStop = useCallback(async () => {
+    try {
+      await TrackPlayer.reset();
+      queueReadyRef.current = false;
+    } catch {}
+    setCurrentIndex(-1);
+    setPlayback({ current: null, status: 'idle', position: 0, duration: 0, error: null });
+  }, []);
 
   if (loading) return <ScreenContainer edges={['bottom']}><View className="flex-1 items-center justify-center"><ActivityIndicator size="large" color="#2563EB" /></View></ScreenContainer>;
   if (error) return <ScreenContainer edges={['bottom']}><ErrorView title="加载失败" onRetry={() => void fetchFolder()} fullScreen /></ScreenContainer>;
@@ -203,7 +289,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             <View className={isCurrent ? 'rounded-2xl border-2 border-primary' : ''}>
               <View className="relative">
                 <MemoryListItem item={item} onPress={() => void handlePlayAt(musicIndex)} />
-                {/* 🔥 确保这里正确显示 NEW 标签 */}
                 {item.isNew && (
                   <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
                     <Text className="text-[9px] text-white font-bold">NEW</Text>
@@ -226,12 +311,12 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
           <MediaPlayerBar
             playback={playback}
             onTogglePlay={handleTogglePlay}
-            onSeekStart={() => { isSeekingRef.current = true; }}
-            onSeekChange={() => {}}
-            onSeekComplete={async (sec) => { await TrackPlayer.seekTo(sec); isSeekingRef.current = false; }}
-            onPrevious={async () => { /* ... */ }}
-            onNext={async () => { /* ... */ }}
-            onStop={async () => { await TrackPlayer.reset(); setPlayback({ current: null, status: 'idle', position: 0, duration: 0, error: null }); }}
+            onSeekStart={handleSeekStart}
+            onSeekChange={handleSeekChange}
+            onSeekComplete={handleSeekComplete}
+            onPrevious={handlePrevious}
+            onNext={handleNext}
+            onStop={handleStop}
             hasPrevious={currentIndex > 0}
             hasNext={currentIndex >= 0 && currentIndex + 1 < items.length}
           />
@@ -241,7 +326,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 严丝合缝的判断，必须同时比对 sha 和 path
 function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
   for (const file of files) {
@@ -259,7 +343,6 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
       downloadUrl: file.download_url,
       updatedAt: null,
       source: 'repo',
-      // 🔥 只要 knownFiles 里没有这个 SHA 也没有这个 PATH，就显示 NEW
       isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
     });
   }
