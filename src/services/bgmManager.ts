@@ -10,8 +10,9 @@ class BgmManager {
   private currentUrl: string | null = null;
   private isMuted: boolean = false;
   private isAppActive: boolean = true;
-  private isExternallySuspended: boolean = false; // 🔥 新增：供视频页强行暂停
+  private isExternallySuspended: boolean = false;
   private season: string = 'autumn';
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
@@ -27,13 +28,18 @@ class BgmManager {
     });
   }
 
-  // 供视频页面调用
   public setSuspended(suspended: boolean) {
     this.isExternallySuspended = suspended;
     if (suspended) {
       this.pause();
     } else {
       this.play();
+      // 🔥 关键：如果之前因为视频挂了，退出视频时强制重载一次（防死锁）
+      setTimeout(() => {
+        if (!this.isMuted && this.isAppActive && !this.isExternallySuspended && this.sound && !this.sound.isPlaying()) {
+          this.sound.play();
+        }
+      }, 300);
     }
   }
 
@@ -76,6 +82,7 @@ class BgmManager {
         if (!this.isMuted && this.isAppActive && !this.isExternallySuspended && !this.sound.isPlaying()) {
           this.sound.play();
         }
+        this.startHeartbeat(); // 🔥 每次调用都确保心跳启动
         return;
       }
 
@@ -97,6 +104,7 @@ class BgmManager {
         if (!this.isMuted && this.isAppActive && !this.isExternallySuspended) {
           this.sound.play();
         }
+        this.startHeartbeat(); // 🔥 加载成功后启动心跳
       });
     } catch (err) {
       console.warn('BGM 异常:', err);
@@ -117,7 +125,27 @@ class BgmManager {
     }
   }
 
+  // 🔥 核心：每 3 秒检测一次，如果被意外卡住强制恢复
+  private startHeartbeat() {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      if (
+        this.sound &&
+        !this.isMuted &&
+        this.isAppActive &&
+        !this.isExternallySuspended &&
+        !this.sound.isPlaying()
+      ) {
+        this.sound.play();
+      }
+    }, 3000);
+  }
+
   public stopAndRelease() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     if (this.sound) {
       this.sound.stop();
       this.sound.release();
