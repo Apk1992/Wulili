@@ -10,53 +10,44 @@ class BgmManager {
   private currentUrl: string | null = null;
   private season: string = 'autumn';
   private isAppActive: boolean = true;
-  private watchdog: ReturnType<typeof setInterval> | null = null;
+  private isLoading: boolean = false; // 🔥 防止并发加载
+  private isMutedByMedia: boolean = false; // 🔥 是否有音乐在放
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
     
-    // 🔥 监听 TrackPlayer，如果有其他的音乐/视频在播，强制暂停 BGM
     TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
       if (event.state === State.Playing) {
+        this.isMutedByMedia = true;
         this.pause();
       } else if (event.state === State.Paused || event.state === State.Stopped || event.state === State.Ended) {
+        this.isMutedByMedia = false;
         this.resume();
       }
     });
 
-    // 🔥 启动终极自愈定时器（每2秒查一次，只要没声音，强行拉起）
-    this.startWatchdog();
+    // 🔥 启动 2 秒一次的保活心跳
+    setInterval(() => {
+      if (!this.isAppActive || this.isMutedByMedia || this.isLoading) return;
+      if (this.sound && !this.sound.isPlaying()) {
+        this.sound.play();
+      }
+    }, 2000);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
       Sound.setActive(true);
-      this.resume();
+      // 切回前台时，稍微延迟一下再恢复，避开系统音频通道的切换期
+      setTimeout(() => {
+        if (!this.sound) void this.loadAndPlay();
+        else this.resume();
+      }, 500);
     } else {
       this.pause();
     }
   };
-
-  private startWatchdog() {
-    if (this.watchdog) return;
-    this.watchdog = setInterval(async () => {
-      if (!this.isAppActive) return;
-      if (!this.sound) {
-        void this.loadAndPlay();
-        return;
-      }
-      // 检查 TrackPlayer 是不是在放音乐
-      try {
-        const state = await TrackPlayer.getState();
-        if (state !== State.Playing && !this.sound.isPlaying()) {
-          this.sound.play();
-        }
-      } catch {
-        if (!this.sound.isPlaying()) this.sound.play();
-      }
-    }, 2000);
-  }
 
   public setSeason(newSeason: string) {
     if (this.season !== newSeason) {
@@ -67,9 +58,15 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
+    if (this.isLoading) return;
+    this.isLoading = true;
+
     try {
       const token = getGitHubToken();
-      if (!token) return;
+      if (!token) {
+        this.isLoading = false;
+        return;
+      }
 
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
@@ -80,12 +77,16 @@ class BgmManager {
       const res = await fetch(apiUrl, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        this.isLoading = false;
+        return;
+      }
       const data = await res.json();
       const downloadUrl = data.download_url;
 
       if (this.currentUrl === downloadUrl && this.sound) {
-        if (!this.sound.isPlaying()) this.sound.play();
+        this.resume();
+        this.isLoading = false;
         return;
       }
 
@@ -93,6 +94,7 @@ class BgmManager {
       Sound.setActive(true);
 
       this.sound = new Sound(downloadUrl, undefined, (error) => {
+        this.isLoading = false;
         if (error) {
           console.warn('BGM 加载失败:', error);
           return;
@@ -101,10 +103,16 @@ class BgmManager {
         if (this.sound) {
           this.sound.setVolume(0.4);
           this.sound.setNumberOfLoops(-1);
-          this.sound.play();
+          // 延时 800ms 后强启，避开系统冷启动的死锁
+          setTimeout(() => {
+            if (!this.isMutedByMedia && this.isAppActive) {
+              this.sound?.play();
+            }
+          }, 800);
         }
       });
     } catch (err) {
+      this.isLoading = false;
       console.warn('BGM 异常:', err);
     }
   }
@@ -116,15 +124,9 @@ class BgmManager {
   }
 
   private resume() {
-    if (this.sound && !this.sound.isPlaying()) {
-      // 检查 TrackPlayer 是否在放歌
-      TrackPlayer.getState().then((state) => {
-        if (state !== State.Playing) {
-          this.sound?.play();
-        }
-      }).catch(() => {
-        this.sound?.play();
-      });
+    if (!this.sound || this.isMutedByMedia || !this.isAppActive) return;
+    if (!this.sound.isPlaying()) {
+      this.sound.play();
     }
   }
 
@@ -136,8 +138,14 @@ class BgmManager {
     }
   }
 
-  public suspendForVideo() { this.pause(); }
-  public resumeFromVideo() { this.resume(); }
+  public suspendForVideo() {
+    this.isMutedByMedia = true;
+    this.pause();
+  }
+  public resumeFromVideo() {
+    this.isMutedByMedia = false;
+    this.resume();
+  }
 }
 
 export const bgmManager = new BgmManager();
