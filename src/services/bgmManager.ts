@@ -34,7 +34,6 @@ class BgmManager {
       this.pause();
     } else {
       this.play();
-      // 🔥 关键：如果之前因为视频挂了，退出视频时强制重载一次（防死锁）
       setTimeout(() => {
         if (!this.isMuted && this.isAppActive && !this.isExternallySuspended && this.sound && !this.sound.isPlaying()) {
           this.sound.play();
@@ -43,11 +42,16 @@ class BgmManager {
     }
   }
 
-  private handleAppStateChange = (nextAppState: AppStateStatus) => {
+  private handleAppStateChange = async (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
       Sound.setActive(true);
-      this.play();
+      // 🔥 核心修复：如果回到前台发现没声音，彻底重载一次
+      if (!this.sound || !this.currentUrl) {
+        await this.loadAndPlay(true);
+      } else {
+        this.play();
+      }
     } else {
       this.pause();
     }
@@ -78,11 +82,12 @@ class BgmManager {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
+      // 如果当前播放的就是这首，不需要重载
       if (!forceReload && this.currentUrl === downloadUrl && this.sound) {
         if (!this.isMuted && this.isAppActive && !this.isExternallySuspended && !this.sound.isPlaying()) {
           this.sound.play();
         }
-        this.startHeartbeat(); // 🔥 每次调用都确保心跳启动
+        this.startHeartbeat();
         return;
       }
 
@@ -101,10 +106,14 @@ class BgmManager {
         this.sound.setVolume(0.4);
         this.sound.setNumberOfLoops(-1);
         
-        if (!this.isMuted && this.isAppActive && !this.isExternallySuspended) {
-          this.sound.play();
-        }
-        this.startHeartbeat(); // 🔥 加载成功后启动心跳
+        // 🔥 强行延时 200ms 后播放，确保底层音频通道已经准备好
+        setTimeout(() => {
+          if (!this.isMuted && this.isAppActive && !this.isExternallySuspended) {
+            this.sound?.play();
+          }
+        }, 200);
+        
+        this.startHeartbeat();
       });
     } catch (err) {
       console.warn('BGM 异常:', err);
@@ -125,7 +134,6 @@ class BgmManager {
     }
   }
 
-  // 🔥 核心：每 3 秒检测一次，如果被意外卡住强制恢复
   private startHeartbeat() {
     if (this.heartbeatTimer) return;
     this.heartbeatTimer = setInterval(() => {
