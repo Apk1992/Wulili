@@ -1,9 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { bgmManager } from '@/services/bgmManager';
 import { useSeason } from '@/hooks/useSeason';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { useFocusEffect } from '@react-navigation/native';
-import { useCallback } from 'react';
 
 export function useBgm() {
   const { season } = useSeason();
