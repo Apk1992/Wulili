@@ -26,6 +26,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
 const NEW_FILES_KEY = '@wulili/known_files';
 
+// 🔥 辅助函数：多维健壮匹配已读状态（path、sha、id）
+function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
+  if (knownMap[file.path]) return true;
+  if (file.sha && knownMap[file.sha]) return true;
+  if (file.id && knownMap[file.id]) return true;
+  return false;
+}
+
 export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   const [currentPath, setCurrentPath] = useState<string>(route.params?.initialPath || GITHUB_PATHS.music);
   const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
@@ -121,14 +129,14 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   });
 
   useEffect(() => {
-  // 进入音乐播放器：暂停 BGM
-  bgmManager.suspendForVideo();
+    // 进入音乐播放器：暂停 BGM
+    bgmManager.pauseForMedia();
 
-  return () => {
-    // 离开音乐播放器：恢复 BGM
-    bgmManager.resumeFromVideo();
-  };
-}, []);
+    return () => {
+      // 离开音乐播放器：恢复 BGM
+      bgmManager.resumeFromMedia();
+    };
+  }, []);
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
     const token = getGitHubToken();
@@ -159,7 +167,13 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       const item = items[index];
       if (!item) return;
 
-      const newKnown = { ...knownFiles, [item.sha || item.path]: true, [item.path]: true };
+      // 🔥 多维写入已读缓存，确保点击后 NEW 标签彻底消失
+      const newKnown = { 
+        ...knownFiles, 
+        [item.path]: true,
+        ...(item.sha ? { [item.sha]: true } : {}),
+        ...(item.id ? { [item.id]: true } : {})
+      };
       setKnownFiles(newKnown);
       void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
 
@@ -202,14 +216,11 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch {}
   }, []);
 
-  // 🔥 恢复：进度条拖动逻辑
   const handleSeekStart = useCallback((value: number) => {
     isSeekingRef.current = true;
   }, []);
 
-  const handleSeekChange = useCallback((value: number) => {
-    // 可选：在拖动时实时更新 text，这里不用管
-  }, []);
+  const handleSeekChange = useCallback((value: number) => {}, []);
 
   const handleSeekComplete = useCallback(async (value: number) => {
     try {
@@ -220,7 +231,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     }
   }, []);
 
-  // 🔥 恢复：上一首/下一首逻辑
   const handleNext = useCallback(async () => {
     try {
       const activeIndex = await TrackPlayer.getActiveTrackIndex();
@@ -343,7 +353,8 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
     const kind = detectMemoryKind(file.name);
     if (kind !== 'music') continue;
     const uniqueId = file.sha || file.path;
-    items.push({
+    
+    const itemObj = {
       id: uniqueId,
       kind: 'music',
       name: file.name,
@@ -354,7 +365,11 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
       downloadUrl: file.download_url,
       updatedAt: null,
       source: 'repo',
-      isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
+    };
+
+    items.push({
+      ...itemObj,
+      isNew: !isFileKnown(itemObj, knownFiles), // 使用多维健壮匹配判断是否新文件
     });
   }
   return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
