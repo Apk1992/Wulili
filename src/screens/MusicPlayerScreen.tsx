@@ -129,12 +129,14 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   });
 
   useEffect(() => {
-    // 进入音乐播放器：暂停 BGM
-    bgmManager.pauseForMedia();
+    try {
+      bgmManager.pauseForMedia?.();
+    } catch {}
 
     return () => {
-      // 离开音乐播放器：恢复 BGM
-      bgmManager.resumeFromMedia();
+      try {
+        bgmManager.resumeFromMedia?.();
+      } catch {}
     };
   }, []);
 
