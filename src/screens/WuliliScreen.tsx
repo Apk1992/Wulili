@@ -1,3 +1,4 @@
+// src/screens/WuliliScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, Text, View, useWindowDimensions, Modal, TouchableWithoutFeedback } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -23,6 +24,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 let dismissedEventType: string | null = null;
+
+// 🔥 Cloudflare R2 基础路径（供远端动态场景或音效扩展使用）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
@@ -174,7 +178,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const canSleep = canStartSleep(energy);
   const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
-  // 🔥 彻底移除 Ionicons，用最安全的文字代替图标
   const actionButtons = [
     { label: '投喂', onPress: () => navigation.navigate('Feed') },
     { label: '娱乐', onPress: () => navigation.navigate('Entertain') },
@@ -242,7 +245,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           )}
         </View>
 
-        {/* 🔥 纯原生防崩弹窗 */}
         <Modal visible={activeModal === 'event'} transparent animationType="fade">
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
             <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
