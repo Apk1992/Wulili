@@ -16,6 +16,8 @@ import { GITHUB_PATHS } from '@/api/githubConfig';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
+import { useEffect } from 'react';
+import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, PlaybackState } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
 import type { RootStackParamList } from '@/types/navigation';
@@ -118,6 +120,16 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       }
     } catch {}
   });
+
+  useEffect(() => {
+  // 进入音乐播放器：暂停 BGM
+  bgmManager.suspendForVideo();
+
+  return () => {
+    // 离开音乐播放器：恢复 BGM
+    bgmManager.resumeFromVideo();
+  };
+}, []);
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
     const token = getGitHubToken();
