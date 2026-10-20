@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/screens/EntertainScreen.tsx
+import React, { useMemo, useState } from 'react';
 import { Alert, FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -19,13 +20,30 @@ import type { MinigameIndexEntry } from '@/types/config';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Entertain'>;
 
+// 🔥 Cloudflare R2 专属存储桶公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
 export function EntertainScreen({}: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [activeGame, setActiveGame] = useState<MinigameIndexEntry | null>(null);
 
-  const minigames = useAppConfigStore((s) => s.config.minigames);
+  const rawMinigames = useAppConfigStore((s) => s.config.minigames);
   const energy = useWuliliStore((s) => s.state.stats.energy);
+
+  // 🔥 预处理小游戏列表中的资产目录，规范为 R2 路径格式
+  const minigames = useMemo(() => {
+    return rawMinigames.map((game) => {
+      if (!game.assetFolder) return game;
+      const cleanFolder = game.assetFolder.startsWith('http')
+        ? game.assetFolder
+        : `${R2_BASE_URL}/${game.assetFolder.replace(/^\/+/, '')}`;
+      return {
+        ...game,
+        assetFolder: cleanFolder,
+      };
+    });
+  }, [rawMinigames]);
 
   const handleEnter = (entry: MinigameIndexEntry) => {
     if (energy < entry.energyCost) {
@@ -61,7 +79,7 @@ export function EntertainScreen({}: Props): React.JSX.Element {
       {minigames.length === 0 ? (
         <EmptyView
           title="暂无小游戏"
-          message="请确保 GitHub 上的小游戏索引已配置。"
+          message="请确保小游戏索引与配置已成功载入。"
           icon="game-controller-outline"
           fullScreen
         />
@@ -74,7 +92,7 @@ export function EntertainScreen({}: Props): React.JSX.Element {
             <Card className="mb-3">
               <View className="flex-row items-center">
                 <View className="w-10 h-10 rounded-xl bg-success/15 items-center justify-center mr-3">
-                  <Ionicons name={item.icon} size={20} color="#10B981" />
+                  <Ionicons name={item.icon || 'game-controller'} size={20} color="#10B981" />
                 </View>
                 <View className="flex-1">
                   <Text className="text-sm font-semibold text-text dark:text-dark-text">
