@@ -1,4 +1,5 @@
-import React, { useCallback } from 'react';
+// src/screens/VideoPlayerScreen.tsx
+import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -10,10 +11,22 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'VideoPlayer'>;
 
-export function VideoPlayerScreen({ route }: Props): React.JSX.Element {
-  const videoUrl = route.params?.url;
+// 🔥 Cloudflare R2 专属公开域名（避免传入相对路径时无法播放）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-  // 🔥 进入视频时自动暂停并释放 BGM，离开时无缝恢复
+export function VideoPlayerScreen({ route }: Props): React.JSX.Element {
+  const rawUrl = route.params?.url;
+
+  // 🔥 保证 videoUrl 一定是可播放的 R2 绝对路径
+  const videoUrl = useMemo(() => {
+    if (!rawUrl) return null;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      return rawUrl;
+    }
+    return `${R2_BASE_URL}/${rawUrl.replace(/^\/+/, '')}`;
+  }, [rawUrl]);
+
+  // 🔥 进入视频时自动挂起 BGM，避免音频焦点冲突，离开时无缝恢复
   useFocusEffect(
     useCallback(() => {
       bgmManager.suspendForVideo();
