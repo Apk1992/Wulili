@@ -1,3 +1,4 @@
+// src/screens/FoodEditorScreen.tsx
 import React, { useMemo, useState } from 'react';
 import { Alert, FlatList, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,6 +14,9 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodEditor'>;
 
+// 🔥 Cloudflare R2 存储桶基础公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
 const FIELDS: ItemFieldDef[] = [
   { key: 'name', label: '名称', kind: 'text' },
   { key: 'description', label: '描述', kind: 'text' },
@@ -22,6 +26,7 @@ const FIELDS: ItemFieldDef[] = [
   { key: 'health', label: '健康变化', kind: 'number' },
   { key: 'energy', label: '精力变化', kind: 'number' },
   { key: 'weight', label: '体重变化', kind: 'number' },
+  { key: 'image', label: '图片路径 (R2/相对路径)', kind: 'text' },
 ];
 
 export function FoodEditorScreen({}: Props): React.JSX.Element {
@@ -71,13 +76,14 @@ export function FoodEditorScreen({}: Props): React.JSX.Element {
   };
 
   const handleAdd = () => {
+    const category = filter === 'junk' ? 'junk' : 'healthy';
     const newFood: Food = {
       id: `user-food-${Date.now()}`,
       name: '新食物',
       description: '',
-      category: filter === 'junk' ? 'junk' : 'healthy',
+      category,
       price: 10,
-      image: '',
+      image: `images/food/${category}/default.png`, // 🔥 分配默认 R2 相对路径
       effect: { hunger: 10, mood: 0, health: 0, energy: 0, weight: 0 },
     };
     updateConfig({ foods: [...config.foods, newFood] });
@@ -124,27 +130,34 @@ export function FoodEditorScreen({}: Props): React.JSX.Element {
         data={foods}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }) => (
-          <ItemEditCard
-            title={item.name || '（未命名）'}
-            item={{
-              id: item.id,
-              name: item.name,
-              description: item.description,
-              price: item.price,
-              image: item.image,
-              hunger: item.effect.hunger,
-              mood: item.effect.mood,
-              health: item.effect.health,
-              energy: item.effect.energy,
-              weight: item.effect.weight,
-            }}
-            fields={FIELDS}
-            imageFieldKey="image"
-            onChange={(key, value) => handleChange(item.id, key, value)}
-            onDelete={() => handleDelete(item.id)}
-          />
-        )}
+        renderItem={({ item }) => {
+          // 🔥 如果是相对路径，自动转换为包含完整 R2 域名的链接供卡片预览
+          const displayImage = item.image?.startsWith('http')
+            ? item.image
+            : `${R2_BASE_URL}/${item.image?.replace(/^\//, '') || ''}`;
+
+          return (
+            <ItemEditCard
+              title={item.name || '（未命名）'}
+              item={{
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                price: item.price,
+                image: displayImage,
+                hunger: item.effect.hunger,
+                mood: item.effect.mood,
+                health: item.effect.health,
+                energy: item.effect.energy,
+                weight: item.effect.weight,
+              }}
+              fields={FIELDS}
+              imageFieldKey="image"
+              onChange={(key, value) => handleChange(item.id, key, value)}
+              onDelete={() => handleDelete(item.id)}
+            />
+          );
+        }}
         showsVerticalScrollIndicator={false}
       />
 
@@ -154,7 +167,7 @@ export function FoodEditorScreen({}: Props): React.JSX.Element {
 
       <View className="px-4 pb-3">
         <Text className="text-[10px] text-muted dark:text-dark-muted">
-          提示：图片请上传到仓库 {isDark ? '' : ''}images/food/healthy 或 images/food/junk
+          提示：资源将通过 Cloudflare R2 加速节点 ({R2_BASE_URL}/images/food/...) 读取
         </Text>
       </View>
     </ScreenContainer>
