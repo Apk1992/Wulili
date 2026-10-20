@@ -15,7 +15,6 @@ import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
-import { useBgm } from '@/hooks/useBgm';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
 import type { GitHubContentItem } from '@/types/github';
@@ -34,11 +33,10 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-const NEW_FILES_KEY = '@wulili/known_files_v2';
+// 🔥 使用全新的 Key 隔离旧数据
+const NEW_FILES_KEY = '@wulili/known_files_final_v3';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
-  useBgm();
-
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -51,6 +49,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
+  // 读取已读记录
   useEffect(() => {
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
@@ -71,7 +70,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const fetchDeepTree = async (path: string, token: string): Promise<GitHubContentItem[]> => {
     let results: GitHubContentItem[] = [];
     try {
-      // 加入防缓存参数 ?t=...
       const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}?t=${Date.now()}`;
       const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
       if (!res.ok) return [];
@@ -96,7 +94,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       const token = getGitHubToken();
       if (!token) throw new Error('无 Token');
 
-      // 加入防缓存参数 ?t=... 确保每次获取都是最新上传的文件
       const currentApiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}?t=${Date.now()}`;
       const currentRes = await fetch(currentApiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
       if (!currentRes.ok) throw new Error('获取失败');
@@ -138,6 +135,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
+  // 点击标记已读并跳转
   const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
@@ -301,6 +299,7 @@ function buildItems(
         source: 'repo',
       };
 
+      // 只要标识不在已知集合内，判定为 NEW
       const isFileNew = !knownFiles[file.path] && !knownFiles[uniqueId];
 
       items.push({
