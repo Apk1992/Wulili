@@ -10,7 +10,7 @@ class BgmManager {
   private season: string = 'autumn';
   private isAppActive: boolean = true;
   private isLoading: boolean = false;
-  private isManualPaused: boolean = false; // 用户/媒体播放器接管时的暂停
+  private isMediaPlaying: boolean = false; // 是否正在播放音乐或视频
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
@@ -20,11 +20,9 @@ class BgmManager {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
       Sound.setActive(true);
-      if (!this.isManualPaused) {
-        this.resume();
-      }
+      this.checkAndPlay();
     } else {
-      this.pause(true); // 后台时静默暂停
+      this.pause();
     }
   };
 
@@ -55,7 +53,7 @@ class BgmManager {
       const downloadUrl = data.download_url;
 
       if (this.currentUrl === downloadUrl && this.sound) {
-        this.resume();
+        this.checkAndPlay();
         this.isLoading = false;
         return;
       }
@@ -69,9 +67,7 @@ class BgmManager {
         if (this.sound) {
           this.sound.setVolume(0.4);
           this.sound.setNumberOfLoops(-1);
-          if (this.isAppActive && !this.isManualPaused) {
-            this.sound.play();
-          }
+          this.checkAndPlay();
         }
       });
     } catch {
@@ -79,31 +75,28 @@ class BgmManager {
     }
   }
 
-  // 外部音乐或视频播放时调用：暂停 BGM
-  public pauseForMedia() {
-    this.isManualPaused = true;
-    this.pause(false);
-  }
-
-  // 退出音乐或视频播放时调用：恢复 BGM
-  public resumeFromMedia() {
-    this.isManualPaused = false;
-    if (this.isAppActive) {
-      this.resume();
+  private checkAndPlay() {
+    if (this.isAppActive && !this.isMediaPlaying && this.sound && !this.sound.isPlaying()) {
+      this.sound.play();
     }
   }
 
-  private pause(isBackground = false) { 
+  public pauseForMedia() {
+    this.isMediaPlaying = true;
+    if (this.sound && this.sound.isPlaying()) {
+      this.sound.pause();
+    }
+  }
+
+  public resumeFromMedia() {
+    this.isMediaPlaying = false;
+    this.checkAndPlay();
+  }
+
+  private pause() { 
     if (this.sound && this.sound.isPlaying()) {
       this.sound.pause();
     } 
-  }
-
-  private resume() {
-    if (!this.sound || this.isManualPaused || !this.isAppActive) return;
-    if (!this.sound.isPlaying()) {
-      this.sound.play();
-    }
   }
 
   public release() {
@@ -111,6 +104,7 @@ class BgmManager {
       this.sound.stop(); 
       this.sound.release(); 
       this.sound = null; 
+      this.currentUrl = null;
     }
   }
 }
