@@ -1,3 +1,4 @@
+// src/screens/DialogueEditorScreen.tsx
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -29,6 +30,9 @@ import {
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DialogueEditor'>;
+
+// 🔥 Cloudflare R2 基础公开域名（供台词带音频/多媒体拓展使用）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 const CATEGORIES: DialogueCategory[] = [
   'greeting',
