@@ -49,14 +49,15 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
   // 🔥 自动挂起/恢复 BGM
   useEffect(() => {
     if (current) {
-      void bgmManager.suspendForVideo();
+      void bgmManager.pauseForMedia();
     } else {
-      void bgmManager.resumeFromVideo();
+      void bgmManager.resumeFromMedia();
     }
     return () => {
-      void bgmManager.resumeFromVideo();
+      void bgmManager.resumeFromMedia();
     };
   }, [current]);
+
 
   const items = useMemo(() => {
     const repoItems = buildRepoItems(repoQuery.data ?? []);
