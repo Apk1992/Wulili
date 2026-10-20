@@ -131,20 +131,20 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-    const handlePressItem = async (item: any) => {
+  const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
       return;
     }
 
-    // 🔥 双重保险：同时记录 sha 和 path，确保无论用哪个键都能识别为已读
-    const uniqueKey = item.sha || item.path;
+    // 🔥 核心点：多维记录已读状态（path、sha、id），确保 NEW 标签点击后立即消失且持久化
     const newKnown = { 
       ...knownFiles, 
-      [uniqueKey]: true, 
-      [item.path]: true 
+      [item.path]: true,
+      ...(item.sha ? { [item.sha]: true } : {}),
+      ...(item.id ? { [item.id]: true } : {})
     };
-    
+
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
 
@@ -156,6 +156,28 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
     }
   };
+
+
+    // 🔥 核心点：统一将 path、sha、id 全部加入已读列表
+    const newKnown = { 
+      ...knownFiles, 
+      [item.path]: true,
+      ...(item.sha ? { [item.sha]: true } : {}),
+      ...(item.id ? { [item.id]: true } : {})
+    };
+
+    setKnownFiles(newKnown);
+    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+
+    if (item.kind === 'music') {
+      navigation.navigate('MusicPlayer', { initialPath: currentPath });
+    } else if (item.kind === 'video') {
+      navigation.navigate('VideoPlayer');
+    } else {
+      navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
+    }
+  };
+
 
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
@@ -243,7 +265,14 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 核心逻辑：判断文件夹内是否含有未读文件（支持递归或者直接查当前深度的子文件）
+// 辅助函数：多维健壮匹配（同时检查 path、sha、id 是否在已读缓存中）
+function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
+  if (knownMap[file.path]) return true;
+  if (file.sha && knownMap[file.sha]) return true;
+  if (file.id && knownMap[file.id]) return true;
+  return false;
+}
+
 function buildItems(
   files: GitHubContentItem[],
   type: MemoryKind,
@@ -255,11 +284,12 @@ function buildItems(
   for (const file of files) {
     if (file.type === 'dir') {
       // 检查该文件夹下的所有深层文件，只要有一个没在 knownFiles 里，就显示 NEW
-      const hasNewFile = allFilesDeep.some(f => 
-        f.type === 'file' && 
-        f.path.startsWith(file.path + '/') && 
-        !knownFiles[f.sha || f.path]
-      );
+      const hasNewFile = allFilesDeep.some(f => {
+        if (f.type !== 'file') return false;
+        if (!f.path.startsWith(file.path + '/')) return false;
+        // 只要深层文件里有一个没被读过，文件夹就亮 NEW
+        return !isFileKnown(f, knownFiles);
+      });
 
       items.push({
         id: file.sha || file.path,
@@ -282,7 +312,8 @@ function buildItems(
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
       const uniqueId = file.sha || file.path;
-      items.push({
+      
+      const itemObj = {
         id: uniqueId,
         kind,
         name: file.name,
@@ -293,10 +324,22 @@ function buildItems(
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId], // 文件自身的已读判断
+      };
+
+      items.push({
+        ...itemObj,
+        isNew: !isFileKnown(itemObj, knownFiles), // 用健壮函数判断文件是否已读
       });
     }
   }
+  
+  return items.sort((a, b) => {
+    if (a.isFolder && !b.isFolder) return -1;
+    if (!a.isFolder && b.isFolder) return 1;
+    return a.displayName.localeCompare(b.displayName, 'zh-CN');
+  });
+}
+
   
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
