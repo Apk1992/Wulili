@@ -15,6 +15,7 @@ class BgmManager {
   private isAppActive: boolean = true;
   private isLoading: boolean = false;
   private isMutedByMedia: boolean = false;
+  private hasInitialized: boolean = false;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
@@ -31,6 +32,16 @@ class BgmManager {
       this.pause();
     }
   };
+
+  // 🔥 核心新增：供应用启动或首页挂载时主动调用的初始化方法，解决再次打开软件 BGM 不启动的问题
+  public init() {
+    if (!this.hasInitialized) {
+      this.hasInitialized = true;
+      void this.loadAndPlay();
+    } else if (!this.sound && !this.isLoading) {
+      void this.loadAndPlay();
+    }
+  }
 
   public setSeason(newSeason: string) {
     if (this.season !== newSeason) {
@@ -86,9 +97,11 @@ class BgmManager {
           return;
         }
 
-        // 如果在加载期间用户已经打开了音乐/视频，放弃播放
+        // 如果在加载期间用户已经打开了音乐/视频播放器，放弃播放
         if (this.isMutedByMedia) {
-          newSound.release();
+          try {
+            newSound.release();
+          } catch {}
           return;
         }
 
@@ -158,13 +171,13 @@ class BgmManager {
     this.currentUrl = null;
   }
 
-  // 🔥 核心修改：当打开音乐或视频时，直接完全释放 BGM，把音频通道让给播放器，防止底层冲突闪退
+  // 当打开音乐或视频时：完全释放 BGM，让出音频通道
   public suspendForVideo() {
     this.isMutedByMedia = true;
     this.release(); 
   }
 
-  // 离开音乐或视频时，重新加载并恢复 BGM
+  // 离开音乐或视频时：重新唤醒 BGM
   public resumeFromVideo() {
     this.isMutedByMedia = false;
     void this.loadAndPlay();
