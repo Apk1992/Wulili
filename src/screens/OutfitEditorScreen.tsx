@@ -1,3 +1,4 @@
+// src/screens/OutfitEditorScreen.tsx
 import React from 'react';
 import { Alert, FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -11,12 +12,16 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OutfitEditor'>;
 
+// 🔥 Cloudflare R2 存储桶基础域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
 const FIELDS: ItemFieldDef[] = [
   { key: 'name', label: '名称', kind: 'text' },
   { key: 'description', label: '描述', kind: 'text' },
   { key: 'price', label: '价格（金币）', kind: 'number' },
   { key: 'moodBonus', label: '心情加成', kind: 'number' },
   { key: 'affinityBonus', label: '亲密度加成', kind: 'number' },
+  { key: 'image', label: '图片路径 (R2/相对路径)', kind: 'text' },
 ];
 
 export function OutfitEditorScreen({}: Props): React.JSX.Element {
@@ -57,7 +62,7 @@ export function OutfitEditorScreen({}: Props): React.JSX.Element {
       name: '新服装',
       description: '',
       price: 100,
-      image: '',
+      image: 'images/outfits/default.png', // 🔥 默认分配 R2 相对路径模板
       moodBonus: 5,
       affinityBonus: 2,
     };
@@ -79,24 +84,31 @@ export function OutfitEditorScreen({}: Props): React.JSX.Element {
         data={config.outfits}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }) => (
-          <ItemEditCard
-            title={item.name || '（未命名）'}
-            item={{
-              id: item.id,
-              name: item.name,
-              description: item.description,
-              price: item.price,
-              image: item.image,
-              moodBonus: item.moodBonus,
-              affinityBonus: item.affinityBonus,
-            }}
-            fields={FIELDS}
-            imageFieldKey="image"
-            onChange={(key, value) => handleChange(item.id, key, value)}
-            onDelete={() => handleDelete(item.id)}
-          />
-        )}
+        renderItem={({ item }) => {
+          // 🔥 如果图片路径是相对路径，自动转换为完整的 R2 URL 传给 ItemEditCard 预览
+          const displayImage = item.image?.startsWith('http')
+            ? item.image
+            : `${R2_BASE_URL}/${item.image?.replace(/^\//, '') || ''}`;
+
+          return (
+            <ItemEditCard
+              title={item.name || '（未命名）'}
+              item={{
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                price: item.price,
+                image: displayImage,
+                moodBonus: item.moodBonus,
+                affinityBonus: item.affinityBonus,
+              }}
+              fields={FIELDS}
+              imageFieldKey="image"
+              onChange={(key, value) => handleChange(item.id, key, value)}
+              onDelete={() => handleDelete(item.id)}
+            />
+          );
+        }}
         showsVerticalScrollIndicator={false}
       />
     </ScreenContainer>
