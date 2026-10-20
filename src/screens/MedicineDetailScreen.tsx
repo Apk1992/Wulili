@@ -1,3 +1,4 @@
+// src/screens/MedicineDetailScreen.tsx
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -18,13 +19,15 @@ import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
-import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { ILLNESS_LABELS } from '@/components/constants';
 import { computeMenstrualInfo } from '@/data/menstrualConfig';
 import { formatCoins } from '@/utils/format';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicineDetail'>;
+
+// 🔥 Cloudflare R2 专属存储桶公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MedicineDetailScreen({
   route,
@@ -43,7 +46,7 @@ export function MedicineDetailScreen({
 
   const { speak } = useDialogue();
   const { gain } = useAffinity();
-  
+
   // 状态管理
   const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [healModal, setHealModal] = useState<{ title: string; msg: string } | null>(null);
@@ -56,11 +59,17 @@ export function MedicineDetailScreen({
   const isInPeriod = menstrualInfo.phase === 'period';
   const isMedicineActive = menstrualInfo.isMedicineActive;
 
-  const imagePath = useMemo(
-    () => (medicine ? `images/medicine/${medicine.image}` : null),
-    [medicine],
-  );
-  const { url } = useGitHubImage(imagePath, true);
+  // 🔥 直接将药品图片对齐至 Cloudflare R2
+  const imageUrl = useMemo(() => {
+    if (!medicine || !medicine.image) return null;
+    if (medicine.image.startsWith('http://') || medicine.image.startsWith('https://')) {
+      return medicine.image;
+    }
+    const cleanPath = medicine.image.startsWith('images/')
+      ? medicine.image
+      : `images/medicine/${medicine.image.replace(/^\/+/, '')}`;
+    return `${R2_BASE_URL}/${cleanPath}`;
+  }, [medicine]);
 
   if (!medicine) {
     return (
@@ -116,12 +125,11 @@ export function MedicineDetailScreen({
         useWuliliStore.getState().clearIllness();
       }
 
-      // 🔥 提取纯文本，触发台词弹窗
+      // 提取纯文本，触发台词弹窗
       const line = speak({ action: 'medicine' });
       const text = typeof line === 'string' ? line : (line as any)?.text || '感觉好多了...';
       setDialogueText(text);
 
-      // 🔥 关键修改：这里只准备 healModal 的数据，绝不使用 setTimeout 自动关闭
       if (curesCurrent) {
         setHealModal({
           title: '康复了',
@@ -138,10 +146,8 @@ export function MedicineDetailScreen({
     }
   };
 
-  // 🔥 玩家点击台词弹窗时触发
   const handleDialogueDismiss = () => {
     setDialogueText(null);
-    // 如果没有需要弹的治愈提示，直接返回上一页
     if (!healModal) {
       navigation.goBack();
     }
@@ -159,7 +165,7 @@ export function MedicineDetailScreen({
           style={{ height: screenHeight * 0.55 }}
         >
           <RemoteImage
-            uri={url}
+            uri={imageUrl}
             width={screenHeight * 0.45}
             height={screenHeight * 0.45}
             resizeMode="contain"
@@ -289,7 +295,7 @@ export function MedicineDetailScreen({
         </View>
       </ScrollView>
 
-      {/* 🔥 吃药台词弹窗 */}
+      {/* 吃药台词弹窗 */}
       <Modal visible={dialogueText !== null} transparent animationType="fade">
         <Pressable
           onPress={handleDialogueDismiss}
@@ -310,7 +316,7 @@ export function MedicineDetailScreen({
         </Pressable>
       </Modal>
 
-      {/* 🔥 治愈成功弹窗（必须在台词关闭后才显示） */}
+      {/* 治愈成功弹窗 */}
       <Modal visible={healModal !== null && dialogueText === null} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
           <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
