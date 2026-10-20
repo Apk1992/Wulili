@@ -16,7 +16,7 @@ export const GITHUB_RELEASE_REPO: GitHubRepoInfo = {
 
 export const GITHUB_API_BASE = 'https://api.github.com';
 export const GITHUB_API_VERSION = '2022-11-28';
-export const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO.owner}/${GITHUB_REPO.repo}/${GITHUB_REPO.branch}`;
+export const GITHUB_RAW_BASE = `https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev`;
 
 export const GITHUB_PATHS = {
   dialogues: 'dialogue/dialogues.json',

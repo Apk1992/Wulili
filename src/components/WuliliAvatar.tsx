@@ -26,7 +26,7 @@ export interface WuliliAvatarProps {
   characterHorizontalOffset?: number; // 👈 新增：水平偏移量，正数向右
 }
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+const RAW_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function WuliliAvatar({
   mood = 'calm',
