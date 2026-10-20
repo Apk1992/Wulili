@@ -14,13 +14,11 @@ class BgmManager {
   private isAppActive: boolean = true;
   private isMutedByMedia: boolean = false;
   
-  // 防并发锁
   private loadingPromise: Promise<void> | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-    // 冷启动时自动唤醒一次
     setTimeout(() => this.init(), 500);
   }
 
@@ -36,22 +34,24 @@ class BgmManager {
     }
   };
 
-  // 🔥 冷启动与主动初始化入口
   public init() {
-    if (this.sound) {
-      this.resume();
-      return;
-    }
+    // 🔥 严格防重叠：如果已经在播放，直接返回，绝不重复触发
+    try {
+      if (this.sound && this.sound.isPlaying()) return;
+    } catch {}
+
     void this.loadAndPlayWithRetry(0);
   }
 
-  // 带有 Token 重试机制的加载方法（专治冷启动时 Token 尚未读取到的问题）
   private async loadAndPlayWithRetry(retryCount: number) {
     if (this.isMutedByMedia) return;
 
+    try {
+      if (this.sound && this.sound.isPlaying()) return;
+    } catch {}
+
     const token = getGitHubToken();
     if (!token) {
-      // 如果还没拿到 Token，且重试次数小于 10 次（约 3 秒），300毫秒后重试
       if (retryCount < 10) {
         if (this.retryTimer) clearTimeout(this.retryTimer);
         this.retryTimer = setTimeout(() => {
@@ -75,6 +75,11 @@ class BgmManager {
   public async loadAndPlay() {
     if (this.isMutedByMedia) return;
 
+    // 如果已经在播放，直接退出
+    try {
+      if (this.sound && this.sound.isPlaying()) return;
+    } catch {}
+
     if (this.sound) {
       this.resume();
       return;
@@ -94,10 +99,11 @@ class BgmManager {
         const isNight = currentHour >= 18 || currentHour < 6;
         const suffix = isNight ? 'night' : 'day';
         const filePath = `bgm/${this.season}_${suffix}.m4a`;
-        const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
+        // 加入时间戳防止 API 缓存
+        const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}?t=${Date.now()}`;
 
         const res = await fetch(apiUrl, {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -127,12 +133,7 @@ class BgmManager {
               return;
             }
 
-            if (this.sound) {
-              try {
-                this.sound.stop();
-                this.sound.release();
-              } catch {}
-            }
+            this.release();
 
             this.sound = newSound;
             this.currentUrl = downloadUrl;
@@ -173,6 +174,10 @@ class BgmManager {
 
   public resume() {
     if (this.isMutedByMedia || !this.isAppActive) return;
+
+    try {
+      if (this.sound && this.sound.isPlaying()) return;
+    } catch {}
 
     if (!this.sound) {
       void this.loadAndPlayWithRetry(0);
