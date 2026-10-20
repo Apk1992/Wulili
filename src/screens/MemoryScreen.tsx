@@ -126,29 +126,23 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 核心逻辑：点进文件夹，把所有子文件全部标记已读
-  const handleFolderPress = async (folderPath: string) => {
-    const newKnown = { ...knownFiles, [folderPath]: true };
-    const subFiles = allFilesDeep.filter(f => f.path.startsWith(folderPath + '/') && f.type === 'file');
-    for (const file of subFiles) {
-      newKnown[file.sha || file.path] = true;
-      newKnown[file.path] = true;
-    }
-    setKnownFiles(newKnown);
-    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+  // 🔥 点击文件夹：只改变当前导航路径，不消除子文件的 NEW 状态
+  const handleFolderPress = (folderPath: string) => {
     setCurrentPath(folderPath);
   };
 
-  const handlePressItem = (item: any) => {
+  // 🔥 点击具体文件：才将该文件标记为已读
+  const handlePressItem = async (item: any) => {
     if (item.isFolder) {
-      void handleFolderPress(item.path);
+      handleFolderPress(item.path);
       return;
     }
-    // 单个文件点击直接标记已读
+
+    // 只有点开具体文件，才写入已读缓存
     if (item.isNew) {
-      const newKnown = { ...knownFiles, [item.sha || item.path]: true, [item.path]: true };
+      const newKnown = { ...knownFiles, [item.sha || item.path]: true };
       setKnownFiles(newKnown);
-      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+      await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
     }
 
     if (item.kind === 'music') {
@@ -246,7 +240,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 🔥 文件 NEW 判断保持原有逻辑
+// 🔥 核心逻辑：判断文件夹内是否含有未读文件（支持递归或者直接查当前深度的子文件）
 function buildItems(
   files: GitHubContentItem[],
   type: MemoryKind,
@@ -257,12 +251,13 @@ function buildItems(
   
   for (const file of files) {
     if (file.type === 'dir') {
+      // 检查该文件夹下的所有深层文件，只要有一个没在 knownFiles 里，就显示 NEW
       const hasNewFile = allFilesDeep.some(f => 
         f.type === 'file' && 
         f.path.startsWith(file.path + '/') && 
-        !knownFiles[f.sha || f.path] && 
-        !knownFiles[f.path]
+        !knownFiles[f.sha || f.path]
       );
+
       items.push({
         id: file.sha || file.path,
         kind: type,
@@ -275,7 +270,7 @@ function buildItems(
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        isNew: hasNewFile,
+        isNew: hasNewFile, // 只有里面有新文件才亮
       });
       continue;
     }
@@ -295,7 +290,7 @@ function buildItems(
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-        isNew: !knownFiles[uniqueId] && !knownFiles[file.path],
+        isNew: !knownFiles[uniqueId], // 文件自身的已读判断
       });
     }
   }
