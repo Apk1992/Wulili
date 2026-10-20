@@ -1,3 +1,4 @@
+// src/screens/FeedScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
@@ -20,6 +21,9 @@ import type { Food, FoodCategory } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Feed'>;
+
+// 🔥 Cloudflare R2 基础公开地址
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 interface FoodTab {
   key: FoodCategory;
@@ -50,10 +54,26 @@ export function FeedScreen({ navigation }: Props): React.JSX.Element {
     [foods],
   );
 
-  const visibleFoods = useMemo(
-    () => foods.filter((f) => f.category === activeTab),
-    [foods, activeTab],
-  );
+  // 🔥 处理食物列表，自动补全贴图相对路径为 Cloudflare R2 绝对路径
+  const visibleFoods = useMemo(() => {
+    return foods
+      .filter((f) => f.category === activeTab)
+      .map((food) => {
+        if (!food.image) return food;
+        if (food.image.startsWith('http://') || food.image.startsWith('https://')) {
+          return food;
+        }
+        const folder = food.category === 'healthy' ? 'images/food/healthy' : 'images/food/junk';
+        const cleanPath = food.image.startsWith('images/')
+          ? food.image
+          : `${folder}/${food.image.replace(/^\/+/, '')}`;
+
+        return {
+          ...food,
+          image: `${R2_BASE_URL}/${cleanPath}`,
+        };
+      });
+  }, [foods, activeTab]);
 
   useEffect(() => {
     if (foods.length === 0) {
