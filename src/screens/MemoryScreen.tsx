@@ -131,19 +131,22 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-  // 🔥 点击具体文件：才将该文件标记为已读
-  const handlePressItem = async (item: any) => {
+    const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
       return;
     }
 
-    // 只有点开具体文件，才写入已读缓存
-    if (item.isNew) {
-      const newKnown = { ...knownFiles, [item.sha || item.path]: true };
-      setKnownFiles(newKnown);
-      await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
-    }
+    // 🔥 双重保险：同时记录 sha 和 path，确保无论用哪个键都能识别为已读
+    const uniqueKey = item.sha || item.path;
+    const newKnown = { 
+      ...knownFiles, 
+      [uniqueKey]: true, 
+      [item.path]: true 
+    };
+    
+    setKnownFiles(newKnown);
+    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
 
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer', { initialPath: currentPath });
