@@ -1,3 +1,4 @@
+// src/screens/MedicineScreen.tsx
 import React, { useMemo } from 'react';
 import { FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -16,6 +17,9 @@ import type { Medicine } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Medicine'>;
+
+// 🔥 Cloudflare R2 基础公开地址（保证药品图标/缩略图全球高速加载）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MedicineScreen({ navigation }: Props): React.JSX.Element {
   const medicines = useAppConfigStore((s) => s.config.medicines);
@@ -114,13 +118,23 @@ export function MedicineScreen({ navigation }: Props): React.JSX.Element {
           data={visibleMedicines}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
-          renderItem={({ item }) => (
-            <MedicineItem
-              medicine={item}
-              affordable={coins >= item.price}
-              onPress={handleSelect}
-            />
-          )}
+          renderItem={({ item }) => {
+            // 🔥 补全相对路径的药品图标（如果有网络 Icon，走 R2 节点）
+            const processedItem = {
+              ...item,
+              icon: item.icon && !item.icon.startsWith('http')
+                ? `${R2_BASE_URL}/${item.icon.replace(/^\//, '')}`
+                : item.icon,
+            };
+
+            return (
+              <MedicineItem
+                medicine={processedItem}
+                affordable={coins >= item.price}
+                onPress={handleSelect}
+              />
+            );
+          }}
           showsVerticalScrollIndicator={false}
         />
       )}
