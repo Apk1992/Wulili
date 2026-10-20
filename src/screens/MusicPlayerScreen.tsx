@@ -16,7 +16,6 @@ import { GITHUB_PATHS } from '@/api/githubConfig';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
-import { useEffect } from 'react';
 import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, PlaybackState } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
