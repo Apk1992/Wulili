@@ -1,3 +1,4 @@
+// src/screens/MemoryManagerScreen.tsx
 import React, { useMemo, useState } from 'react';
 import { Alert, FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -29,6 +30,9 @@ const FOLDERS: Array<{ key: FolderKey; label: string }> = [
   { key: 'videos', label: '视频' },
   { key: 'notes', label: '笔记' },
 ];
+
+// 🔥 Cloudflare R2 基础公开域名提示
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MemoryManagerScreen({}: Props): React.JSX.Element {
   const { hasToken } = useGitHubToken();
@@ -62,7 +66,7 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
     if (size > UPLOAD_SIZE_LIMIT) {
       Alert.alert(
         '文件过大',
-        `单个文件不能超过 ${formatFileSize(UPLOAD_SIZE_LIMIT)}，大视频建议上传到 GitHub Releases。`,
+        `单个文件不能超过 ${formatFileSize(UPLOAD_SIZE_LIMIT)}，大视频建议直接同步到 Cloudflare R2 后台。`,
       );
       return;
     }
@@ -71,7 +75,7 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
       const path = `${GITHUB_PATHS[activeFolder]}/${fileName}`;
       const existingSha = await getFileSha(path);
       await putBinaryFile(path, base64, `上传 ${fileName}`, existingSha);
-      Alert.alert('上传成功', `${fileName} 已保存到仓库。`);
+      Alert.alert('上传成功', `${fileName} 已保存。App 将自动通过 R2 加速节点加载。`);
       void query.refetch();
     } catch (error) {
       const apiError = toGitHubApiError(error);
@@ -148,7 +152,7 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
 
   const handleDelete = (item: GitHubContentItem) => {
     if (!ensureToken()) return;
-    Alert.alert('删除文件', `确定要删除 ${item.name} 吗？此操作会提交到仓库。`, [
+    Alert.alert('删除文件', `确定要删除 ${item.name} 吗？`, [
       { text: '取消', style: 'cancel' },
       {
         text: '删除',
@@ -196,8 +200,11 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
         </View>
 
         <Card>
-          <Text className="text-xs text-muted dark:text-dark-muted mb-2">
-            上传到 {GITHUB_PATHS[activeFolder]}/
+          <Text className="text-xs text-muted dark:text-dark-muted mb-1">
+            上传到目录：{GITHUB_PATHS[activeFolder]}/
+          </Text>
+          <Text className="text-[10px] text-primary dark:text-blue-400 mb-3">
+            提示：上传后资源将通过 R2 加速节点 ({R2_BASE_URL}) 全球分发
           </Text>
           <View className="flex-row">
             <View className="flex-1 mr-2">
