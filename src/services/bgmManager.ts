@@ -14,12 +14,14 @@ class BgmManager {
   private isAppActive: boolean = true;
   private isMutedByMedia: boolean = false;
   
-  private loadingPromise: Promise<void> | null = null;
-  private retryTimer: NodeJS.Timeout | null = null;
+  // 🔥 核心排他锁：防止异步请求与实例化期间重复触发
+  private isPreparing: boolean = false;
+  private autoInitTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-    setTimeout(() => this.init(), 500);
+    // 冷启动 800ms 后自动开始尝试初始化
+    this.startAutoInitLoop();
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -34,34 +36,32 @@ class BgmManager {
     }
   };
 
-  public init() {
-    // 🔥 严格防重叠：如果已经在播放，直接返回，绝不重复触发
-    try {
-      if (this.sound && this.sound.isPlaying()) return;
-    } catch {}
-
-    void this.loadAndPlayWithRetry(0);
+  // 🔥 解决关掉软件重开无 BGM 的关键：自动轮询尝试，直到 Token 准备就绪
+  private startAutoInitLoop() {
+    if (this.autoInitTimer) clearInterval(this.autoInitTimer);
+    this.autoInitTimer = setInterval(() => {
+      if (this.sound) {
+        if (this.autoInitTimer) clearInterval(this.autoInitTimer);
+        return;
+      }
+      const token = getGitHubToken();
+      if (token && !this.isMutedByMedia) {
+        void this.loadAndPlay();
+      }
+    }, 500);
   }
 
-  private async loadAndPlayWithRetry(retryCount: number) {
-    if (this.isMutedByMedia) return;
+  public init() {
+    if (this.sound && this.isPlaying()) return;
+    void this.loadAndPlay();
+  }
 
+  public isPlaying(): boolean {
     try {
-      if (this.sound && this.sound.isPlaying()) return;
-    } catch {}
-
-    const token = getGitHubToken();
-    if (!token) {
-      if (retryCount < 10) {
-        if (this.retryTimer) clearTimeout(this.retryTimer);
-        this.retryTimer = setTimeout(() => {
-          void this.loadAndPlayWithRetry(retryCount + 1);
-        }, 300);
-      }
-      return;
+      return !!(this.sound && this.sound.isPlaying());
+    } catch {
+      return false;
     }
-
-    await this.loadAndPlay();
   }
 
   public setSeason(newSeason: string) {
@@ -73,95 +73,82 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
-    if (this.isMutedByMedia) return;
+    // 拦截：如果被挂起、正在准备中、或已经处于播放状态
+    if (this.isMutedByMedia || this.isPreparing) return;
+    if (this.isPlaying()) return;
 
-    // 如果已经在播放，直接退出
+    this.isPreparing = true;
+
     try {
-      if (this.sound && this.sound.isPlaying()) return;
-    } catch {}
+      const token = getGitHubToken();
+      if (!token) {
+        this.isPreparing = false;
+        return;
+      }
 
-    if (this.sound) {
-      this.resume();
-      return;
-    }
+      const currentHour = new Date().getHours();
+      const isNight = currentHour >= 18 || currentHour < 6;
+      const suffix = isNight ? 'night' : 'day';
+      const filePath = `bgm/${this.season}_${suffix}.m4a`;
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}?t=${Date.now()}`;
 
-    if (this.loadingPromise) {
-      await this.loadingPromise;
-      return;
-    }
+      const res = await fetch(apiUrl, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
+      });
+      
+      if (!res.ok) {
+        this.isPreparing = false;
+        return;
+      }
 
-    this.loadingPromise = (async () => {
+      const data = await res.json();
+      const downloadUrl = data.download_url;
+
+      if (this.isMutedByMedia) {
+        this.isPreparing = false;
+        return;
+      }
+
+      // 强制释放所有可能残存的原生 Sound 对象
+      this.release();
+
       try {
-        const token = getGitHubToken();
-        if (!token) return;
+        Sound.setActive(true);
+      } catch {}
 
-        const currentHour = new Date().getHours();
-        const isNight = currentHour >= 18 || currentHour < 6;
-        const suffix = isNight ? 'night' : 'day';
-        const filePath = `bgm/${this.season}_${suffix}.m4a`;
-        // 加入时间戳防止 API 缓存
-        const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}?t=${Date.now()}`;
+      // 物理实例化音频
+      const newSound = new Sound(downloadUrl, undefined, (error) => {
+        this.isPreparing = false;
 
-        const res = await fetch(apiUrl, {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const downloadUrl = data.download_url;
+        if (error || this.isMutedByMedia) {
+          try { newSound.release(); } catch {}
+          return;
+        }
 
-        if (this.isMutedByMedia) return;
+        // 再次兜底：如果此时已有句柄，强制销毁
+        if (this.sound) {
+          try {
+            this.sound.stop();
+            this.sound.release();
+          } catch {}
+        }
 
-        this.release();
+        this.sound = newSound;
+        this.currentUrl = downloadUrl;
 
         try {
-          Sound.setActive(true);
+          this.sound.setVolume(0.4);
+          this.sound.setNumberOfLoops(-1);
+
+          if (this.isAppActive && !this.isMutedByMedia) {
+            this.sound.play();
+          }
         } catch {}
+      });
 
-        await new Promise<void>((resolve) => {
-          const newSound = new Sound(downloadUrl, undefined, (error) => {
-            if (error) {
-              this.sound = null;
-              resolve();
-              return;
-            }
-
-            if (this.isMutedByMedia) {
-              try {
-                newSound.release();
-              } catch {}
-              resolve();
-              return;
-            }
-
-            this.release();
-
-            this.sound = newSound;
-            this.currentUrl = downloadUrl;
-
-            try {
-              this.sound.setVolume(0.4);
-              this.sound.setNumberOfLoops(-1);
-
-              if (this.isAppActive && !this.isMutedByMedia) {
-                this.sound.play((success) => {
-                  if (!success) {
-                    try {
-                      this.sound?.reset();
-                    } catch {}
-                  }
-                });
-              }
-            } catch {}
-            resolve();
-          });
-        });
-      } catch {
-      } finally {
-        this.loadingPromise = null;
-      }
-    })();
-
-    await this.loadingPromise;
+    } catch {
+      this.isPreparing = false;
+    }
   }
 
   public pause() {
@@ -174,21 +161,16 @@ class BgmManager {
 
   public resume() {
     if (this.isMutedByMedia || !this.isAppActive) return;
-
-    try {
-      if (this.sound && this.sound.isPlaying()) return;
-    } catch {}
+    if (this.isPlaying()) return;
 
     if (!this.sound) {
-      void this.loadAndPlayWithRetry(0);
+      void this.loadAndPlay();
       return;
     }
 
     try {
       Sound.setActive(true);
-      if (this.sound && !this.sound.isPlaying()) {
-        this.sound.play();
-      }
+      this.sound.play();
     } catch {}
   }
 
@@ -205,13 +187,14 @@ class BgmManager {
 
   public suspendForVideo() {
     this.isMutedByMedia = true;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
+    if (this.autoInitTimer) clearInterval(this.autoInitTimer);
     this.release(); 
   }
 
   public resumeFromVideo() {
     this.isMutedByMedia = false;
-    void this.loadAndPlayWithRetry(0);
+    this.startAutoInitLoop();
+    void this.loadAndPlay();
   }
 }
 
