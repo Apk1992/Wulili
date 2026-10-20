@@ -1,3 +1,4 @@
+// src/screens/ShopScreen.tsx
 import React, { useState } from 'react';
 import { FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,6 +16,9 @@ import type { Accessory, Outfit } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Shop'>;
+
+// 🔥 Cloudflare R2 基础路径（如果服装/饰品预览图属于网络动态资源，可通过此域名补全）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function ShopScreen({ navigation }: Props): React.JSX.Element {
   const [tab, setTab] = useState<WardrobeTabKey>('outfit');
@@ -84,9 +88,18 @@ export function ShopScreen({ navigation }: Props): React.JSX.Element {
               kind === 'outfit'
                 ? currentOutfit === item.id
                 : currentAccessory === item.id;
+
+            // 🔥 自动补全远端图片资源的 R2 下载路径（如果 icon/imagePath 是相对路径）
+            const processedItem = {
+              ...item,
+              icon: item.icon?.startsWith('http')
+                ? item.icon
+                : `${R2_BASE_URL}/${item.icon?.replace(/^\//, '') || ''}`,
+            };
+
             return (
               <OutfitItem
-                item={item}
+                item={processedItem}
                 kind={kind}
                 owned={owned}
                 equipped={equipped}
