@@ -126,7 +126,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  // 🔥 点击文件夹：只改变当前导航路径，不消除子文件的 NEW 状态
   const handleFolderPress = (folderPath: string) => {
     setCurrentPath(folderPath);
   };
@@ -137,7 +136,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       return;
     }
 
-    // 🔥 核心点：多维记录已读状态（path、sha、id），确保 NEW 标签点击后立即消失且持久化
     const newKnown = { 
       ...knownFiles, 
       [item.path]: true,
@@ -156,28 +154,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
     }
   };
-
-
-    // 🔥 核心点：统一将 path、sha、id 全部加入已读列表
-    const newKnown = { 
-      ...knownFiles, 
-      [item.path]: true,
-      ...(item.sha ? { [item.sha]: true } : {}),
-      ...(item.id ? { [item.id]: true } : {})
-    };
-
-    setKnownFiles(newKnown);
-    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
-
-    if (item.kind === 'music') {
-      navigation.navigate('MusicPlayer', { initialPath: currentPath });
-    } else if (item.kind === 'video') {
-      navigation.navigate('VideoPlayer');
-    } else {
-      navigation.navigate('NoteReader', { path: item.path, sha: item.sha, displayName: item.displayName });
-    }
-  };
-
 
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
@@ -229,7 +205,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
                 <View className="relative">
                   <Pressable
                     className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
-                    onPress={() => handlePressItem(item)}
+                    onPress={() => void handlePressItem(item)}
                   >
                     <View className="flex-row items-center">
                       <Ionicons name="folder" size={24} color="#F59E0B" />
@@ -247,7 +223,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
             }
             return (
               <View className="relative">
-                <MemoryListItem item={item} onPress={() => handlePressItem(item)} />
+                <MemoryListItem item={item} onPress={() => void handlePressItem(item)} />
                 {item.isNew && (
                   <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
                     <Text className="text-[9px] text-white font-bold">NEW</Text>
@@ -265,7 +241,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-// 辅助函数：多维健壮匹配（同时检查 path、sha、id 是否在已读缓存中）
 function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
   if (knownMap[file.path]) return true;
   if (file.sha && knownMap[file.sha]) return true;
@@ -283,11 +258,9 @@ function buildItems(
   
   for (const file of files) {
     if (file.type === 'dir') {
-      // 检查该文件夹下的所有深层文件，只要有一个没在 knownFiles 里，就显示 NEW
       const hasNewFile = allFilesDeep.some(f => {
         if (f.type !== 'file') return false;
         if (!f.path.startsWith(file.path + '/')) return false;
-        // 只要深层文件里有一个没被读过，文件夹就亮 NEW
         return !isFileKnown(f, knownFiles);
       });
 
@@ -303,7 +276,7 @@ function buildItems(
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        isNew: hasNewFile, // 只有里面有新文件才亮
+        isNew: hasNewFile,
       });
       continue;
     }
@@ -328,18 +301,10 @@ function buildItems(
 
       items.push({
         ...itemObj,
-        isNew: !isFileKnown(itemObj, knownFiles), // 用健壮函数判断文件是否已读
+        isNew: !isFileKnown(itemObj, knownFiles),
       });
     }
   }
-  
-  return items.sort((a, b) => {
-    if (a.isFolder && !b.isFolder) return -1;
-    if (!a.isFolder && b.isFolder) return 1;
-    return a.displayName.localeCompare(b.displayName, 'zh-CN');
-  });
-}
-
   
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
