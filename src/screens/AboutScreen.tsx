@@ -1,3 +1,4 @@
+// src/screens/AboutScreen.tsx
 import React, { useState } from 'react';
 import { Linking, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,6 +14,9 @@ import { GITHUB_REPO } from '@/api/githubConfig';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'About'>;
+
+// 🔥 Cloudflare R2 基础公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function AboutScreen({ navigation }: Props): React.JSX.Element {
   const { info, isChecking, check, openApk, skipVersion } = useAppUpdate();
@@ -63,6 +67,17 @@ export function AboutScreen({ navigation }: Props): React.JSX.Element {
             她会记得你喂过她什么、多久没陪她，也会在深夜说出一些平时不会说的话。
             {'\n\n'}
             照顾好她的饮食、作息与心情，她会慢慢向你打开心扉。
+          </Text>
+        </Card>
+
+        <Card className="mt-3">
+          <Text className="text-sm font-semibold text-text dark:text-dark-text">
+            全球 CDN 加速架构
+          </Text>
+          <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
+            应用的静态多媒体与资产已全面接入 Cloudflare R2 CDN 加速。{'\n'}
+            · 节点: {R2_BASE_URL}{'\n'}
+            · 特性: 全球直连秒开、无阻断、零延迟。
           </Text>
         </Card>
 
@@ -133,7 +148,7 @@ export function AboutScreen({ navigation }: Props): React.JSX.Element {
           <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
             · 所有养成数据只保存在你的手机本地
             {'\n'}· GitHub Token 使用系统密钥链加密存储
-            {'\n'}· 回忆内容直接从你的私有仓库实时读取，不经过任何第三方服务器
+            {'\n'}· 回忆内容直接从你的私有仓库实时读取，静态资产由 R2 高速分发
           </Text>
         </Card>
 
