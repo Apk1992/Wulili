@@ -1,6 +1,5 @@
 import { AppState, AppStateStatus } from 'react-native';
 import Sound from 'react-native-sound';
-import TrackPlayer, { Event, State } from 'react-native-track-player';
 import { getGitHubToken } from '@/api/githubClient';
 
 Sound.setCategory('Playback');
@@ -11,37 +10,21 @@ class BgmManager {
   private season: string = 'autumn';
   private isAppActive: boolean = true;
   private isLoading: boolean = false;
-  private isMutedByMedia: boolean = false;
+  private isManualPaused: boolean = false; // 用户/媒体播放器接管时的暂停
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-
-    TrackPlayer.addEventListener(Event.PlaybackState, (event) => {
-      if (event.state === State.Playing) {
-        this.isMutedByMedia = true;
-        this.pause();
-      } else if (event.state === State.Paused || event.state === State.Stopped || event.state === State.Ended) {
-        this.isMutedByMedia = false;
-        this.resume();
-      }
-    });
-
-    // 🔥 心跳：每 2 秒查一次，没播就强行播
-    setInterval(() => {
-      if (!this.isAppActive || this.isMutedByMedia || this.isLoading) return;
-      if (this.sound && !this.sound.isPlaying()) {
-        this.sound.play();
-      }
-    }, 2000);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
       Sound.setActive(true);
-      setTimeout(() => this.resume(), 500);
+      if (!this.isManualPaused) {
+        this.resume();
+      }
     } else {
-      this.pause();
+      this.pause(true); // 后台时静默暂停
     }
   };
 
@@ -86,9 +69,9 @@ class BgmManager {
         if (this.sound) {
           this.sound.setVolume(0.4);
           this.sound.setNumberOfLoops(-1);
-          setTimeout(() => {
-            if (!this.isMutedByMedia && this.isAppActive) this.sound?.play();
-          }, 500);
+          if (this.isAppActive && !this.isManualPaused) {
+            this.sound.play();
+          }
         }
       });
     } catch {
@@ -96,17 +79,40 @@ class BgmManager {
     }
   }
 
-  private pause() { if (this.sound && this.sound.isPlaying()) this.sound.pause(); }
-  private resume() {
-    if (!this.sound || this.isMutedByMedia || !this.isAppActive) return;
-    if (!this.sound.isPlaying()) this.sound.play();
-  }
-  public release() {
-    if (this.sound) { this.sound.stop(); this.sound.release(); this.sound = null; }
+  // 外部音乐或视频播放时调用：暂停 BGM
+  public pauseForMedia() {
+    this.isManualPaused = true;
+    this.pause(false);
   }
 
-  public suspendForVideo() { this.isMutedByMedia = true; this.pause(); }
-  public resumeFromVideo() { this.isMutedByMedia = false; this.resume(); }
+  // 退出音乐或视频播放时调用：恢复 BGM
+  public resumeFromMedia() {
+    this.isManualPaused = false;
+    if (this.isAppActive) {
+      this.resume();
+    }
+  }
+
+  private pause(isBackground = false) { 
+    if (this.sound && this.sound.isPlaying()) {
+      this.sound.pause();
+    } 
+  }
+
+  private resume() {
+    if (!this.sound || this.isManualPaused || !this.isAppActive) return;
+    if (!this.sound.isPlaying()) {
+      this.sound.play();
+    }
+  }
+
+  public release() {
+    if (this.sound) { 
+      this.sound.stop(); 
+      this.sound.release(); 
+      this.sound = null; 
+    }
+  }
 }
 
 export const bgmManager = new BgmManager();
