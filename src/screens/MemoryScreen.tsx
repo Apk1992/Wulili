@@ -1,3 +1,4 @@
+// src/screens/MemoryScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -34,8 +35,10 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-// 🔥 再次更换缓存键，彻底排空以前可能写坏的 knownFiles
-const NEW_FILES_KEY = '@wulili/known_files_ultimate_v4';
+// 🔥 Cloudflare R2 公开基础路径
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
+const NEW_FILES_KEY = '@wulili/known_files_r2_v6';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
@@ -49,7 +52,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 读取已读历史
   useEffect(() => {
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
@@ -90,7 +92,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      bgmManager.init(); // 每次焦点回到主页时安全触发初始化（受 isFetchingOrLoading 锁保护不会双重重叠）
+      bgmManager.init();
       void fetchData();
       void releasesQuery.refetch();
     }, [currentPath, activeKind]),
@@ -115,15 +117,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-  // 点击：标记为已读（消除 NEW 标签）并跳转
   const handlePressItem = async (item: any) => {
-    const uniqueId = item.sha || item.path || item.name;
-
+    const identityKey = `${item.path}_${item.sha || 'root'}`;
     const newKnown = { 
       ...knownFiles, 
       [item.path]: true,
-      [item.name]: true,
-      [uniqueId]: true
+      [identityKey]: true
     };
 
     setKnownFiles(newKnown);
@@ -222,14 +221,13 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · 下拉刷新</Text>}
+          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · 按上传时间排序</Text>}
         />
       )}
     </ScreenContainer>
   );
 }
 
-// 🔥 简化的构建逻辑：凡是不在 knownFiles 集合中的，100% 判定为 NEW！
 function buildItems(
   files: GitHubContentItem[],
   type: MemoryKind,
@@ -238,13 +236,12 @@ function buildItems(
   const items: any[] = [];
   
   for (const file of files) {
-    const uniqueId = file.sha || file.path || file.name;
-    // 检查是否在已读缓存中
-    const isKnown = !!(knownFiles[file.path] || knownFiles[file.name] || knownFiles[uniqueId]);
+    const identityKey = `${file.path}_${file.sha || 'root'}`;
+    const isKnown = !!(knownFiles[file.path] || knownFiles[identityKey]);
 
     if (file.type === 'dir') {
       items.push({
-        id: uniqueId,
+        id: file.sha || file.path,
         kind: type,
         name: file.name,
         displayName: file.name,
@@ -255,7 +252,7 @@ function buildItems(
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        isNew: !isKnown, // 未点击过的文件夹也会有 NEW 标签
+        isNew: !isKnown,
       });
       continue;
     }
@@ -264,19 +261,22 @@ function buildItems(
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
       
+      // 🔥 将下载链接直接指向 Cloudflare R2 对应的文件路径
+      const r2DownloadUrl = `${R2_BASE_URL}/${file.path}`;
+
       items.push({
-        id: uniqueId,
+        id: file.sha || file.path,
         kind,
         name: file.name,
         displayName: humanizeFileName(file.name),
         path: file.path,
         size: file.size,
         sha: file.sha,
-        downloadUrl: file.download_url,
-        updatedAt: null,
+        downloadUrl: r2DownloadUrl,
+        updatedAt: file.sha,
         source: 'repo',
         isFolder: false,
-        isNew: !isKnown, // 只要没点击过，坚定显示 NEW 标签
+        isNew: !isKnown,
       });
     }
   }
@@ -284,7 +284,7 @@ function buildItems(
   return items.sort((a, b) => {
     if (a.isFolder && !b.isFolder) return -1;
     if (!a.isFolder && b.isFolder) return 1;
-    return a.displayName.localeCompare(b.displayName, 'zh-CN');
+    return b.name.localeCompare(a.name, 'zh-CN');
   });
 }
 
@@ -295,7 +295,8 @@ function buildReleaseItems(
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => {
     const uniqueId = String(asset.id);
-    const isKnown = !!(knownFiles[asset.name] || knownFiles[uniqueId]);
+    const identityKey = `${asset.name}_${uniqueId}`;
+    const isKnown = !!(knownFiles[asset.name] || knownFiles[identityKey]);
     return {
       id: `asset-${asset.id}`,
       kind: 'video' as MemoryKind,
