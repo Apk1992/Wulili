@@ -3,7 +3,6 @@ import { AppState, AppStateStatus } from 'react-native';
 import Sound from 'react-native-sound';
 import { getGitHubToken } from '@/api/githubClient';
 
-// 设置音频模式
 try {
   Sound.setCategory('Playback', true);
 } catch {}
@@ -13,12 +12,16 @@ class BgmManager {
   private currentUrl: string | null = null;
   private season: string = 'autumn';
   private isAppActive: boolean = true;
-  private isLoading: boolean = false;
   private isMutedByMedia: boolean = false;
-  private hasInitialized: boolean = false;
+  
+  // 防并发锁
+  private loadingPromise: Promise<void> | null = null;
+  private retryTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
+    // 冷启动时自动唤醒一次
+    setTimeout(() => this.init(), 500);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -33,14 +36,32 @@ class BgmManager {
     }
   };
 
-  // 🔥 核心新增：供应用启动或首页挂载时主动调用的初始化方法，解决再次打开软件 BGM 不启动的问题
+  // 🔥 冷启动与主动初始化入口
   public init() {
-    if (!this.hasInitialized) {
-      this.hasInitialized = true;
-      void this.loadAndPlay();
-    } else if (!this.sound && !this.isLoading) {
-      void this.loadAndPlay();
+    if (this.sound) {
+      this.resume();
+      return;
     }
+    void this.loadAndPlayWithRetry(0);
+  }
+
+  // 带有 Token 重试机制的加载方法（专治冷启动时 Token 尚未读取到的问题）
+  private async loadAndPlayWithRetry(retryCount: number) {
+    if (this.isMutedByMedia) return;
+
+    const token = getGitHubToken();
+    if (!token) {
+      // 如果还没拿到 Token，且重试次数小于 10 次（约 3 秒），300毫秒后重试
+      if (retryCount < 10) {
+        if (this.retryTimer) clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => {
+          void this.loadAndPlayWithRetry(retryCount + 1);
+        }, 300);
+      }
+      return;
+    }
+
+    await this.loadAndPlay();
   }
 
   public setSeason(newSeason: string) {
@@ -52,88 +73,100 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
-    if (this.isLoading || this.isMutedByMedia) return;
-    this.isLoading = true;
+    if (this.isMutedByMedia) return;
 
-    try {
-      const token = getGitHubToken();
-      if (!token) {
-        this.isLoading = false;
-        return;
-      }
-
-      const currentHour = new Date().getHours();
-      const isNight = currentHour >= 18 || currentHour < 6;
-      const suffix = isNight ? 'night' : 'day';
-      const filePath = `bgm/${this.season}_${suffix}.m4a`;
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
-
-      const res = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
-      });
-      if (!res.ok) {
-        this.isLoading = false;
-        return;
-      }
-      const data = await res.json();
-      const downloadUrl = data.download_url;
-
-      if (this.currentUrl === downloadUrl && this.sound) {
-        this.isLoading = false;
-        this.resume();
-        return;
-      }
-
-      this.release();
-
-      try {
-        Sound.setActive(true);
-      } catch {}
-
-      const newSound = new Sound(downloadUrl, undefined, (error) => {
-        this.isLoading = false;
-        if (error) {
-          this.sound = null;
-          return;
-        }
-
-        // 如果在加载期间用户已经打开了音乐/视频播放器，放弃播放
-        if (this.isMutedByMedia) {
-          try {
-            newSound.release();
-          } catch {}
-          return;
-        }
-
-        this.sound = newSound;
-        this.currentUrl = downloadUrl;
-        
-        try {
-          this.sound.setVolume(0.4);
-          this.sound.setNumberOfLoops(-1);
-
-          if (this.isAppActive && !this.isMutedByMedia) {
-            this.sound.play((success) => {
-              if (!success) {
-                try {
-                  this.sound?.reset();
-                } catch {}
-              }
-            });
-          }
-        } catch {}
-      });
-    } catch {
-      this.isLoading = false;
+    if (this.sound) {
+      this.resume();
+      return;
     }
+
+    if (this.loadingPromise) {
+      await this.loadingPromise;
+      return;
+    }
+
+    this.loadingPromise = (async () => {
+      try {
+        const token = getGitHubToken();
+        if (!token) return;
+
+        const currentHour = new Date().getHours();
+        const isNight = currentHour >= 18 || currentHour < 6;
+        const suffix = isNight ? 'night' : 'day';
+        const filePath = `bgm/${this.season}_${suffix}.m4a`;
+        const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
+
+        const res = await fetch(apiUrl, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const downloadUrl = data.download_url;
+
+        if (this.isMutedByMedia) return;
+
+        this.release();
+
+        try {
+          Sound.setActive(true);
+        } catch {}
+
+        await new Promise<void>((resolve) => {
+          const newSound = new Sound(downloadUrl, undefined, (error) => {
+            if (error) {
+              this.sound = null;
+              resolve();
+              return;
+            }
+
+            if (this.isMutedByMedia) {
+              try {
+                newSound.release();
+              } catch {}
+              resolve();
+              return;
+            }
+
+            if (this.sound) {
+              try {
+                this.sound.stop();
+                this.sound.release();
+              } catch {}
+            }
+
+            this.sound = newSound;
+            this.currentUrl = downloadUrl;
+
+            try {
+              this.sound.setVolume(0.4);
+              this.sound.setNumberOfLoops(-1);
+
+              if (this.isAppActive && !this.isMutedByMedia) {
+                this.sound.play((success) => {
+                  if (!success) {
+                    try {
+                      this.sound?.reset();
+                    } catch {}
+                  }
+                });
+              }
+            } catch {}
+            resolve();
+          });
+        });
+      } catch {
+      } finally {
+        this.loadingPromise = null;
+      }
+    })();
+
+    await this.loadingPromise;
   }
 
   public pause() {
     try {
-      if (this.sound) {
-        if (this.sound.isPlaying()) {
-          this.sound.pause();
-        }
+      if (this.sound && this.sound.isPlaying()) {
+        this.sound.pause();
       }
     } catch {}
   }
@@ -142,20 +175,14 @@ class BgmManager {
     if (this.isMutedByMedia || !this.isAppActive) return;
 
     if (!this.sound) {
-      void this.loadAndPlay();
+      void this.loadAndPlayWithRetry(0);
       return;
     }
 
     try {
       Sound.setActive(true);
       if (this.sound && !this.sound.isPlaying()) {
-        this.sound.play((success) => {
-          if (!success) {
-            try {
-              this.sound?.reset();
-            } catch {}
-          }
-        });
+        this.sound.play();
       }
     } catch {}
   }
@@ -171,16 +198,15 @@ class BgmManager {
     this.currentUrl = null;
   }
 
-  // 当打开音乐或视频时：完全释放 BGM，让出音频通道
   public suspendForVideo() {
     this.isMutedByMedia = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
     this.release(); 
   }
 
-  // 离开音乐或视频时：重新唤醒 BGM
   public resumeFromVideo() {
     this.isMutedByMedia = false;
-    void this.loadAndPlay();
+    void this.loadAndPlayWithRetry(0);
   }
 }
 
