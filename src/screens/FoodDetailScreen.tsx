@@ -1,3 +1,4 @@
+// src/screens/FoodDetailScreen.tsx
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -18,12 +19,14 @@ import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
-import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { formatCoins } from '@/utils/format';
 import { FULL_HUNGER_THRESHOLD, MAX_CONSECUTIVE_DESSERT } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodDetail'>;
+
+// 🔥 Cloudflare R2 专属公开存储桶地址
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Element {
   const { foodId } = route.params;
@@ -46,12 +49,18 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
   const [dialogueText, setDialogueText] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const imagePath = useMemo(() => {
-    if (!food) return null;
-    return `${food.category === 'healthy' ? 'images/food/healthy' : 'images/food/junk'}/${food.image}`;
+  // 🔥 自动拼装食物图片指向 Cloudflare R2 节点
+  const imageUrl = useMemo(() => {
+    if (!food || !food.image) return null;
+    if (food.image.startsWith('http://') || food.image.startsWith('https://')) {
+      return food.image;
+    }
+    const folder = food.category === 'healthy' ? 'images/food/healthy' : 'images/food/junk';
+    const cleanPath = food.image.startsWith('images/')
+      ? food.image
+      : `${folder}/${food.image.replace(/^\/+/, '')}`;
+    return `${R2_BASE_URL}/${cleanPath}`;
   }, [food]);
-
-  const { url } = useGitHubImage(imagePath, true);
 
   if (!food) {
     return (
@@ -131,7 +140,7 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
           style={{ height: screenHeight * 0.55 }}
         >
           <RemoteImage
-            uri={url}
+            uri={imageUrl}
             width={screenHeight * 0.45}
             height={screenHeight * 0.45}
             resizeMode="contain"
@@ -225,7 +234,7 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
         </View>
       </ScrollView>
 
-      {/* 🔥 纯原生防崩弹窗 */}
+      {/* 纯原生防崩弹窗 */}
       <Modal visible={dialogueText !== null} transparent animationType="fade">
         <Pressable
           onPress={handleCloseModal}
