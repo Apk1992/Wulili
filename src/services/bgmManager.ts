@@ -1,11 +1,13 @@
 // src/services/bgmManager.ts
 import { AppState, AppStateStatus } from 'react-native';
 import Sound from 'react-native-sound';
-import { getGitHubToken } from '@/api/githubClient';
 
 try {
   Sound.setCategory('Playback', true);
 } catch {}
+
+// 🔥 Cloudflare R2 静态资源基础地址
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 class BgmManager {
   private sound: Sound | null = null;
@@ -13,16 +15,33 @@ class BgmManager {
   private season: string = 'autumn';
   private isAppActive: boolean = true;
   private isMutedByMedia: boolean = false;
-  
-  // 🔥 强排他锁：只要正在请求 API 或者正在创建 Sound，绝对不允许第二个请求进入！
-  private isFetchingOrLoading: boolean = false;
+  private isPreparing: boolean = false;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-    // 软件启动时，尝试 3 次强力唤醒（针对冷启动 Token 加载延迟）
+    
+    // 冷启动唤醒
     setTimeout(() => this.init(), 400);
-    setTimeout(() => this.init(), 1200);
-    setTimeout(() => this.init(), 2500);
+    setTimeout(() => this.init(), 1500);
+
+    // 心跳检测：防止 BGM 运行久了意外静默
+    this.startHeartbeat();
+  }
+
+  private startHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.isAppActive || this.isMutedByMedia || this.isPreparing) return;
+      
+      try {
+        if (!this.sound || !this.sound.isPlaying()) {
+          this.resume();
+        }
+      } catch {
+        this.loadAndPlay();
+      }
+    }, 10000);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -36,9 +55,16 @@ class BgmManager {
   };
 
   public init() {
-    // 只要有正在播放的 sound，或者正在网络请求，立刻退出！
-    if (this.sound || this.isFetchingOrLoading || this.isMutedByMedia) return;
+    if (this.isPlaying() || this.isPreparing || this.isMutedByMedia) return;
     void this.loadAndPlay();
+  }
+
+  public isPlaying(): boolean {
+    try {
+      return !!(this.sound && this.sound.isPlaying());
+    } catch {
+      return false;
+    }
   }
 
   public setSeason(newSeason: string) {
@@ -50,64 +76,36 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
-    // 🔥 第一层拦截：已被媒体挂起、已有播放对象、或正在加载中
-    if (this.isMutedByMedia || this.sound || this.isFetchingOrLoading) return;
-
-    this.isFetchingOrLoading = true; // 上锁
+    if (this.isMutedByMedia || this.isPreparing || this.isPlaying()) return;
+    this.isPreparing = true;
 
     try {
-      const token = getGitHubToken();
-      if (!token) {
-        this.isFetchingOrLoading = false;
-        return;
-      }
-
       const currentHour = new Date().getHours();
       const isNight = currentHour >= 18 || currentHour < 6;
       const suffix = isNight ? 'night' : 'day';
-      const filePath = `bgm/${this.season}_${suffix}.m4a`;
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
-
-      const res = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
-      });
       
-      if (!res.ok) {
-        this.isFetchingOrLoading = false;
-        return;
-      }
+      // 🔥 直接从 R2 获取音频，告别 GitHub Raw 阻断
+      const downloadUrl = `${R2_BASE_URL}/bgm/${this.season}_${suffix}.m4a?t=${Date.now()}`;
 
-      const data = await res.json();
-      const downloadUrl = data.download_url;
-
-      // 如果请求过程中已经切去听音乐/看视频了，放弃
       if (this.isMutedByMedia) {
-        this.isFetchingOrLoading = false;
+        this.isPreparing = false;
         return;
       }
 
-      // 🔥 清除旧句柄（防止底层硬音轨重叠）
       this.release();
 
-      try {
-        Sound.setActive(true);
-      } catch {}
+      try { Sound.setActive(true); } catch {}
 
-      // 创建 Native Sound 实例
       const createdSound = new Sound(downloadUrl, undefined, (error) => {
-        this.isFetchingOrLoading = false; // 解锁
+        this.isPreparing = false;
 
         if (error || this.isMutedByMedia) {
           try { createdSound.release(); } catch {}
           return;
         }
 
-        // 第二重防止重叠：如果极小概率下此时已有 sound，销毁刚创建的
         if (this.sound) {
-          try {
-            this.sound.stop();
-            this.sound.release();
-          } catch {}
+          try { this.sound.stop(); this.sound.release(); } catch {}
         }
 
         this.sound = createdSound;
@@ -124,7 +122,7 @@ class BgmManager {
       });
 
     } catch {
-      this.isFetchingOrLoading = false;
+      this.isPreparing = false;
     }
   }
 
@@ -138,6 +136,7 @@ class BgmManager {
 
   public resume() {
     if (this.isMutedByMedia || !this.isAppActive) return;
+    if (this.isPlaying()) return;
 
     if (!this.sound) {
       void this.loadAndPlay();
@@ -146,9 +145,7 @@ class BgmManager {
 
     try {
       Sound.setActive(true);
-      if (!this.sound.isPlaying()) {
-        this.sound.play();
-      }
+      this.sound.play();
     } catch {}
   }
 
@@ -165,13 +162,13 @@ class BgmManager {
 
   public suspendForVideo() {
     this.isMutedByMedia = true;
-    this.isFetchingOrLoading = false;
+    this.isPreparing = false;
     this.release(); 
   }
 
   public resumeFromVideo() {
     this.isMutedByMedia = false;
-    this.isFetchingOrLoading = false;
+    this.isPreparing = false;
     void this.loadAndPlay();
   }
 }
