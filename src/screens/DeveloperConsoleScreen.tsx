@@ -1,3 +1,4 @@
+// src/screens/DeveloperConsoleScreen.tsx
 import React, { useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -20,6 +21,9 @@ import { formatRelativeTime } from '@/utils/time';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeveloperConsole'>;
+
+// 🔥 Cloudflare R2 基础公开域名提示
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element {
   const { hasToken } = useGitHubToken();
@@ -137,7 +141,7 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
         <View className="px-4 pt-4">
           <Card>
             <Text className="text-sm font-semibold text-text dark:text-dark-text">
-              内容统计
+              内容统计与 R2 CDN 状态
             </Text>
             <View className="mt-2">
               <StatLine label="内置台词" value={defaultCount} />
@@ -149,7 +153,10 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
               <StatLine label="配饰" value={config.accessories.length} />
               <StatLine label="小游戏" value={config.minigames.length} />
             </View>
-            <Text className="text-[10px] text-muted dark:text-dark-muted mt-2">
+            <Text className="text-[10px] text-primary mt-2">
+              CDN 加速节点: {R2_BASE_URL}
+            </Text>
+            <Text className="text-[10px] text-muted dark:text-dark-muted mt-1">
               上次拉取：{syncMeta.lastPulledAt ? formatRelativeTime(syncMeta.lastPulledAt) : '从未'}
             </Text>
           </Card>
