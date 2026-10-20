@@ -15,6 +15,7 @@ import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
+import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
 import type { GitHubContentItem } from '@/types/github';
@@ -33,8 +34,8 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-// 🔥 使用全新的 Key 隔离旧数据
-const NEW_FILES_KEY = '@wulili/known_files_final_v3';
+// 🔥 再次更换缓存键，彻底排空以前可能写坏的 knownFiles
+const NEW_FILES_KEY = '@wulili/known_files_ultimate_v4';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
@@ -45,11 +46,10 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
-  const [allFilesDeep, setAllFilesDeep] = useState<GitHubContentItem[]>([]);
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 读取已读记录
+  // 读取已读历史
   useEffect(() => {
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
@@ -67,26 +67,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  const fetchDeepTree = async (path: string, token: string): Promise<GitHubContentItem[]> => {
-    let results: GitHubContentItem[] = [];
-    try {
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}?t=${Date.now()}`;
-      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (!Array.isArray(data)) return [];
-      for (const item of data) {
-        if (item.type === 'file') results.push(item);
-        else if (item.type === 'dir') {
-          results.push(item);
-          const subFiles = await fetchDeepTree(item.path, token);
-          results = [...results, ...subFiles];
-        }
-      }
-    } catch {}
-    return results;
-  };
-
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     setError(false);
@@ -95,13 +75,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       if (!token) throw new Error('无 Token');
 
       const currentApiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}?t=${Date.now()}`;
-      const currentRes = await fetch(currentApiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
+      const currentRes = await fetch(currentApiUrl, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' }
+      });
       if (!currentRes.ok) throw new Error('获取失败');
       const currentData = await currentRes.json();
       setRawData(Array.isArray(currentData) ? currentData : []);
-
-      const deepFiles = await fetchDeepTree(BASE_PATHS[activeKind], token);
-      setAllFilesDeep(deepFiles);
     } catch {
       setError(true);
     } finally {
@@ -111,6 +90,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
+      bgmManager.init(); // 每次焦点回到主页时安全触发初始化（受 isFetchingOrLoading 锁保护不会双重重叠）
       void fetchData();
       void releasesQuery.refetch();
     }, [currentPath, activeKind]),
@@ -135,22 +115,24 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-  // 点击标记已读并跳转
+  // 点击：标记为已读（消除 NEW 标签）并跳转
   const handlePressItem = async (item: any) => {
-    if (item.isFolder) {
-      handleFolderPress(item.path);
-      return;
-    }
+    const uniqueId = item.sha || item.path || item.name;
 
-    const uniqueId = item.sha || item.path;
     const newKnown = { 
       ...knownFiles, 
       [item.path]: true,
+      [item.name]: true,
       [uniqueId]: true
     };
 
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
+
+    if (item.isFolder) {
+      handleFolderPress(item.path);
+      return;
+    }
 
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer', { initialPath: currentPath });
@@ -163,12 +145,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const activeItems = useMemo(() => {
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
-      const repoItems = buildItems(rawData, 'video', knownFiles, allFilesDeep);
+      const repoItems = buildItems(rawData, 'video', knownFiles);
       const releaseItems = buildReleaseItems(releasesQuery.data, knownFiles);
       return [...releaseItems, ...repoItems];
     }
-    return buildItems(rawData, activeKind, knownFiles, allFilesDeep);
-  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath, allFilesDeep]);
+    return buildItems(rawData, activeKind, knownFiles);
+  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
 
   const counts = {
     music: activeKind === 'music' ? activeItems.length : 0,
@@ -247,25 +229,22 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
+// 🔥 简化的构建逻辑：凡是不在 knownFiles 集合中的，100% 判定为 NEW！
 function buildItems(
   files: GitHubContentItem[],
   type: MemoryKind,
-  knownFiles: Record<string, boolean>,
-  allFilesDeep: GitHubContentItem[]
+  knownFiles: Record<string, boolean>
 ): any[] {
   const items: any[] = [];
   
   for (const file of files) {
-    if (file.type === 'dir') {
-      const hasNewFile = allFilesDeep.some(f => {
-        if (f.type !== 'file') return false;
-        if (!f.path.startsWith(file.path)) return false;
-        const subId = f.sha || f.path;
-        return !knownFiles[f.path] && !knownFiles[subId];
-      });
+    const uniqueId = file.sha || file.path || file.name;
+    // 检查是否在已读缓存中
+    const isKnown = !!(knownFiles[file.path] || knownFiles[file.name] || knownFiles[uniqueId]);
 
+    if (file.type === 'dir') {
       items.push({
-        id: file.sha || file.path,
+        id: uniqueId,
         kind: type,
         name: file.name,
         displayName: file.name,
@@ -276,7 +255,7 @@ function buildItems(
         updatedAt: null,
         source: 'repo',
         isFolder: true,
-        isNew: hasNewFile,
+        isNew: !isKnown, // 未点击过的文件夹也会有 NEW 标签
       });
       continue;
     }
@@ -284,9 +263,8 @@ function buildItems(
     if (file.type === 'file') {
       const kind = detectMemoryKind(file.name);
       if (!kind) continue;
-      const uniqueId = file.sha || file.path;
       
-      const itemObj = {
+      items.push({
         id: uniqueId,
         kind,
         name: file.name,
@@ -297,14 +275,8 @@ function buildItems(
         downloadUrl: file.download_url,
         updatedAt: null,
         source: 'repo',
-      };
-
-      // 只要标识不在已知集合内，判定为 NEW
-      const isFileNew = !knownFiles[file.path] && !knownFiles[uniqueId];
-
-      items.push({
-        ...itemObj,
-        isNew: isFileNew,
+        isFolder: false,
+        isNew: !isKnown, // 只要没点击过，坚定显示 NEW 标签
       });
     }
   }
@@ -323,6 +295,7 @@ function buildReleaseItems(
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => {
     const uniqueId = String(asset.id);
+    const isKnown = !!(knownFiles[asset.name] || knownFiles[uniqueId]);
     return {
       id: `asset-${asset.id}`,
       kind: 'video' as MemoryKind,
@@ -336,7 +309,7 @@ function buildReleaseItems(
       source: 'release' as const,
       releaseTag: asset.releaseTag,
       assetId: asset.id,
-      isNew: !knownFiles[asset.name] && !knownFiles[uniqueId],
+      isNew: !isKnown,
     };
   });
 }
