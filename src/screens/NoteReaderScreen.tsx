@@ -1,3 +1,4 @@
+// src/screens/NoteReaderScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -6,12 +7,12 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import NoteRenderer from '@/components/NoteRenderer';
 import { humanizeFileName } from '@/utils/format';
-import { getGitHubToken } from '@/api/githubClient';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NoteReader'>;
 
-const RAW_BASE = 'https://raw.githubusercontent.com/yukee520/Wulili_assets/main';
+// 🔥 切换为你的 Cloudflare R2 专属公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Element {
   const { path, displayName } = route.params;
@@ -23,11 +24,10 @@ export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Elemen
     let isMounted = true;
     const fetchText = async () => {
       try {
-        const token = getGitHubToken();
-        // 直接通过 fetch 拉取纯文本，绕开所有复杂的 Hook！
-        const url = `${RAW_BASE}/${path.replace(/^\/+/, '')}`;
+        // 🔥 直接从 Cloudflare R2 高速拉取文本，无需再走受限的 GitHub Raw
+        const url = `${R2_BASE_URL}/${path.replace(/^\/+/, '')}?t=${Date.now()}`;
         const res = await fetch(url, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: { 'Cache-Control': 'no-cache' },
         });
         
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -64,13 +64,13 @@ export function NoteReaderScreen({ route, navigation }: Props): React.JSX.Elemen
         {loading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color="#2563EB" />
-            <Text className="mt-4 text-muted">正在下载读文…</Text>
+            <Text className="mt-4 text-muted">正在加载读文…</Text>
           </View>
         ) : error ? (
           <View className="flex-1 items-center justify-center px-4">
             <Ionicons name="warning" size={40} color="#EF4444" />
             <Text className="mt-4 text-danger font-medium">{error}</Text>
-            <Text className="mt-2 text-muted text-xs">请检查网络或 Token 权限</Text>
+            <Text className="mt-2 text-muted text-xs">请检查网络连接</Text>
           </View>
         ) : (
           <NoteRenderer content={content} />
