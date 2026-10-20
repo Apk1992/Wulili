@@ -1,10 +1,9 @@
-import React from 'react';
+// src/components/FoodItem.tsx
+import React, { useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import RemoteImage from './RemoteImage';
 import { useTheme } from '@/hooks/useTheme';
-import { useAppConfigStore } from '@/store/useAppConfigStore';
-import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { formatCoins } from '@/utils/format';
 import type { Food } from '@/types/wulili';
 
@@ -17,6 +16,9 @@ export interface FoodItemProps {
   className?: string;
 }
 
+// 🔥 Cloudflare R2 专属基础公开域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
 export function FoodItem({
   food,
   quantity,
@@ -26,15 +28,25 @@ export function FoodItem({
   className = '',
 }: FoodItemProps): React.JSX.Element {
   const { isDark } = useTheme();
-  const cfg = useAppConfigStore((s) => s.config);
-  void cfg;
-  const folder: 'healthy' | 'junk' =
-    food.category === 'healthy' ? 'healthy' : 'junk';
-  const imagePath =
-    folder === 'healthy'
-      ? `images/food/healthy/${food.image}`
-      : `images/food/junk/${food.image}`;
-  const { url } = useGitHubImage(imagePath, true);
+
+  // 🔥 自动解析食物图片路径并直接对接 Cloudflare R2 全球 CDN
+  const imageUrl = useMemo(() => {
+    if (!food || !food.image) return null;
+    // 如果本身已经是完整网络链接
+    if (food.image.startsWith('http://') || food.image.startsWith('https://')) {
+      return food.image;
+    }
+    
+    // 如果已经包含 images/ 目录
+    if (food.image.startsWith('images/')) {
+      return `${R2_BASE_URL}/${food.image.replace(/^\/+/, '')}`;
+    }
+
+    // 根据类别拼装正确的目录
+    const folder = food.category === 'healthy' ? 'images/food/healthy' : 'images/food/junk';
+    const cleanImage = food.image.replace(/^\/+/, '');
+    return `${R2_BASE_URL}/${folder}/${cleanImage}`;
+  }, [food]);
 
   const effectSummary = summarizeEffect(food);
 
@@ -53,7 +65,7 @@ export function FoodItem({
         .join(' ')}
     >
       <RemoteImage
-        uri={url}
+        uri={imageUrl}
         width={56}
         height={56}
         fallbackIcon="restaurant"
