@@ -1,3 +1,4 @@
+// src/screens/ExerciseScreen.tsx
 import React, { useState } from 'react';
 import { Alert, FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -19,6 +20,9 @@ import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Exercise'>;
+
+// 🔥 Cloudflare R2 基础公开域名（供运动资源或贴图预留使用）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function ExerciseScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
@@ -89,7 +93,7 @@ export function ExerciseScreen({ navigation }: Props): React.JSX.Element {
             <Card className="mb-3">
               <View className="flex-row items-center">
                 <View className="w-10 h-10 rounded-xl bg-secondary/15 items-center justify-center mr-3">
-                  <Ionicons name={item.icon} size={20} color="#8B5CF6" />
+                  <Ionicons name={item.icon || 'fitness-outline'} size={20} color="#8B5CF6" />
                 </View>
                 <View className="flex-1">
                   <Text className="text-sm font-semibold text-text dark:text-dark-text">
