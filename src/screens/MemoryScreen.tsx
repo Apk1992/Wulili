@@ -16,7 +16,6 @@ import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
 import { getGitHubToken } from '@/api/githubClient';
 import { useBgm } from '@/hooks/useBgm';
-import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
 import type { GitHubContentItem } from '@/types/github';
@@ -38,6 +37,7 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
 const NEW_FILES_KEY = '@wulili/known_files_v2';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
+  // 保持全局 BGM Hook
   useBgm();
 
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
@@ -52,10 +52,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 初始化加载已读记录，并主动唤醒 BGM
+  // 初始化读取本地已读文件记录
   useEffect(() => {
-    bgmManager.init(); // 👈 确保应用启动/回到首页时 BGM 正常启动
-
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
         try {
@@ -116,7 +114,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      bgmManager.init(); // 每次切回主页确保 BGM 活跃
       void fetchData();
       void releasesQuery.refetch();
     }, [currentPath, activeKind]),
@@ -141,7 +138,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-  // 点击条目：记录已读状态，NEW 标签立刻消失，并跳转对应页面
+  // 点击文件/文件夹处理
   const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
@@ -305,7 +302,6 @@ function buildItems(
         source: 'repo',
       };
 
-      // 只要不在已读缓存里，就是新文件
       const isFileNew = !knownFiles[file.path] && !knownFiles[uniqueId];
 
       items.push({
