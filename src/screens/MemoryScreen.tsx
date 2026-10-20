@@ -37,7 +37,6 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
 const NEW_FILES_KEY = '@wulili/known_files_v2';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
-  // 保持全局 BGM Hook
   useBgm();
 
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
@@ -52,7 +51,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
-  // 初始化读取本地已读文件记录
   useEffect(() => {
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
@@ -73,8 +71,9 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const fetchDeepTree = async (path: string, token: string): Promise<GitHubContentItem[]> => {
     let results: GitHubContentItem[] = [];
     try {
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}`;
-      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+      // 加入防缓存参数 ?t=...
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${path}?t=${Date.now()}`;
+      const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
       if (!res.ok) return [];
       const data = await res.json();
       if (!Array.isArray(data)) return [];
@@ -97,8 +96,9 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       const token = getGitHubToken();
       if (!token) throw new Error('无 Token');
 
-      const currentApiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
-      const currentRes = await fetch(currentApiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' } });
+      // 加入防缓存参数 ?t=... 确保每次获取都是最新上传的文件
+      const currentApiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}?t=${Date.now()}`;
+      const currentRes = await fetch(currentApiUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' } });
       if (!currentRes.ok) throw new Error('获取失败');
       const currentData = await currentRes.json();
       setRawData(Array.isArray(currentData) ? currentData : []);
@@ -138,7 +138,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
-  // 点击文件/文件夹处理
   const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
