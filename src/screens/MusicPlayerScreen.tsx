@@ -1,3 +1,4 @@
+// src/screens/MusicPlayerScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -23,8 +24,9 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
-const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
-const NEW_FILES_KEY = '@wulili/known_files_v2';
+// 🔥 Cloudflare R2 专属公开资源基础地址（彻底替代 GitHub Raw）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+const NEW_FILES_KEY = '@wulili/known_files_r2_music_v6';
 
 function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
   if (file.path && knownMap[file.path]) return true;
@@ -60,7 +62,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     }).catch(() => {});
   }, []);
 
-  // 🔥 精准控制 BGM 挂起与恢复，防止音频冲突闪退
   useFocusEffect(
     useCallback(() => {
       bgmManager.suspendForVideo();
@@ -77,9 +78,10 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     setError(false);
     try {
       const token = getGitHubToken();
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}`;
+      // 获取目录列表依然通过轻量 GitHub API 获取文件名结构
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}?t=${Date.now()}`;
       const res = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
       });
       if (!res.ok) throw new Error('获取失败');
       const data = await res.json();
@@ -138,15 +140,12 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   });
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
-    const token = getGitHubToken();
-    const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
     return musicItems.map((item) => ({
       id: item.id,
-      url: `${RAW_BASE}/${item.path}`,
+      // 🔥 直接对接 Cloudflare R2，免去鉴权头，极速顺畅播放
+      url: `${R2_BASE_URL}/${item.path}`,
       title: humanizeFileName(item.displayName),
       artist: '雾璃',
-      headers,
     }));
   }, []);
 
@@ -360,7 +359,7 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
       path: file.path,
       size: file.size,
       sha: file.sha,
-      downloadUrl: file.download_url,
+      downloadUrl: `${R2_BASE_URL}/${file.path}`, // 🔥 对应 R2 下载链接
       updatedAt: null,
       source: 'repo',
     };
