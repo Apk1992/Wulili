@@ -14,54 +14,31 @@ class BgmManager {
   private isAppActive: boolean = true;
   private isMutedByMedia: boolean = false;
   
-  // 🔥 核心排他锁：防止异步请求与实例化期间重复触发
-  private isPreparing: boolean = false;
-  private autoInitTimer: NodeJS.Timeout | null = null;
+  // 🔥 强排他锁：只要正在请求 API 或者正在创建 Sound，绝对不允许第二个请求进入！
+  private isFetchingOrLoading: boolean = false;
 
   constructor() {
     AppState.addEventListener('change', this.handleAppStateChange);
-    // 冷启动 800ms 后自动开始尝试初始化
-    this.startAutoInitLoop();
+    // 软件启动时，尝试 3 次强力唤醒（针对冷启动 Token 加载延迟）
+    setTimeout(() => this.init(), 400);
+    setTimeout(() => this.init(), 1200);
+    setTimeout(() => this.init(), 2500);
   }
 
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
-      try {
-        Sound.setActive(true);
-      } catch {}
+      try { Sound.setActive(true); } catch {}
       setTimeout(() => this.resume(), 300);
     } else {
       this.pause();
     }
   };
 
-  // 🔥 解决关掉软件重开无 BGM 的关键：自动轮询尝试，直到 Token 准备就绪
-  private startAutoInitLoop() {
-    if (this.autoInitTimer) clearInterval(this.autoInitTimer);
-    this.autoInitTimer = setInterval(() => {
-      if (this.sound) {
-        if (this.autoInitTimer) clearInterval(this.autoInitTimer);
-        return;
-      }
-      const token = getGitHubToken();
-      if (token && !this.isMutedByMedia) {
-        void this.loadAndPlay();
-      }
-    }, 500);
-  }
-
   public init() {
-    if (this.sound && this.isPlaying()) return;
+    // 只要有正在播放的 sound，或者正在网络请求，立刻退出！
+    if (this.sound || this.isFetchingOrLoading || this.isMutedByMedia) return;
     void this.loadAndPlay();
-  }
-
-  public isPlaying(): boolean {
-    try {
-      return !!(this.sound && this.sound.isPlaying());
-    } catch {
-      return false;
-    }
   }
 
   public setSeason(newSeason: string) {
@@ -73,16 +50,15 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
-    // 拦截：如果被挂起、正在准备中、或已经处于播放状态
-    if (this.isMutedByMedia || this.isPreparing) return;
-    if (this.isPlaying()) return;
+    // 🔥 第一层拦截：已被媒体挂起、已有播放对象、或正在加载中
+    if (this.isMutedByMedia || this.sound || this.isFetchingOrLoading) return;
 
-    this.isPreparing = true;
+    this.isFetchingOrLoading = true; // 上锁
 
     try {
       const token = getGitHubToken();
       if (!token) {
-        this.isPreparing = false;
+        this.isFetchingOrLoading = false;
         return;
       }
 
@@ -90,42 +66,43 @@ class BgmManager {
       const isNight = currentHour >= 18 || currentHour < 6;
       const suffix = isNight ? 'night' : 'day';
       const filePath = `bgm/${this.season}_${suffix}.m4a`;
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}?t=${Date.now()}`;
+      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${filePath}`;
 
       const res = await fetch(apiUrl, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
       });
       
       if (!res.ok) {
-        this.isPreparing = false;
+        this.isFetchingOrLoading = false;
         return;
       }
 
       const data = await res.json();
       const downloadUrl = data.download_url;
 
+      // 如果请求过程中已经切去听音乐/看视频了，放弃
       if (this.isMutedByMedia) {
-        this.isPreparing = false;
+        this.isFetchingOrLoading = false;
         return;
       }
 
-      // 强制释放所有可能残存的原生 Sound 对象
+      // 🔥 清除旧句柄（防止底层硬音轨重叠）
       this.release();
 
       try {
         Sound.setActive(true);
       } catch {}
 
-      // 物理实例化音频
-      const newSound = new Sound(downloadUrl, undefined, (error) => {
-        this.isPreparing = false;
+      // 创建 Native Sound 实例
+      const createdSound = new Sound(downloadUrl, undefined, (error) => {
+        this.isFetchingOrLoading = false; // 解锁
 
         if (error || this.isMutedByMedia) {
-          try { newSound.release(); } catch {}
+          try { createdSound.release(); } catch {}
           return;
         }
 
-        // 再次兜底：如果此时已有句柄，强制销毁
+        // 第二重防止重叠：如果极小概率下此时已有 sound，销毁刚创建的
         if (this.sound) {
           try {
             this.sound.stop();
@@ -133,7 +110,7 @@ class BgmManager {
           } catch {}
         }
 
-        this.sound = newSound;
+        this.sound = createdSound;
         this.currentUrl = downloadUrl;
 
         try {
@@ -147,7 +124,7 @@ class BgmManager {
       });
 
     } catch {
-      this.isPreparing = false;
+      this.isFetchingOrLoading = false;
     }
   }
 
@@ -161,7 +138,6 @@ class BgmManager {
 
   public resume() {
     if (this.isMutedByMedia || !this.isAppActive) return;
-    if (this.isPlaying()) return;
 
     if (!this.sound) {
       void this.loadAndPlay();
@@ -170,7 +146,9 @@ class BgmManager {
 
     try {
       Sound.setActive(true);
-      this.sound.play();
+      if (!this.sound.isPlaying()) {
+        this.sound.play();
+      }
     } catch {}
   }
 
@@ -187,13 +165,13 @@ class BgmManager {
 
   public suspendForVideo() {
     this.isMutedByMedia = true;
-    if (this.autoInitTimer) clearInterval(this.autoInitTimer);
+    this.isFetchingOrLoading = false;
     this.release(); 
   }
 
   public resumeFromVideo() {
     this.isMutedByMedia = false;
-    this.startAutoInitLoop();
+    this.isFetchingOrLoading = false;
     void this.loadAndPlay();
   }
 }
