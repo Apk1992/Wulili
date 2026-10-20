@@ -1,3 +1,4 @@
+// src/screens/SettingsScreen.tsx
 import React, { useCallback, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -16,10 +17,12 @@ import { useWuliliStore } from '@/store/useWuliliStore';
 import { storageClearByPrefix } from '@/utils/storage';
 import { getGitHubToken } from '@/api/githubClient';
 import { listReleases } from '@/api/githubReleases';
-import { GITHUB_REPO, GITHUB_RELEASE_REPO } from '@/api/githubConfig';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
+
+// 🔥 Cloudflare R2 专属存储桶域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 interface DiagnosticResult {
   appVersion: string;
@@ -27,6 +30,7 @@ interface DiagnosticResult {
   tokenPreview: string;
   releasesCount: number;
   releaseTags: string[];
+  r2Status: string;
   errorMessage: string | null;
   checkedAt: string;
 }
@@ -71,6 +75,7 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
       tokenPreview: '',
       releasesCount: 0,
       releaseTags: [],
+      r2Status: '未测试',
       errorMessage: null,
       checkedAt: new Date().toLocaleString('zh-CN'),
     };
@@ -85,6 +90,14 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
       }
     } catch (e) {
       result.errorMessage = `读取 Token 失败: ${e instanceof Error ? e.message : 'unknown'}`;
+    }
+
+    // 测试 Cloudflare R2 网络连通性
+    try {
+      const r2Res = await fetch(`${R2_BASE_URL}/bgm/autumn_day.m4a`, { method: 'HEAD' });
+      result.r2Status = r2Res.ok ? '正常 (R2 高速直连)' : `异常 (${r2Res.status})`;
+    } catch {
+      result.r2Status = '连接失败';
     }
 
     try {
@@ -114,13 +127,14 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handleClearCache = () => {
-    Alert.alert('清除缓存', '这会清空已缓存的台词、图片与配置，确定吗？', [
+    Alert.alert('清除缓存', '这会清空已缓存的台词、R2 图片与媒体配置，确定吗？', [
       { text: '取消', style: 'cancel' },
       {
         text: '清除',
         onPress: async () => {
           await storageClearByPrefix('@wulili/image/');
           await storageClearByPrefix('@wulili/minigame-cache/');
+          await storageClearByPrefix('@wulili/known_files');
           await useDialogueStore.getState().hydrate();
           Alert.alert('已清除', '缓存已清空，返回首页会自动重新拉取。');
         },
@@ -183,7 +197,7 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
         showsVerticalScrollIndicator={false}
       >
         <Text className="px-4 pt-4 pb-2 text-xs text-muted dark:text-dark-muted">
-          GitHub
+          云端与网络 (Cloudflare R2 加速)
         </Text>
         <SettingRow
           icon="key"
@@ -220,8 +234,8 @@ export function SettingsScreen({ navigation }: Props): React.JSX.Element {
         />
         <SettingRow
           icon="image"
-          label="使用线上图片"
-          value="在线加载雾璃与物品形象"
+          label="使用线上图片 (R2)"
+          value="通过 Cloudflare 加载雾璃与物品形象"
           toggle={{ value: settings.useRemoteImages, onValueChange: setUseRemoteImages }}
         />
 
