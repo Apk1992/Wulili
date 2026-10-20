@@ -34,7 +34,8 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-const NEW_FILES_KEY = '@wulili/known_files_final';
+// 🔥 使用一个全新的缓存键，避免被旧脏数据干扰
+const NEW_FILES_KEY = '@wulili/known_files_v2';
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
@@ -51,10 +52,17 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const releasesQuery = useGitHubReleases(30);
 
+  // 初始化加载已读记录
   useEffect(() => {
-    void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
-      setKnownFiles(res ? JSON.parse(res) : {});
-    });
+    AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
+      if (res) {
+        try {
+          setKnownFiles(JSON.parse(res));
+        } catch {
+          setKnownFiles({});
+        }
+      }
+    }).catch(() => {});
   }, []);
 
   const handleTabChange = (kind: MemoryKind) => {
@@ -130,21 +138,22 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(folderPath);
   };
 
+  // 🔥 点击条目：标记为已读，NEW 标签立刻消失
   const handlePressItem = async (item: any) => {
     if (item.isFolder) {
       handleFolderPress(item.path);
       return;
     }
 
+    const uniqueKey = item.sha || item.path;
     const newKnown = { 
       ...knownFiles, 
       [item.path]: true,
-      ...(item.sha ? { [item.sha]: true } : {}),
-      ...(item.id ? { [item.id]: true } : {})
+      [uniqueKey]: true
     };
 
     setKnownFiles(newKnown);
-    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+    await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
 
     if (item.kind === 'music') {
       navigation.navigate('MusicPlayer', { initialPath: currentPath });
@@ -241,10 +250,10 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   );
 }
 
-function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
-  if (knownMap[file.path]) return true;
+// 辅助函数：严格检查文件是否已被点击阅读过
+function isFileKnown(file: { path: string; sha?: string }, knownMap: Record<string, boolean>) {
+  if (file.path && knownMap[file.path]) return true;
   if (file.sha && knownMap[file.sha]) return true;
-  if (file.id && knownMap[file.id]) return true;
   return false;
 }
 
@@ -258,6 +267,7 @@ function buildItems(
   
   for (const file of files) {
     if (file.type === 'dir') {
+      // 只要深层文件里有任何一个没在 knownFiles 中，文件夹就显示 NEW
       const hasNewFile = allFilesDeep.some(f => {
         if (f.type !== 'file') return false;
         if (!f.path.startsWith(file.path + '/')) return false;
@@ -299,9 +309,12 @@ function buildItems(
         source: 'repo',
       };
 
+    // 🔥 核心修正：只要不在已读缓存里，就是新文件（isNew 为 true）
+    const isFileNew = !isFileKnown(itemObj, knownFiles);
+
       items.push({
         ...itemObj,
-        isNew: !isFileKnown(itemObj, knownFiles),
+        isNew: isFileNew,
       });
     }
   }
