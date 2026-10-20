@@ -1,3 +1,4 @@
+// src/screens/GitHubTokenScreen.tsx
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -5,8 +6,8 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
+  TextInput,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -22,6 +23,9 @@ import { GITHUB_REPO } from '@/api/githubConfig';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GitHubToken'>;
+
+// 🔥 Cloudflare R2 基础公开域名提示
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
   const { isDark } = useTheme();
@@ -65,7 +69,7 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
       const names = items.slice(0, 5).map((i) => i.name).join('、');
       Alert.alert(
         '连接成功',
-        `已读取到仓库 ${GITHUB_REPO.owner}/${GITHUB_REPO.repo} 的内容：\n${names || '（空仓库）'}`,
+        `已成功连接到仓库 ${GITHUB_REPO.owner}/${GITHUB_REPO.repo}：\n${names || '（空仓库）'}`,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : '连接失败';
@@ -137,11 +141,20 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
 
         <Card className="mt-3">
           <Text className="text-sm font-semibold text-text dark:text-dark-text">
+            提示：资源加速与 Token 用途
+          </Text>
+          <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
+            · 媒体与静态资源：已全面托管至 Cloudflare R2 加速节点 ({R2_BASE_URL})，全球直连秒开。{'\n'}
+            · GitHub Token：主要用于开发者控制台进行远程配置、台词与后台数据的推送和管理。
+          </Text>
+        </Card>
+
+        <Card className="mt-3">
+          <Text className="text-sm font-semibold text-text dark:text-dark-text">
             什么是 Token？
           </Text>
           <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
-            为了读取私有的回忆仓库，应用需要一个 GitHub 细粒度访问令牌（Fine-grained
-            PAT）。若已内嵌，无需手动输入。
+            为了推送或读取私有配置，应用需要一个 GitHub 细粒度访问令牌（Fine-grained PAT）。若已内嵌，无需手动输入。
           </Text>
           <View className="mt-3">
             <Button
@@ -161,7 +174,6 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
           <Text className="mt-2 text-xs leading-5 text-muted dark:text-dark-muted">
             · Repository access：Only select repositories → {GITHUB_REPO.repo}
             {'\n'}· Permissions → Contents：Read and write
-            {'\n'}· （只读亦可，但要在 App 内推送台词，需要写权限。）
           </Text>
         </Card>
 
@@ -254,3 +266,4 @@ export function GitHubTokenScreen({ navigation }: Props): React.JSX.Element {
 }
 
 export default GitHubTokenScreen;
+          
