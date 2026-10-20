@@ -1,3 +1,4 @@
+// src/screens/MedicineEditorScreen.tsx
 import React, { useState } from 'react';
 import { Alert, FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -11,12 +12,16 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicineEditor'>;
 
+// 🔥 Cloudflare R2 专属存储桶域名
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
 const FIELDS: ItemFieldDef[] = [
   { key: 'name', label: '名称', kind: 'text' },
   { key: 'description', label: '描述', kind: 'text' },
   { key: 'price', label: '价格（金币）', kind: 'number' },
   { key: 'healthRestore', label: '恢复健康', kind: 'number' },
   { key: 'moodRestore', label: '恢复心情', kind: 'number' },
+  { key: 'image', label: '图片路径 (R2/相对路径)', kind: 'text' },
 ];
 
 const ILLNESS_LIST: IllnessType[] = ['rhinitis', 'cold', 'fever'];
@@ -72,7 +77,7 @@ export function MedicineEditorScreen({}: Props): React.JSX.Element {
       name: '新药品',
       description: '',
       price: 20,
-      image: '',
+      image: 'images/medicines/default.png', // 🔥 默认分配 R2 相对路径模板
       cures: [],
       healthRestore: 10,
       moodRestore: 5,
@@ -96,41 +101,48 @@ export function MedicineEditorScreen({}: Props): React.JSX.Element {
         data={config.medicines}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-        renderItem={({ item }) => (
-          <View>
-            <ItemEditCard
-              title={item.name || '（未命名）'}
-              item={{
-                id: item.id,
-                name: item.name,
-                description: item.description,
-                price: item.price,
-                image: item.image,
-                healthRestore: item.healthRestore,
-                moodRestore: item.moodRestore,
-              }}
-              fields={FIELDS}
-              imageFieldKey="image"
-              onChange={(key, value) => handleChange(item.id, key, value)}
-              onDelete={() => handleDelete(item.id)}
-            />
-            <View className="flex-row flex-wrap mb-4 -mt-1">
-              {ILLNESS_LIST.map((illness) => {
-                const active = item.cures.includes(illness);
-                return (
-                  <Button
-                    key={illness}
-                    label={illness}
-                    size="sm"
-                    variant={active ? 'primary' : 'ghost'}
-                    fullWidth={false}
-                    onPress={() => toggleCure(item.id, illness)}
-                  />
-                );
-              })}
+        renderItem={({ item }) => {
+          // 🔥 自动补全相对路径的预览图为完整的 R2 绝对路径
+          const displayImage = item.image?.startsWith('http')
+            ? item.image
+            : `${R2_BASE_URL}/${item.image?.replace(/^\//, '') || ''}`;
+
+          return (
+            <View>
+              <ItemEditCard
+                title={item.name || '（未命名）'}
+                item={{
+                  id: item.id,
+                  name: item.name,
+                  description: item.description,
+                  price: item.price,
+                  image: displayImage,
+                  healthRestore: item.healthRestore,
+                  moodRestore: item.moodRestore,
+                }}
+                fields={FIELDS}
+                imageFieldKey="image"
+                onChange={(key, value) => handleChange(item.id, key, value)}
+                onDelete={() => handleDelete(item.id)}
+              />
+              <View className="flex-row flex-wrap mb-4 -mt-1">
+                {ILLNESS_LIST.map((illness) => {
+                  const active = item.cures.includes(illness);
+                  return (
+                    <Button
+                      key={illness}
+                      label={illness}
+                      size="sm"
+                      variant={active ? 'primary' : 'ghost'}
+                      fullWidth={false}
+                      onPress={() => toggleCure(item.id, illness)}
+                    />
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        )}
+          );
+        }}
         showsVerticalScrollIndicator={false}
       />
     </ScreenContainer>
