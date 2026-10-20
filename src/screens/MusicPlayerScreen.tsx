@@ -24,11 +24,10 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const RAW_BASE = `https://raw.githubusercontent.com/yukee520/Wulili_assets/main`;
-const NEW_FILES_KEY = '@wulili/known_files';
+const NEW_FILES_KEY = '@wulili/known_files_v2';
 
-// 🔥 辅助函数：多维健壮匹配已读状态（path、sha、id）
 function isFileKnown(file: { path: string; sha?: string; id?: string }, knownMap: Record<string, boolean>) {
-  if (knownMap[file.path]) return true;
+  if (file.path && knownMap[file.path]) return true;
   if (file.sha && knownMap[file.sha]) return true;
   if (file.id && knownMap[file.id]) return true;
   return false;
@@ -50,14 +49,24 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   const progress = useProgress(250);
 
   useEffect(() => {
-    void AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
-      if (res) setKnownFiles(JSON.parse(res));
-    });
+    AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
+      if (res) {
+        try {
+          setKnownFiles(JSON.parse(res));
+        } catch {
+          setKnownFiles({});
+        }
+      }
+    }).catch(() => {});
   }, []);
 
+  // 🔥 精准控制 BGM 挂起与恢复，防止音频冲突闪退
   useFocusEffect(
     useCallback(() => {
+      bgmManager.suspendForVideo();
+
       return () => {
+        bgmManager.resumeFromVideo();
         void TrackPlayer.reset().catch(() => undefined);
       };
     }, [])
@@ -75,7 +84,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       if (!res.ok) throw new Error('获取失败');
       const data = await res.json();
       setRawData(Array.isArray(data) ? data : []);
-    } catch (e) {
+    } catch {
       setError(true);
     } finally {
       setLoading(false);
@@ -128,18 +137,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch {}
   });
 
-  useEffect(() => {
-    try {
-      bgmManager.pauseForMedia?.();
-    } catch {}
-
-    return () => {
-      try {
-        bgmManager.resumeFromMedia?.();
-      } catch {}
-    };
-  }, []);
-
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
     const token = getGitHubToken();
     const headers: Record<string, string> = {};
@@ -169,7 +166,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       const item = items[index];
       if (!item) return;
 
-      // 🔥 多维写入已读缓存，确保点击后 NEW 标签彻底消失
       const newKnown = { 
         ...knownFiles, 
         [item.path]: true,
@@ -177,7 +173,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
         ...(item.id ? { [item.id]: true } : {})
       };
       setKnownFiles(newKnown);
-      void AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown));
+      await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
 
       setPlayback({ current: item, status: 'loading', position: 0, duration: 0, error: null });
 
@@ -200,7 +196,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
           setCurrentIndex(index);
         }
       }
-    } catch (error) {
+    } catch {
       setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
     }
   }, [items, ensureQueue, knownFiles]);
@@ -218,11 +214,11 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch {}
   }, []);
 
-  const handleSeekStart = useCallback((value: number) => {
+  const handleSeekStart = useCallback(() => {
     isSeekingRef.current = true;
   }, []);
 
-  const handleSeekChange = useCallback((value: number) => {}, []);
+  const handleSeekChange = useCallback(() => {}, []);
 
   const handleSeekComplete = useCallback(async (value: number) => {
     try {
@@ -371,7 +367,7 @@ function buildMusicItems(files: GitHubContentItem[], knownFiles: Record<string, 
 
     items.push({
       ...itemObj,
-      isNew: !isFileKnown(itemObj, knownFiles), // 使用多维健壮匹配判断是否新文件
+      isNew: !isFileKnown(itemObj, knownFiles),
     });
   }
   return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
