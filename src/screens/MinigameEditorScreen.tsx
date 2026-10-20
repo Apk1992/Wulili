@@ -1,3 +1,4 @@
+// src/screens/MinigameEditorScreen.tsx
 import React, { useState } from 'react';
 import { Alert, FlatList, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,6 +16,9 @@ import type { MinigameIndexEntry } from '@/types/config';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MinigameEditor'>;
+
+// 🔥 Cloudflare R2 基础路径（用于统一定义和规范小游戏资产目录）
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MinigameEditorScreen({}: Props): React.JSX.Element {
   const { hasToken } = useGitHubToken();
@@ -102,6 +106,9 @@ export function MinigameEditorScreen({}: Props): React.JSX.Element {
         <Text className="text-xs text-muted dark:text-dark-muted mb-2">
           文件路径：{editingEntry.dataPath}
         </Text>
+        <Text className="text-[10px] text-primary dark:text-blue-400 mb-2">
+          资产目录基准 (R2)：{R2_BASE_URL}/{editingEntry.assetFolder}
+        </Text>
         {rawQuery.isLoading ? (
           <Text className="text-xs text-muted dark:text-dark-muted">加载中…</Text>
         ) : rawQuery.isError || !rawQuery.data ? (
@@ -147,7 +154,7 @@ export function MinigameEditorScreen({}: Props): React.JSX.Element {
                   {item.name}
                 </Text>
                 <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
-                  引擎：{item.engine} · 数据：{item.dataPath}
+                  引擎：{item.engine} · 资产：{item.assetFolder}
                 </Text>
               </View>
               <Button
