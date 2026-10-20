@@ -1,3 +1,4 @@
+// src/screens/ItemDetailScreen.tsx
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -18,7 +19,6 @@ import { useWuliliStore } from '@/store/useWuliliStore';
 import { useShopStore } from '@/store/useShopStore';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
-import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { describeBonus } from '@/utils/equipmentBonus';
 import { formatCoins } from '@/utils/format';
 import type { Dialogue } from '@/types/dialogue';
@@ -26,6 +26,9 @@ import type { Accessory, Outfit } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ItemDetail'>;
+
+// 🔥 Cloudflare R2 基础公开地址
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function ItemDetailScreen({
   route,
@@ -45,11 +48,8 @@ export function ItemDetailScreen({
   const ownedAccessories = useWuliliStore((s) => s.state.ownedAccessories);
   const currentOutfit = useWuliliStore((s) => s.state.currentOutfit);
   const currentAccessory = useWuliliStore((s) => s.state.currentAccessory);
-  const ownOutfit = useWuliliStore((s) => s.ownOutfit);
-  const ownAccessory = useWuliliStore((s) => s.ownAccessory);
   const wearOutfit = useWuliliStore((s) => s.wearOutfit);
   const wearAccessory = useWuliliStore((s) => s.wearAccessory);
-  const addCoins = useWuliliStore((s) => s.addCoins);
   const addStats = useWuliliStore((s) => s.addStats);
 
   const buyOutfit = useShopStore((s) => s.buyOutfit);
@@ -60,13 +60,20 @@ export function ItemDetailScreen({
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  const imagePath = useMemo(() => {
+  // 🔥 自动补全远端图片 URL 链接至 Cloudflare R2 CDN
+  const imageUrl = useMemo(() => {
     if (!item) return null;
+    const rawImage = item.image || item.icon;
+    if (!rawImage) return null;
+    if (rawImage.startsWith('http://') || rawImage.startsWith('https://')) {
+      return rawImage;
+    }
     const folder = kind === 'outfit' ? 'images/outfit' : 'images/accessory';
-    return `${folder}/${item.image}`;
+    const cleanPath = rawImage.startsWith('images/')
+      ? rawImage
+      : `${folder}/${rawImage.replace(/^\/+/, '')}`;
+    return `${R2_BASE_URL}/${cleanPath}`;
   }, [item, kind]);
-
-  const { url } = useGitHubImage(imagePath, true);
 
   if (!item) {
     return (
@@ -184,7 +191,7 @@ export function ItemDetailScreen({
           style={{ height: screenHeight * 0.55 }}
         >
           <RemoteImage
-            uri={url}
+            uri={imageUrl}
             width={screenHeight * 0.45}
             height={screenHeight * 0.45}
             resizeMode="contain"
