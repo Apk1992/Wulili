@@ -78,25 +78,35 @@ export function VideoPlayerScreen({}: Props): React.JSX.Element {
     };
   }, [current]);
 
+    // 点击新视频
   const handlePress = useCallback((item: MemoryItem) => {
-    setCurrent(item);
-    setPaused(false);
-    setPosition(0);
-    setDuration(0);
-    setError(null);
-    setFullscreen(false);
+    // 先清理上一次的视频，避免原生层双 Video 冲突
+    setCurrent(null);
+    setTimeout(() => {
+      setCurrent(item);
+      setPaused(false);
+      setPosition(0);
+      setDuration(0);
+      setError(null);
+      setFullscreen(false);
+      bgmManager.suspendForVideo();
+    }, 50);
   }, []);
+
 
   const togglePause = () => setPaused((p) => !p);
 
-  const closePlayer = () => {
+    // 彻底关闭播放器，释放原生视频资源
+  const closePlayer = useCallback(() => {
     setCurrent(null);
-    setPaused(false);
+    setPaused(true);
     setPosition(0);
     setDuration(0);
     setError(null);
     setFullscreen(false);
-  };
+    // 显式通知恢复 BGM
+    bgmManager.resumeFromVideo();
+  }, []);
 
   const openFullscreen = () => {
     setFullscreen(true);
