@@ -3,8 +3,10 @@ import { AppState, AppStateStatus } from 'react-native';
 import Sound from 'react-native-sound';
 import { getGitHubToken } from '@/api/githubClient';
 
-// 设置音频模式，允许和其他播放器/系统声音混合或轮换
-Sound.setCategory('Playback', true);
+// 设置音频模式
+try {
+  Sound.setCategory('Playback', true);
+} catch {}
 
 class BgmManager {
   private sound: Sound | null = null;
@@ -21,8 +23,9 @@ class BgmManager {
   private handleAppStateChange = (nextAppState: AppStateStatus) => {
     this.isAppActive = nextAppState === 'active';
     if (this.isAppActive) {
-      // 从后台切回时重新激活 Sound 模式
-      Sound.setActive(true);
+      try {
+        Sound.setActive(true);
+      } catch {}
       setTimeout(() => this.resume(), 300);
     } else {
       this.pause();
@@ -38,7 +41,7 @@ class BgmManager {
   }
 
   public async loadAndPlay() {
-    if (this.isLoading) return;
+    if (this.isLoading || this.isMutedByMedia) return;
     this.isLoading = true;
 
     try {
@@ -64,37 +67,48 @@ class BgmManager {
       const data = await res.json();
       const downloadUrl = data.download_url;
 
-      // 如果是同一个音频且 Sound 还在，直接恢复播放
       if (this.currentUrl === downloadUrl && this.sound) {
         this.isLoading = false;
         this.resume();
         return;
       }
 
-      // 释放老声音，准备播放新声音
       this.release();
 
-      Sound.setActive(true);
+      try {
+        Sound.setActive(true);
+      } catch {}
+
       const newSound = new Sound(downloadUrl, undefined, (error) => {
         this.isLoading = false;
         if (error) {
-          console.warn('BGM Load Error:', error);
+          this.sound = null;
+          return;
+        }
+
+        // 如果在加载期间用户已经打开了音乐/视频，放弃播放
+        if (this.isMutedByMedia) {
+          newSound.release();
           return;
         }
 
         this.sound = newSound;
         this.currentUrl = downloadUrl;
-        this.sound.setVolume(0.4);
-        this.sound.setNumberOfLoops(-1);
+        
+        try {
+          this.sound.setVolume(0.4);
+          this.sound.setNumberOfLoops(-1);
 
-        if (!this.isMutedByMedia && this.isAppActive) {
-          this.sound.play((success) => {
-            if (!success) {
-              // 播放失败时重置
-              this.sound?.reset();
-            }
-          });
-        }
+          if (this.isAppActive && !this.isMutedByMedia) {
+            this.sound.play((success) => {
+              if (!success) {
+                try {
+                  this.sound?.reset();
+                } catch {}
+              }
+            });
+          }
+        } catch {}
       });
     } catch {
       this.isLoading = false;
@@ -102,9 +116,13 @@ class BgmManager {
   }
 
   public pause() {
-    if (this.sound && this.sound.isPlaying()) {
-      this.sound.pause();
-    }
+    try {
+      if (this.sound) {
+        if (this.sound.isPlaying()) {
+          this.sound.pause();
+        }
+      }
+    } catch {}
   }
 
   public resume() {
@@ -115,33 +133,41 @@ class BgmManager {
       return;
     }
 
-    Sound.setActive(true);
-    if (!this.sound.isPlaying()) {
-      this.sound.play();
-    }
+    try {
+      Sound.setActive(true);
+      if (this.sound && !this.sound.isPlaying()) {
+        this.sound.play((success) => {
+          if (!success) {
+            try {
+              this.sound?.reset();
+            } catch {}
+          }
+        });
+      }
+    } catch {}
   }
 
   public release() {
-    if (this.sound) {
-      try {
+    try {
+      if (this.sound) {
         this.sound.stop();
         this.sound.release();
-      } catch {}
-      this.sound = null;
-      this.currentUrl = null;
-    }
+      }
+    } catch {}
+    this.sound = null;
+    this.currentUrl = null;
   }
 
-  // 被视频 / 音乐播放挂起
+  // 🔥 核心修改：当打开音乐或视频时，直接完全释放 BGM，把音频通道让给播放器，防止底层冲突闪退
   public suspendForVideo() {
     this.isMutedByMedia = true;
-    this.pause();
+    this.release(); 
   }
 
-  // 从视频 / 音乐播放恢复
+  // 离开音乐或视频时，重新加载并恢复 BGM
   public resumeFromVideo() {
     this.isMutedByMedia = false;
-    this.resume();
+    void this.loadAndPlay();
   }
 }
 
