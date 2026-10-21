@@ -12,9 +12,9 @@ import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
 import { detectMemoryKind, getKindIcon, getKindLabel } from '@/utils/mediaType';
-import { formatFileSize, formatRelativeTime, humanizeFileName } from '@/utils/format';
+import { formatFileSize, humanizeFileName } from '@/utils/format';
 import { bgmManager } from '@/services/bgmManager';
-import type { MemoryItem, MemoryKind } from '@/types/memory';
+import type { MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
 import type { GitHubContentItem } from '@/types/github';
 
@@ -27,13 +27,13 @@ const BASE_PATHS: Record<MemoryKind, string> = {
 };
 
 const EMPTY_MESSAGES: Record<MemoryKind, string> = {
-  music: '往这个文件夹里上传一些音乐吧。',
-  video: '往这个文件夹里上传一些视频吧。',
-  note: '往这个文件夹里上传一些读文吧。',
+  music: '音乐文件夹里暂无音频文件。',
+  video: '视频文件夹里暂无视频文件。',
+  note: '笔记文件夹里暂无读文文件。',
 };
 
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-const NEW_FILES_KEY = '@wulili/known_files_r2_v9';
+const NEW_FILES_KEY = '@wulili/known_files_r2_v11';
 
 const DEFAULT_MEMORY_ITEMS: GitHubContentItem[] = [
   { name: 'bgm_default.mp3', path: 'music/bgm_default.mp3', type: 'file', size: 524288, sha: 'def-1' },
@@ -43,7 +43,6 @@ const DEFAULT_MEMORY_ITEMS: GitHubContentItem[] = [
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
-  const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
   
@@ -66,18 +65,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
 
   const handleTabChange = (kind: MemoryKind) => {
     setActiveKind(kind);
-    setCurrentPath(BASE_PATHS[kind]);
   };
 
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const filtered = DEFAULT_MEMORY_ITEMS.filter(item => {
-        if (activeKind === 'music') return item.path.startsWith('music/');
-        if (activeKind === 'video') return item.path.startsWith('videos/');
-        return item.path.startsWith('notes/');
-      });
-      setRawData(filtered);
+      setRawData(DEFAULT_MEMORY_ITEMS);
     } catch {
       setRawData([]);
     } finally {
@@ -90,7 +83,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       bgmManager.init();
       void fetchData();
       void releasesQuery.refetch();
-    }, [currentPath, activeKind]),
+    }, [activeKind]),
   );
 
   const handleRefresh = async () => {
@@ -98,14 +91,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     await fetchData(false);
     await releasesQuery.refetch();
     setRefreshing(false);
-  };
-
-  const handleGoBackFolder = () => {
-    const basePath = BASE_PATHS[activeKind];
-    if (currentPath === basePath) return;
-    const parts = currentPath.split('/');
-    parts.pop();
-    setCurrentPath(parts.join('/') || basePath);
   };
 
   const handlePressItem = async (item: any) => {
@@ -119,13 +104,8 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
 
-    if (item.isFolder) {
-      setCurrentPath(item.path);
-      return;
-    }
-
     if (item.kind === 'music') {
-      navigation.navigate('MusicPlayer', { initialPath: currentPath });
+      navigation.navigate('MusicPlayer', { initialPath: BASE_PATHS.music });
     } else if (item.kind === 'video') {
       navigation.navigate('VideoPlayer', { url: item.downloadUrl, title: item.displayName });
     } else {
@@ -133,19 +113,36 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
+  // 🔥 核心优化：过滤、合并并按上传日期/时间降序排序（最新在最上）
   const activeItems = useMemo(() => {
-    if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
-      const repoItems = buildItems(rawData, 'video', knownFiles);
+    const prefixMap: Record<MemoryKind, string> = {
+      music: 'music/',
+      video: 'videos/',
+      note: 'notes/',
+    };
+    const targetPrefix = prefixMap[activeKind];
+
+    const filteredFiles = rawData.filter(file => file.type === 'file' && file.path.startsWith(targetPrefix));
+    const repoItems = buildItems(filteredFiles, activeKind, knownFiles);
+
+    let combined = repoItems;
+    if (activeKind === 'video' && releasesQuery.data) {
       const releaseItems = buildReleaseItems(releasesQuery.data, knownFiles);
-      return [...releaseItems, ...repoItems];
+      combined = [...releaseItems, ...repoItems];
     }
-    return buildItems(rawData, activeKind, knownFiles);
-  }, [rawData, activeKind, knownFiles, releasesQuery.data, currentPath]);
+
+    // 按照 updatedAt 时间戳降序排序（时间越近越靠前）
+    return combined.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [rawData, activeKind, knownFiles, releasesQuery.data]);
 
   const counts = {
-    music: activeKind === 'music' ? activeItems.length : 0,
-    video: activeKind === 'video' ? activeItems.length : 0,
-    note: activeKind === 'note' ? activeItems.length : 0,
+    music: rawData.filter(f => f.path.startsWith('music/')).length,
+    video: rawData.filter(f => f.path.startsWith('videos/')).length + (releasesQuery.data ? collectVideoAssets(releasesQuery.data).length : 0),
+    note: rawData.filter(f => f.path.startsWith('notes/')).length,
   };
 
   return (
@@ -153,15 +150,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       <View className="px-4 pt-3">
         <CategoryTabs active={activeKind} onChange={handleTabChange} counts={counts} />
       </View>
-
-      {currentPath !== BASE_PATHS[activeKind] && (
-        <View className="px-4 py-2 flex-row items-center">
-          <Pressable className="flex-row items-center bg-card dark:bg-dark-card px-3 py-1.5 rounded-full border border-border dark:border-dark-border" onPress={handleGoBackFolder}>
-            <Ionicons name="arrow-back" size={14} color="#2563EB" />
-            <Text className="ml-1 text-xs text-primary font-medium">返回上一级</Text>
-          </Pressable>
-        </View>
-      )}
 
       {loading && !refreshing ? (
         <View className="flex-1 items-center justify-center">
@@ -175,60 +163,35 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           data={activeItems}
           keyExtractor={(item) => `${item.source}-${item.sha || item.path}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 }}
-          renderItem={({ item }) => {
-            if (item.isFolder) {
-              return (
-                <View className="relative">
-                  <Pressable
-                    className="flex-row items-center justify-between p-4 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border"
-                    onPress={() => void handlePressItem(item)}
-                  >
-                    <View className="flex-row items-center">
-                      <Ionicons name="folder" size={24} color="#F59E0B" />
-                      <Text className="ml-3 text-base font-medium text-text dark:text-dark-text">{item.name}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                  </Pressable>
-                  {item.isNew && (
-                    <View className="absolute top-2 right-8 bg-danger px-1.5 py-0.5 rounded-full">
-                      <Text className="text-[9px] text-white font-bold">NEW</Text>
-                    </View>
-                  )}
+          renderItem={({ item }) => (
+            <View className="relative mb-2">
+              <Pressable
+                onPress={() => void handlePressItem(item)}
+                className="flex-row items-center p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border active:opacity-95"
+              >
+                <View className="w-11 h-11 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20 mr-3">
+                  <Ionicons name={getKindIcon(item.kind) || 'document'} size={20} color="#2563EB" />
                 </View>
-              );
-            }
-
-            // 安全内联渲染每一项，彻底避免外部组件属性不匹配导致闪退
-            return (
-              <View className="relative mb-2">
-                <Pressable
-                  onPress={() => void handlePressItem(item)}
-                  className="flex-row items-center p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border active:opacity-95"
-                >
-                  <View className="w-11 h-11 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20 mr-3">
-                    <Ionicons name={getKindIcon(item.kind) || 'document'} size={20} color="#2563EB" />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-sm font-semibold text-text dark:text-dark-text" numberOfLines={1}>
-                      {item.displayName}
-                    </Text>
-                    <Text className="text-[11px] text-muted dark:text-dark-muted mt-0.5" numberOfLines={1}>
-                      {getKindLabel(item.kind)} · {formatFileSize(item.size)}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-                </Pressable>
-                {item.isNew && (
-                  <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
-                    <Text className="text-[9px] text-white font-bold">NEW</Text>
-                  </View>
-                )}
-              </View>
-            );
-          }}
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-text dark:text-dark-text" numberOfLines={1}>
+                    {item.displayName}
+                  </Text>
+                  <Text className="text-[11px] text-muted dark:text-dark-muted mt-0.5" numberOfLines={1}>
+                    {getKindLabel(item.kind)} · {formatFileSize(item.size)}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </Pressable>
+              {item.isNew && (
+                <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
+                  <Text className="text-[9px] text-white font-bold">NEW</Text>
+                </View>
+              )}
+            </View>
+          )}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · CDN 加速中</Text>}
+          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · 按最新时间置顶</Text>}
         />
       )}
     </ScreenContainer>
@@ -241,23 +204,21 @@ function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Re
     const identityKey = `${file.path}_${file.sha || 'root'}`;
     const isKnown = !!(knownFiles[file.path] || knownFiles[identityKey]);
 
-    if (file.type === 'file') {
-      const kind = detectMemoryKind(file.name) || type;
-      items.push({
-        id: file.sha || file.path,
-        kind,
-        name: file.name,
-        displayName: humanizeFileName(file.name),
-        path: file.path,
-        size: file.size ?? 0,
-        sha: file.sha ?? 'local',
-        downloadUrl: `${R2_BASE_URL}/${file.path}`,
-        updatedAt: new Date().toISOString(),
-        source: 'repo',
-        isFolder: false,
-        isNew: !isKnown,
-      });
-    }
+    const kind = detectMemoryKind(file.name) || type;
+    items.push({
+      id: file.sha || file.path,
+      kind,
+      name: file.name,
+      displayName: humanizeFileName(file.name),
+      path: file.path,
+      size: file.size ?? 0,
+      sha: file.sha ?? 'local',
+      downloadUrl: `${R2_BASE_URL}/${file.path}`,
+      updatedAt: file.updatedAt || new Date().toISOString(),
+      source: 'repo',
+      isFolder: false,
+      isNew: !isKnown,
+    });
   }
   return items;
 }
