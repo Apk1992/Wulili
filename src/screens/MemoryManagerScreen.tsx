@@ -1,6 +1,6 @@
 // src/screens/MemoryManagerScreen.tsx
 import React, { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, Text, View, Linking } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { pick, types as documentTypes } from '@react-native-documents/picker';
@@ -31,7 +31,7 @@ const FOLDERS: Array<{ key: FolderKey; label: string }> = [
   { key: 'notes', label: '笔记' },
 ];
 
-// 🔥 Cloudflare R2 基础公开域名提示
+// 🔥 Cloudflare R2 基础公开域名
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MemoryManagerScreen({}: Props): React.JSX.Element {
@@ -201,15 +201,15 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
 
         <Card>
           <Text className="text-xs text-muted dark:text-dark-muted mb-1">
-            上传到目录：{GITHUB_PATHS[activeFolder]}/
+            当前目录：{GITHUB_PATHS[activeFolder]}/
           </Text>
           <Text className="text-[10px] text-primary dark:text-blue-400 mb-3">
-            提示：上传后资源将通过 R2 加速节点 ({R2_BASE_URL}) 全球分发
+            提示：静态资源已接入 Cloudflare R2 CDN ({R2_BASE_URL})
           </Text>
           <View className="flex-row">
             <View className="flex-1 mr-2">
               <Button
-                label="选择图片/视频"
+                label="上传媒体文件"
                 size="sm"
                 icon="image"
                 loading={uploading}
@@ -218,7 +218,7 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
             </View>
             <View className="flex-1">
               <Button
-                label="选择任意文件"
+                label="上传任意文档"
                 size="sm"
                 variant="secondary"
                 icon="document"
@@ -231,13 +231,13 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
 
         <View className="flex-row items-center justify-between mt-4 mb-2">
           <Text className="text-xs text-muted dark:text-dark-muted">
-            现有文件 · {items.length}
+            文件列表 · {items.length}
           </Text>
           <Pressable
             onPress={() => void query.refetch()}
             className="flex-row items-center"
           >
-            <Text className="text-xs text-primary">刷新</Text>
+            <Text className="text-xs text-primary">刷新列表</Text>
           </Pressable>
         </View>
       </View>
@@ -248,8 +248,17 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
         renderItem={({ item }) => {
           const kind: MemoryKind | null = detectMemoryKind(item.name);
+          // 拼接 R2 预览地址
+          const r2ItemUrl = `${R2_BASE_URL}/${item.path.replace(/^\/+/, '')}`;
+
           return (
-            <View className="flex-row items-center p-3 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border">
+            <Pressable
+              onPress={() => {
+                // 点击可以直接在浏览器或应用内通过 R2 访问该资源
+                void Linking.openURL(r2ItemUrl);
+              }}
+              className="flex-row items-center p-3 mb-2 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border active:opacity-90"
+            >
               <View className="flex-1">
                 <Text
                   className="text-sm font-medium text-text dark:text-dark-text"
@@ -268,14 +277,17 @@ export function MemoryManagerScreen({}: Props): React.JSX.Element {
                 fullWidth={false}
                 onPress={() => handleDelete(item)}
               />
-            </View>
+            </Pressable>
           );
         }}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View className="py-10 items-center">
-            <Text className="text-xs text-muted dark:text-dark-muted">
-              这个文件夹还是空的
+          <View className="py-12 items-center px-4">
+            <Text className="text-xs text-muted dark:text-dark-muted text-center mb-2">
+              当前分类目录暂无文件，或网络未同步。
+            </Text>
+            <Text className="text-[10px] text-muted dark:text-dark-muted text-center">
+              如果你的文件已直接上传至 Cloudflare R2 存储桶，可直接通过上方按钮上传索引或确认 Token 配置。
             </Text>
           </View>
         }
