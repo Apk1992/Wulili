@@ -10,10 +10,11 @@ jobs:
   generate-manifest:
     runs-on: ubuntu-latest
     steps:
-      - name: Install AWS CLI
+      - name: Install jq + pip
         run: |
           sudo apt-get update
-          sudo apt-get install -y awscli jq
+          sudo apt-get install -y jq python3-pip
+          pip3 install --break-system-packages awscli
 
       - name: Generate manifest.json from R2
         env:
@@ -31,7 +32,7 @@ jobs:
           echo "🔨 Building manifest.json..."
           jq '{ files: [.Contents // [] | .[] | {path: .Key, size: .Size, updatedAt: .LastModified}] }' raw_list.json > manifest.json
 
-          echo "📄 Generated manifest:"
+          echo "📄 Generated manifest preview:"
           head -c 1000 manifest.json
           echo ""
 
