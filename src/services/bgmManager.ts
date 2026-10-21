@@ -9,8 +9,9 @@ class BgmManager {
   private isPlaying: boolean = false;
   private currentUrl: string = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/bgm_default.mp3';
   private isSuspendedForVideo: boolean = false;
+  private retryCount: number = 0;
 
-  // 初始化并播放 BGM（采用递归回调确保 100% 绝对无限循环）
+  // 初始化并播放 BGM（冷启动容错 + 自动重试）
   public init(audioUrl?: string) {
     const targetUrl = audioUrl || this.currentUrl;
     if (audioUrl) {
@@ -25,34 +26,44 @@ class BgmManager {
     // 清理旧实例
     this.releaseSound();
 
-    console.log('[BgmManager] 加载并播放背景音乐: ', targetUrl);
+    console.log('[BgmManager] 冷启动加载背景音乐: ', targetUrl);
 
-    this.sound = new Sound(targetUrl, '', (error) => {
-      if (error) {
-        console.warn('[BgmManager] 背景音乐加载失败:', error);
-        this.isPlaying = false;
-        return;
-      }
+    // 延迟 300ms 确保 App 渲染和底层音频焦点就绪后加载
+    setTimeout(() => {
+      this.sound = new Sound(targetUrl, '', (error) => {
+        if (error) {
+          console.warn('[BgmManager] 背景音乐加载失败，尝试重试:', error);
+          this.isPlaying = false;
+          // 加载失败时自动重试最多 3 次
+          if (this.retryCount < 3) {
+            this.retryCount++;
+            setTimeout(() => this.init(targetUrl), 1500);
+          }
+          return;
+        }
 
-      this.isPlaying = true;
-      this.playLoop();
-    });
+        this.retryCount = 0; // 成功后重置重试计数
+        this.isPlaying = true;
+        this.playLoop();
+      });
+    }, 300);
   }
 
-  // 内部递归循环播放函数（彻底解决部分平台 setNumberOfLoops 失效问题）
+  // 内部循环播放函数
   private playLoop() {
     if (!this.sound || !this.isPlaying || this.isSuspendedForVideo) return;
 
     this.sound.play((success) => {
       if (success) {
-        // 播放完毕后如果依然处于播放状态，则自动递归重新播放实现无限循环
         if (this.isPlaying && !this.isSuspendedForVideo) {
           this.sound?.seekTo(0);
           this.playLoop();
         }
       } else {
-        console.warn('[BgmManager] 音频播放中断');
-        this.isPlaying = false;
+        console.warn('[BgmManager] 音频播放中断，尝试自动恢复');
+        if (this.isPlaying && !this.isSuspendedForVideo) {
+          setTimeout(() => this.playLoop(), 1000);
+        }
       }
     });
   }
@@ -67,10 +78,9 @@ class BgmManager {
         console.warn('[BgmManager] 暂停异常:', e);
       }
     }
-    console.log('[BgmManager] 背景音乐已暂停');
   }
 
-  // 恢复音乐
+  // 恢复/唤醒音乐（冷启动或后台切回前台时调用）
   public resume() {
     this.isSuspendedForVideo = false;
     this.isPlaying = true;
@@ -79,23 +89,18 @@ class BgmManager {
     } else {
       this.init(this.currentUrl);
     }
-    console.log('[BgmManager] 背景音乐已恢复');
+    console.log('[BgmManager] 背景音乐已强制唤醒恢复');
   }
 
-  // 为视频播放临时挂起（防止音频冲突）
   public suspendForVideo() {
     if (this.isPlaying) {
       this.isSuspendedForVideo = true;
       if (this.sound) {
-        try {
-          this.sound.pause();
-        } catch {}
+        try { this.sound.pause(); } catch {}
       }
-      console.log('[BgmManager] 为视频播放临时挂起 BGM');
     }
   }
 
-  // 视频播放完毕后从挂起中恢复
   public resumeFromVideo() {
     if (this.isSuspendedForVideo) {
       this.isSuspendedForVideo = false;
@@ -105,11 +110,9 @@ class BgmManager {
       } else {
         this.init(this.currentUrl);
       }
-      console.log('[BgmManager] 视频结束，恢复 BGM');
     }
   }
 
-  // 彻底释放实例
   private releaseSound() {
     if (this.sound) {
       try {
@@ -122,20 +125,18 @@ class BgmManager {
     }
   }
 
-  // 停止
   public stop() {
     this.isPlaying = false;
     this.releaseSound();
   }
 
-  // 切换开关状态
-  public toggle(audioUrl?: string): boolean {
+  public toggle(): boolean {
     if (this.isPlaying) {
       this.pause();
-      return false; // 关闭
+      return false;
     } else {
       this.resume();
-      return true; // 开启
+      return true;
     }
   }
 
