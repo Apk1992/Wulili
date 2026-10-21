@@ -1,95 +1,106 @@
-// src/services/bgmManager.ts
 import Sound from 'react-native-sound';
 
-// 允许在静音模式下播放（iOS 必须）
 Sound.setCategory('Playback', true);
+
+const DEFAULT_BGM = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/bgm/autumn_day.m4a.mp4';
 
 class BgmManager {
   private sound: Sound | null = null;
   private isPlaying: boolean = false;
-  private currentUrl: string = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/bgm_default.mp3';
+  private currentUrl: string = DEFAULT_BGM;
   private isSuspendedForVideo: boolean = false;
   private retryCount: number = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // 初始化并播放 BGM（冷启动容错 + 自动重试）
   public init(audioUrl?: string) {
-    const targetUrl = audioUrl || this.currentUrl;
-    if (audioUrl) {
-      this.currentUrl = audioUrl;
-    }
+    if (audioUrl) this.currentUrl = audioUrl;
+    const targetUrl = this.currentUrl;
 
-    // 如果已经在播放，直接返回
+    // 已经在播，不用重复加载
     if (this.sound && this.isPlaying && !this.isSuspendedForVideo) {
       return;
     }
 
-    // 清理旧实例
     this.releaseSound();
+    console.log('[BgmManager] 加载 BGM:', targetUrl);
 
-    console.log('[BgmManager] 冷启动加载背景音乐: ', targetUrl);
-
-    // 延迟 300ms 确保 App 渲染和底层音频焦点就绪后加载
     setTimeout(() => {
       this.sound = new Sound(targetUrl, '', (error) => {
         if (error) {
-          console.warn('[BgmManager] 背景音乐加载失败，尝试重试:', error);
+          console.warn('[BgmManager] BGM 加载失败:', error);
           this.isPlaying = false;
-          // 加载失败时自动重试最多 3 次
-          if (this.retryCount < 3) {
+          if (this.retryCount < 5) {
             this.retryCount++;
             setTimeout(() => this.init(targetUrl), 1500);
           }
           return;
         }
-
-        this.retryCount = 0; // 成功后重置重试计数
+        this.retryCount = 0;
         this.isPlaying = true;
         this.playLoop();
       });
     }, 300);
   }
 
-  // 内部循环播放函数
   private playLoop() {
+    // 🔥 每次进入都做完整性检查
     if (!this.sound || !this.isPlaying || this.isSuspendedForVideo) return;
 
-    this.sound.play((success) => {
-      if (success) {
-        if (this.isPlaying && !this.isSuspendedForVideo) {
-          this.sound?.seekTo(0);
-          this.playLoop();
+    const current = this.sound; // 捕获当前实例，防止中途被释放
+    try {
+      current.play((success) => {
+        // 播放结束回调
+        if (!this.isPlaying || this.isSuspendedForVideo) return;
+        if (!this.sound || this.sound !== current) return; // 实例已被替换/释放，别再操作
+
+        if (success) {
+          try {
+            this.sound.seekTo(0);
+            this.playLoop();
+          } catch {
+            this.init(this.currentUrl);
+          }
+        } else {
+          console.warn('[BgmManager] BGM 播放中断，1 秒后重试');
+          if (this.restartTimer) clearTimeout(this.restartTimer);
+          this.restartTimer = setTimeout(() => {
+            if (this.isPlaying && !this.isSuspendedForVideo) {
+              this.init(this.currentUrl);
+            }
+          }, 1000);
         }
-      } else {
-        console.warn('[BgmManager] 音频播放中断，尝试自动恢复');
-        if (this.isPlaying && !this.isSuspendedForVideo) {
-          setTimeout(() => this.playLoop(), 1000);
-        }
-      }
-    });
+      });
+    } catch (e) {
+      console.warn('[BgmManager] play 异常:', e);
+      this.init(this.currentUrl);
+    }
   }
 
-  // 暂停音乐
   public pause() {
     this.isPlaying = false;
     if (this.sound) {
-      try {
-        this.sound.pause();
-      } catch (e) {
-        console.warn('[BgmManager] 暂停异常:', e);
-      }
+      try { this.sound.pause(); } catch {}
     }
   }
 
-  // 恢复/唤醒音乐（冷启动或后台切回前台时调用）
   public resume() {
     this.isSuspendedForVideo = false;
     this.isPlaying = true;
-    if (this.sound) {
+    // 🔥 如果没有实例或实例失效，重新加载
+    if (!this.sound) {
+      this.init(this.currentUrl);
+      return;
+    }
+    try {
+      this.sound.getCurrentTime((seconds) => {
+        // getCurrentTime 是 Sound 提供的存活检测
+      });
       this.playLoop();
-    } else {
+    } catch {
+      // 实例已经死掉，重新初始化
       this.init(this.currentUrl);
     }
-    console.log('[BgmManager] 背景音乐已强制唤醒恢复');
+    console.log('[BgmManager] resume 调用完成');
   }
 
   public suspendForVideo() {
@@ -105,22 +116,18 @@ class BgmManager {
     if (this.isSuspendedForVideo) {
       this.isSuspendedForVideo = false;
       this.isPlaying = true;
-      if (this.sound) {
-        this.playLoop();
-      } else {
-        this.init(this.currentUrl);
-      }
+      if (this.sound) this.playLoop();
+      else this.init(this.currentUrl);
     }
   }
 
   private releaseSound() {
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
     if (this.sound) {
-      try {
-        this.sound.stop();
-        this.sound.release();
-      } catch (e) {
-        console.warn('[BgmManager] 释放实例异常:', e);
-      }
+      try { this.sound.stop(); this.sound.release(); } catch {}
       this.sound = null;
     }
   }
@@ -131,13 +138,9 @@ class BgmManager {
   }
 
   public toggle(): boolean {
-    if (this.isPlaying) {
-      this.pause();
-      return false;
-    } else {
-      this.resume();
-      return true;
-    }
+    if (this.isPlaying) { this.pause(); return false; }
+    this.resume();
+    return true;
   }
 
   public getIsPlaying(): boolean {
