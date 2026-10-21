@@ -8,12 +8,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import CategoryTabs from '@/components/CategoryTabs';
-import MemoryListItem from '@/components/MemoryListItem';
 import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { useGitHubReleases, collectVideoAssets } from '@/hooks/useGitHubReleases';
-import { detectMemoryKind } from '@/utils/mediaType';
-import { humanizeFileName } from '@/utils/format';
+import { detectMemoryKind, getKindIcon, getKindLabel } from '@/utils/mediaType';
+import { formatFileSize, formatRelativeTime, humanizeFileName } from '@/utils/format';
 import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, MemoryKind } from '@/types/memory';
 import type { RootStackParamList } from '@/types/navigation';
@@ -33,12 +32,9 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
   note: '往这个文件夹里上传一些读文吧。',
 };
 
-// 🔥 Cloudflare R2 公开基础路径
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+const NEW_FILES_KEY = '@wulili/known_files_r2_v9';
 
-const NEW_FILES_KEY = '@wulili/known_files_r2_v8';
-
-// 预设默认的静态回忆资产索引（补全所有字段，避免 MemoryListItem 渲染时报错）
 const DEFAULT_MEMORY_ITEMS: GitHubContentItem[] = [
   { name: 'bgm_default.mp3', path: 'music/bgm_default.mp3', type: 'file', size: 524288, sha: 'def-1' },
   { name: 'welcome.mp4', path: 'videos/welcome.mp4', type: 'file', size: 2097152, sha: 'def-2' },
@@ -76,7 +72,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      // 过滤当前分类匹配的默认项目
       const filtered = DEFAULT_MEMORY_ITEMS.filter(item => {
         if (activeKind === 'music') return item.path.startsWith('music/');
         if (activeKind === 'video') return item.path.startsWith('videos/');
@@ -113,10 +108,6 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(parts.join('/') || basePath);
   };
 
-  const handleFolderPress = (folderPath: string) => {
-    setCurrentPath(folderPath);
-  };
-
   const handlePressItem = async (item: any) => {
     const identityKey = `${item.path}_${item.sha || 'root'}`;
     const newKnown = { 
@@ -129,7 +120,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
 
     if (item.isFolder) {
-      handleFolderPress(item.path);
+      setCurrentPath(item.path);
       return;
     }
 
@@ -206,9 +197,27 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
                 </View>
               );
             }
+
+            // 安全内联渲染每一项，彻底避免外部组件属性不匹配导致闪退
             return (
-              <View className="relative">
-                <MemoryListItem item={item} onPress={() => void handlePressItem(item)} />
+              <View className="relative mb-2">
+                <Pressable
+                  onPress={() => void handlePressItem(item)}
+                  className="flex-row items-center p-3 rounded-2xl bg-card dark:bg-dark-card border border-border dark:border-dark-border active:opacity-95"
+                >
+                  <View className="w-11 h-11 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20 mr-3">
+                    <Ionicons name={getKindIcon(item.kind) || 'document'} size={20} color="#2563EB" />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-sm font-semibold text-text dark:text-dark-text" numberOfLines={1}>
+                      {item.displayName}
+                    </Text>
+                    <Text className="text-[11px] text-muted dark:text-dark-muted mt-0.5" numberOfLines={1}>
+                      {getKindLabel(item.kind)} · {formatFileSize(item.size)}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
                 {item.isNew && (
                   <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
                     <Text className="text-[9px] text-white font-bold">NEW</Text>
@@ -219,46 +228,21 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · 全球 CDN 加速中</Text>}
+          ListHeaderComponent={<Text className="text-xs text-muted dark:text-dark-muted mb-2">共 {activeItems.length} 项 · CDN 加速中</Text>}
         />
       )}
     </ScreenContainer>
   );
 }
 
-function buildItems(
-  files: GitHubContentItem[],
-  type: MemoryKind,
-  knownFiles: Record<string, boolean>
-): any[] {
+function buildItems(files: GitHubContentItem[], type: MemoryKind, knownFiles: Record<string, boolean>): any[] {
   const items: any[] = [];
-  
   for (const file of files) {
     const identityKey = `${file.path}_${file.sha || 'root'}`;
     const isKnown = !!(knownFiles[file.path] || knownFiles[identityKey]);
 
-    if (file.type === 'dir') {
-      items.push({
-        id: file.sha || file.path,
-        kind: type,
-        name: file.name,
-        displayName: file.name,
-        path: file.path,
-        size: 0,
-        sha: file.sha,
-        downloadUrl: '',
-        updatedAt: null,
-        source: 'repo',
-        isFolder: true,
-        isNew: !isKnown,
-      });
-      continue;
-    }
-    
     if (file.type === 'file') {
       const kind = detectMemoryKind(file.name) || type;
-      const r2DownloadUrl = `${R2_BASE_URL}/${file.path}`;
-
       items.push({
         id: file.sha || file.path,
         kind,
@@ -267,7 +251,7 @@ function buildItems(
         path: file.path,
         size: file.size ?? 0,
         sha: file.sha ?? 'local',
-        downloadUrl: r2DownloadUrl,
+        downloadUrl: `${R2_BASE_URL}/${file.path}`,
         updatedAt: new Date().toISOString(),
         source: 'repo',
         isFolder: false,
@@ -275,18 +259,10 @@ function buildItems(
       });
     }
   }
-  
-  return items.sort((a, b) => {
-    if (a.isFolder && !b.isFolder) return -1;
-    if (!a.isFolder && b.isFolder) return 1;
-    return b.name.localeCompare(a.name, 'zh-CN');
-  });
+  return items;
 }
 
-function buildReleaseItems(
-  releases: NonNullable<ReturnType<typeof useGitHubReleases>['data']>,
-  knownFiles: Record<string, boolean>
-): MemoryItem[] {
+function buildReleaseItems(releases: any[], knownFiles: Record<string, boolean>): any[] {
   const assets = collectVideoAssets(releases);
   return assets.map((asset) => {
     const uniqueId = String(asset.id);
@@ -302,9 +278,8 @@ function buildReleaseItems(
       sha: uniqueId,
       downloadUrl: asset.browser_download_url,
       updatedAt: asset.created_at,
-      source: 'release' as const,
-      releaseTag: asset.releaseTag,
-      assetId: asset.id,
+      source: 'release',
+      isFolder: false,
       isNew: !isKnown,
     };
   });
