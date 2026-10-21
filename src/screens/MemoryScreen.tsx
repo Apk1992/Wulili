@@ -36,20 +36,14 @@ const EMPTY_MESSAGES: Record<MemoryKind, string> = {
 // 🔥 Cloudflare R2 公开基础路径
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-const NEW_FILES_KEY = '@wulili/known_files_r2_v7';
+const NEW_FILES_KEY = '@wulili/known_files_r2_v8';
 
-// 预设默认的静态回忆资产索引（完全脱离 GitHub API 限制，由 R2 加速分发）
-const DEFAULT_MEMORY_ITEMS: Record<MemoryKind, GitHubContentItem[]> = {
-  music: [
-    { name: 'bgm_default.mp3', path: 'music/bgm_default.mp3', type: 'file', size: 1024 * 512, sha: 'default-music-1' },
-  ],
-  video: [
-    { name: 'welcome.mp4', path: 'videos/welcome.mp4', type: 'file', size: 1024 * 1024 * 2, sha: 'default-video-1' },
-  ],
-  note: [
-    { name: 'intro.md', path: 'notes/intro.md', type: 'file', size: 1024, sha: 'default-note-1' },
-  ],
-};
+// 预设默认的静态回忆资产索引（补全所有字段，避免 MemoryListItem 渲染时报错）
+const DEFAULT_MEMORY_ITEMS: GitHubContentItem[] = [
+  { name: 'bgm_default.mp3', path: 'music/bgm_default.mp3', type: 'file', size: 524288, sha: 'def-1' },
+  { name: 'welcome.mp4', path: 'videos/welcome.mp4', type: 'file', size: 2097152, sha: 'def-2' },
+  { name: 'intro.md', path: 'notes/intro.md', type: 'file', size: 1024, sha: 'def-3' },
+];
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
@@ -79,13 +73,16 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  // 🔥 改造为直接从 R2 索引或本地默认清单安全加载，绝不因 GitHub API 报错而导致白屏
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      // 优先从本地缓存或预设中读取当前分类的资产列表，确保 100% 稳定秒开
-      const fallbackList = DEFAULT_MEMORY_ITEMS[activeKind] || [];
-      setRawData(fallbackList);
+      // 过滤当前分类匹配的默认项目
+      const filtered = DEFAULT_MEMORY_ITEMS.filter(item => {
+        if (activeKind === 'music') return item.path.startsWith('music/');
+        if (activeKind === 'video') return item.path.startsWith('videos/');
+        return item.path.startsWith('notes/');
+      });
+      setRawData(filtered);
     } catch {
       setRawData([]);
     } finally {
@@ -259,10 +256,7 @@ function buildItems(
     }
     
     if (file.type === 'file') {
-      const kind = detectMemoryKind(file.name);
-      if (!kind) continue;
-      
-      // 🔥 将下载链接直接指向 Cloudflare R2 对应的文件路径
+      const kind = detectMemoryKind(file.name) || type;
       const r2DownloadUrl = `${R2_BASE_URL}/${file.path}`;
 
       items.push({
@@ -271,10 +265,10 @@ function buildItems(
         name: file.name,
         displayName: humanizeFileName(file.name),
         path: file.path,
-        size: file.size,
-        sha: file.sha,
+        size: file.size ?? 0,
+        sha: file.sha ?? 'local',
         downloadUrl: r2DownloadUrl,
-        updatedAt: file.sha,
+        updatedAt: new Date().toISOString(),
         source: 'repo',
         isFolder: false,
         isNew: !isKnown,
