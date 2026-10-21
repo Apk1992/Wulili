@@ -7,98 +7,135 @@ Sound.setCategory('Playback', true);
 class BgmManager {
   private sound: Sound | null = null;
   private isPlaying: boolean = false;
-  private currentUrl: string = '';
+  private currentUrl: string = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/bgm_default.mp3';
+  private isSuspendedForVideo: boolean = false;
 
-  // 初始化并播放 BGM（自带循环播放）
-  public init(audioUrl: string = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/bgm_default.mp3') {
-    // 如果已经在播放同一个音频，则跳过
-    if (this.sound && this.isPlaying && this.currentUrl === audioUrl) {
+  // 初始化并播放 BGM（采用递归回调确保 100% 绝对无限循环）
+  public init(audioUrl?: string) {
+    const targetUrl = audioUrl || this.currentUrl;
+    if (audioUrl) {
+      this.currentUrl = audioUrl;
+    }
+
+    // 如果已经在播放，直接返回
+    if (this.sound && this.isPlaying && !this.isSuspendedForVideo) {
       return;
     }
 
-    // 如果之前有实例，先安全释放
-    this.stop();
-    this.currentUrl = audioUrl;
+    // 清理旧实例
+    this.releaseSound();
 
-    console.log('[BgmManager] 加载背景音乐: ', audioUrl);
+    console.log('[BgmManager] 加载并播放背景音乐: ', targetUrl);
 
-    this.sound = new Sound(audioUrl, '', (error) => {
+    this.sound = new Sound(targetUrl, '', (error) => {
       if (error) {
         console.warn('[BgmManager] 背景音乐加载失败:', error);
         this.isPlaying = false;
         return;
       }
 
-      // 🔥 核心：开启无限循环播放
-      this.sound?.setNumberOfLoops(-1);
-      this.sound?.setVolume(1.0);
-
-      this.sound?.play((success) => {
-        if (!success) {
-          console.warn('[BgmManager] 播放中途被打断或解码失败');
-        }
-        this.isPlaying = false;
-      });
-
       this.isPlaying = true;
+      this.playLoop();
+    });
+  }
+
+  // 内部递归循环播放函数（彻底解决部分平台 setNumberOfLoops 失效问题）
+  private playLoop() {
+    if (!this.sound || !this.isPlaying || this.isSuspendedForVideo) return;
+
+    this.sound.play((success) => {
+      if (success) {
+        // 播放完毕后如果依然处于播放状态，则自动递归重新播放实现无限循环
+        if (this.isPlaying && !this.isSuspendedForVideo) {
+          this.sound?.seekTo(0);
+          this.playLoop();
+        }
+      } else {
+        console.warn('[BgmManager] 音频播放中断');
+        this.isPlaying = false;
+      }
     });
   }
 
   // 暂停音乐
   public pause() {
-    if (this.sound && this.isPlaying) {
-      this.sound.pause(() => {
-        this.isPlaying = false;
-        console.log('[BgmManager] 背景音乐已暂停');
-      });
+    this.isPlaying = false;
+    if (this.sound) {
+      try {
+        this.sound.pause();
+      } catch (e) {
+        console.warn('[BgmManager] 暂停异常:', e);
+      }
     }
+    console.log('[BgmManager] 背景音乐已暂停');
   }
 
-  // 恢复/重新播放音乐
+  // 恢复音乐
   public resume() {
+    this.isSuspendedForVideo = false;
+    this.isPlaying = true;
     if (this.sound) {
-      if (!this.isPlaying) {
-        this.sound.play((success) => {
-          if (!success) {
-            console.warn('[BgmManager] 恢复播放失败');
-          }
-          this.isPlaying = false;
-        });
-        this.isPlaying = true;
-        console.log('[BgmManager] 背景音乐已恢复');
-      }
-    } else if (this.currentUrl) {
-      // 如果实例被销毁了，重新初始化
+      this.playLoop();
+    } else {
       this.init(this.currentUrl);
     }
+    console.log('[BgmManager] 背景音乐已恢复');
   }
 
-  // 彻底停止并销毁当前音频
-  public stop() {
+  // 为视频播放临时挂起（防止音频冲突）
+  public suspendForVideo() {
+    if (this.isPlaying) {
+      this.isSuspendedForVideo = true;
+      if (this.sound) {
+        try {
+          this.sound.pause();
+        } catch {}
+      }
+      console.log('[BgmManager] 为视频播放临时挂起 BGM');
+    }
+  }
+
+  // 视频播放完毕后从挂起中恢复
+  public resumeFromVideo() {
+    if (this.isSuspendedForVideo) {
+      this.isSuspendedForVideo = false;
+      this.isPlaying = true;
+      if (this.sound) {
+        this.playLoop();
+      } else {
+        this.init(this.currentUrl);
+      }
+      console.log('[BgmManager] 视频结束，恢复 BGM');
+    }
+  }
+
+  // 彻底释放实例
+  private releaseSound() {
     if (this.sound) {
       try {
         this.sound.stop();
         this.sound.release();
       } catch (e) {
-        console.warn('[BgmManager] 释放音乐实例异常:', e);
+        console.warn('[BgmManager] 释放实例异常:', e);
       }
       this.sound = null;
-      this.isPlaying = false;
     }
   }
 
-  // 切换播放状态（开 -> 关，关 -> 开）
+  // 停止
+  public stop() {
+    this.isPlaying = false;
+    this.releaseSound();
+  }
+
+  // 切换开关状态
   public toggle(audioUrl?: string): boolean {
     if (this.isPlaying) {
       this.pause();
-      return false; // 当前变为关闭状态
+      return false; // 关闭
     } else {
-      if (audioUrl) {
-        this.init(audioUrl);
-      } else {
-        this.resume();
-      }
-      return true; // 当前变为开启状态
+      this.resume();
+      return true; // 开启
     }
   }
 
