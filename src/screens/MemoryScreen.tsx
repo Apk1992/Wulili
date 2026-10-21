@@ -1,4 +1,3 @@
-// src/screens/MemoryScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, RefreshControl, Text, View, Pressable, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -25,52 +24,47 @@ const BASE_PATHS: Record<MemoryKind, string> = {
   note: GITHUB_PATHS.notes,
 };
 
-const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-const NEW_FILES_KEY = '@wulili/known_files_r2_pure_static_v1';
+const EMPTY_MESSAGES: Record<MemoryKind, string> = {
+  music: '往这个文件夹里上传一些音乐吧。',
+  video: '往这个文件夹里上传一些视频吧。',
+  note: '往这个文件夹里上传一些读文吧。',
+};
 
-// 🔥 纯静态 R2 资产与子文件夹索引配置（完全摆脱 GitHub API 扫描）
-// 你可以在这里自由添加你的子文件夹和文件，全部走 R2 CDN 秒开
-interface StaticItem {
-  id: string;
-  name: string;
-  path: string;       // R2 相对路径
-  type: 'dir' | 'file';
-  parentPath: string; // 父级目录路径
-  size?: number;
-  updatedAt?: string;
+const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+const NEW_FILES_KEY = '@wulili/known_files_r2_manifest_v1';
+
+interface ManifestFile {
+  path: string;
+  size: number;
+  updatedAt: string;
 }
 
-const STATIC_ASSETS_DATABASE: StaticItem[] = [
-  // --- 音乐分类 ---
-  { id: 'm-dir-1', name: '默认合集', path: 'music/default', type: 'dir', parentPath: 'music' },
-  { id: 'm-file-1', name: 'bgm_default.mp3', path: 'music/default/bgm_default.mp3', type: 'file', parentPath: 'music/default', size: 524288, updatedAt: '2026-06-01T00:00:00.000Z' },
-
-  // --- 视频分类 ---
-  { id: 'v-dir-1', name: '日常记录', path: 'videos/dailies', type: 'dir', parentPath: 'videos' },
-  { id: 'v-file-1', name: 'welcome.mp4', path: 'videos/dailies/welcome.mp4', type: 'file', parentPath: 'videos/dailies', size: 2097152, updatedAt: '2026-06-01T00:00:00.000Z' },
-
-  // --- 笔记分类 ---
-  { id: 'n-dir-1', name: '心情随笔', path: 'notes/thoughts', type: 'dir', parentPath: 'notes' },
-  { id: 'n-file-1', name: 'intro.md', path: 'notes/thoughts/intro.md', type: 'file', parentPath: 'notes/thoughts', size: 1024, updatedAt: '2026-06-01T00:00:00.000Z' },
-];
+interface ParsedItem {
+  id: string;
+  name: string;
+  path: string;
+  type: 'dir' | 'file';
+  parentPath: string;
+  size: number;
+  updatedAt: string;
+}
 
 export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   const [activeKind, setActiveKind] = useState<MemoryKind>('music');
   const [currentPath, setCurrentPath] = useState<string>(GITHUB_PATHS.music);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState<boolean>(false);
+  
+  const [manifestItems, setManifestItems] = useState<ParsedItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<boolean>(false);
 
   const releasesQuery = useGitHubReleases(30);
 
   useEffect(() => {
     AsyncStorage.getItem(NEW_FILES_KEY).then((res) => {
       if (res) {
-        try {
-          setKnownFiles(JSON.parse(res));
-        } catch {
-          setKnownFiles({});
-        }
+        try { setKnownFiles(JSON.parse(res)); } catch { setKnownFiles({}); }
       }
     }).catch(() => {});
   }, []);
@@ -80,18 +74,105 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     setCurrentPath(BASE_PATHS[kind]);
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await releasesQuery.refetch();
-    setRefreshing(false);
+  // 从 R2 manifest.json 拉取并解析
+  const fetchManifest = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setError(false);
+    try {
+      const res = await fetch(`${R2_BASE_URL}/manifest.json?t=${Date.now()}`);
+      if (!res.ok) throw new Error('Manifest 加载失败');
+      const data = await res.json();
+
+      if (!data || !Array.isArray(data.files)) {
+        setManifestItems([]);
+        return;
+      }
+
+      // 把文件路径拆解成文件夹树
+      const parsedMap = new Map<string, ParsedItem>();
+
+      for (const file of data.files as ManifestFile[]) {
+        const rawPath = file.path;
+
+        // 跳过 R2 里的空文件夹标记（例如 "music/"）
+        if (rawPath.endsWith('/')) {
+          const folderPath = rawPath.slice(0, -1);
+          if (!folderPath) continue;
+          
+          const parts = folderPath.split('/');
+          let parent = '';
+          for (let i = 0; i < parts.length; i++) {
+            const subPath = parts.slice(0, i + 1).join('/');
+            if (!parsedMap.has(subPath)) {
+              parsedMap.set(subPath, {
+                id: `dir-${subPath}`,
+                name: parts[i],
+                path: subPath,
+                type: 'dir',
+                parentPath: parent,
+                size: 0,
+                updatedAt: file.updatedAt,
+              });
+            }
+            parent = subPath;
+          }
+          continue;
+        }
+
+        // 普通文件路径
+        const parts = rawPath.split('/');
+        let parent = '';
+
+        for (let i = 0; i < parts.length - 1; i++) {
+          const subPath = parts.slice(0, i + 1).join('/');
+          if (!parsedMap.has(subPath)) {
+            parsedMap.set(subPath, {
+              id: `dir-${subPath}`,
+              name: parts[i],
+              path: subPath,
+              type: 'dir',
+              parentPath: parent,
+              size: 0,
+              updatedAt: file.updatedAt,
+            });
+          }
+          parent = subPath;
+        }
+
+        parsedMap.set(rawPath, {
+          id: `file-${rawPath}`,
+          name: parts[parts.length - 1],
+          path: rawPath,
+          type: 'file',
+          parentPath: parent,
+          size: file.size,
+          updatedAt: file.updatedAt,
+        });
+      }
+
+      setManifestItems(Array.from(parsedMap.values()));
+    } catch (e) {
+      console.warn('Manifest Fetch Error:', e);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useFocusEffect(
     useCallback(() => {
       bgmManager.init();
+      void fetchManifest();
       void releasesQuery.refetch();
     }, [currentPath, activeKind]),
   );
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchManifest(false);
+    await releasesQuery.refetch();
+    setRefreshing(false);
+  };
 
   const handleGoBackFolder = () => {
     const basePath = BASE_PATHS[activeKind];
@@ -102,13 +183,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
   };
 
   const handlePressItem = async (item: any) => {
-    const identityKey = `${item.path}_${item.sha || 'root'}`;
-    const newKnown = { 
-      ...knownFiles, 
-      [item.path]: true,
-      [identityKey]: true
-    };
-
+    const newKnown = { ...knownFiles, [item.path]: true };
     setKnownFiles(newKnown);
     await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
 
@@ -126,15 +201,21 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     }
   };
 
-  // 🔥 核心：直接从本地纯静态数据库中匹配当前 parentPath 的子文件夹和文件，完全不走 GitHub API！
   const activeItems = useMemo(() => {
-    const matched = STATIC_ASSETS_DATABASE.filter(item => item.parentPath === currentPath);
+    const matched = manifestItems.filter(item => item.parentPath === currentPath);
 
     const formattedItems = matched.map((item) => {
-      const identityKey = `${item.path}_${item.id}`;
-      const isKnown = !!(knownFiles[item.path] || knownFiles[identityKey]);
+      const isKnown = !!knownFiles[item.path];
 
       if (item.type === 'dir') {
+        // 文件夹是否有新内容？深扫该目录下所有子文件的最后更新时间
+        const hasNewChild = manifestItems.some(
+          (sub) =>
+            sub.type === 'file' &&
+            sub.path.startsWith(item.path + '/') &&
+            !knownFiles[sub.path],
+        );
+
         return {
           id: item.id,
           kind: activeKind,
@@ -147,7 +228,7 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           updatedAt: item.updatedAt || null,
           source: 'repo',
           isFolder: true,
-          isNew: !isKnown,
+          isNew: hasNewChild,
         };
       }
 
@@ -158,10 +239,10 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
         name: item.name,
         displayName: humanizeFileName(item.name),
         path: item.path,
-        size: item.size ?? 0,
+        size: item.size,
         sha: item.id,
         downloadUrl: `${R2_BASE_URL}/${item.path}`,
-        updatedAt: item.updatedAt || new Date().toISOString(),
+        updatedAt: item.updatedAt,
         source: 'repo',
         isFolder: false,
         isNew: !isKnown,
@@ -169,13 +250,11 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
     });
 
     let combined = formattedItems;
-    // 如果在视频根目录，顺便拼入 GitHub Release 资产
     if (activeKind === 'video' && releasesQuery.data && currentPath === BASE_PATHS.video) {
       const releaseItems = buildReleaseItems(releasesQuery.data, knownFiles);
       combined = [...releaseItems, ...formattedItems];
     }
 
-    // 排序：文件夹置顶，文件按时间降序
     return combined.sort((a, b) => {
       if (a.isFolder && !b.isFolder) return -1;
       if (!a.isFolder && b.isFolder) return 1;
@@ -183,12 +262,12 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
       const timeB = new Date(b.updatedAt || 0).getTime();
       return timeB - timeA;
     });
-  }, [currentPath, activeKind, knownFiles, releasesQuery.data]);
+  }, [currentPath, activeKind, knownFiles, releasesQuery.data, manifestItems]);
 
   const counts = {
-    music: STATIC_ASSETS_DATABASE.filter(i => i.parentPath.startsWith('music')).length,
-    video: STATIC_ASSETS_DATABASE.filter(i => i.parentPath.startsWith('videos')).length + (releasesQuery.data ? collectVideoAssets(releasesQuery.data).length : 0),
-    note: STATIC_ASSETS_DATABASE.filter(i => i.parentPath.startsWith('notes')).length,
+    music: manifestItems.filter(i => i.parentPath.startsWith('music') && i.type === 'file').length,
+    video: manifestItems.filter(i => i.parentPath.startsWith('videos') && i.type === 'file').length + (releasesQuery.data ? collectVideoAssets(releasesQuery.data).length : 0),
+    note: manifestItems.filter(i => i.parentPath.startsWith('notes') && i.type === 'file').length,
   };
 
   return (
@@ -211,8 +290,10 @@ export function MemoryScreen({ navigation }: Props): React.JSX.Element {
           <ActivityIndicator size="large" color="#2563EB" />
           <Text className="text-xs text-muted mt-4">加载中…</Text>
         </View>
+      ) : error ? (
+        <EmptyView title="Manifest 加载失败" message="请检查 R2 根目录是否有 manifest.json。" icon="alert-circle-outline" fullScreen />
       ) : activeItems.length === 0 ? (
-        <EmptyView title="这里还是空的" message="当前子文件夹暂无内容。" icon="folder-open-outline" fullScreen />
+        <EmptyView title="这里还是空的" message={EMPTY_MESSAGES[activeKind]} icon="folder-open-outline" fullScreen />
       ) : (
         <FlatList
           data={activeItems}
