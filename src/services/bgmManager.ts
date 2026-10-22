@@ -2,22 +2,62 @@ import Sound from 'react-native-sound';
 
 Sound.setCategory('Playback', true);
 
-const DEFAULT_BGM = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/bgm/autumn_day.m4a.mp4';
+const DEFAULT_BGM =
+  'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/bgm/autumn_day.m4a.mp4';
 
 class BgmManager {
   private sound: Sound | null = null;
   private isPlaying: boolean = false;
   private currentUrl: string = DEFAULT_BGM;
-  private isSuspendedForVideo: boolean = false;
   private retryCount: number = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * 外部占用者集合（回忆音乐 / 视频 等）
+   * 只要集合非空，BGM 一律不允许 resume / init
+   */
+  private externalHolders: Set<string> = new Set();
+
+  // ========== 外部占用 API ==========
+
+  public acquireExternal(holderId: string) {
+    this.externalHolders.add(holderId);
+    this.pause();
+    console.log('[BgmManager] acquireExternal:', holderId, 'holders=', this.externalHolders.size);
+  }
+
+  public releaseExternal(holderId: string) {
+    this.externalHolders.delete(holderId);
+    console.log('[BgmManager] releaseExternal:', holderId, 'holders=', this.externalHolders.size);
+  }
+
+  public isExternallyHeld(): boolean {
+    return this.externalHolders.size > 0;
+  }
+
+  // ========== 兼容旧接口（内部转发到 external） ==========
+
+  public suspendForVideo() {
+    this.acquireExternal('video');
+  }
+
+  public resumeFromVideo() {
+    this.releaseExternal('video');
+  }
+
+  // ========== 播放控制 ==========
+
   public init(audioUrl?: string) {
+    // 外部占用期间，不允许初始化/播放
+    if (this.isExternallyHeld()) {
+      console.log('[BgmManager] init 被拦截：外部占用中');
+      return;
+    }
+
     if (audioUrl) this.currentUrl = audioUrl;
     const targetUrl = this.currentUrl;
 
-    // 已经在播，不用重复加载
-    if (this.sound && this.isPlaying && !this.isSuspendedForVideo) {
+    if (this.sound && this.isPlaying) {
       return;
     }
 
@@ -25,6 +65,9 @@ class BgmManager {
     console.log('[BgmManager] 加载 BGM:', targetUrl);
 
     setTimeout(() => {
+      // 异步延迟里再检查一次，防止期间被占用
+      if (this.isExternallyHeld()) return;
+
       this.sound = new Sound(targetUrl, '', (error) => {
         if (error) {
           console.warn('[BgmManager] BGM 加载失败:', error);
@@ -35,6 +78,13 @@ class BgmManager {
           }
           return;
         }
+        // 加载完再检查一次
+        if (this.isExternallyHeld()) {
+          try { this.sound?.stop(); this.sound?.release(); } catch {}
+          this.sound = null;
+          this.isPlaying = false;
+          return;
+        }
         this.retryCount = 0;
         this.isPlaying = true;
         this.playLoop();
@@ -43,15 +93,13 @@ class BgmManager {
   }
 
   private playLoop() {
-    // 🔥 每次进入都做完整性检查
-    if (!this.sound || !this.isPlaying || this.isSuspendedForVideo) return;
+    if (!this.sound || !this.isPlaying || this.isExternallyHeld()) return;
 
-    const current = this.sound; // 捕获当前实例，防止中途被释放
+    const current = this.sound;
     try {
       current.play((success) => {
-        // 播放结束回调
-        if (!this.isPlaying || this.isSuspendedForVideo) return;
-        if (!this.sound || this.sound !== current) return; // 实例已被替换/释放，别再操作
+        if (!this.isPlaying || this.isExternallyHeld()) return;
+        if (!this.sound || this.sound !== current) return;
 
         if (success) {
           try {
@@ -64,7 +112,7 @@ class BgmManager {
           console.warn('[BgmManager] BGM 播放中断，1 秒后重试');
           if (this.restartTimer) clearTimeout(this.restartTimer);
           this.restartTimer = setTimeout(() => {
-            if (this.isPlaying && !this.isSuspendedForVideo) {
+            if (this.isPlaying && !this.isExternallyHeld()) {
               this.init(this.currentUrl);
             }
           }, 1000);
@@ -84,41 +132,23 @@ class BgmManager {
   }
 
   public resume() {
-    this.isSuspendedForVideo = false;
+    // 外部占用期间，不允许恢复
+    if (this.isExternallyHeld()) {
+      console.log('[BgmManager] resume 被拦截：外部占用中');
+      return;
+    }
     this.isPlaying = true;
-    // 🔥 如果没有实例或实例失效，重新加载
     if (!this.sound) {
       this.init(this.currentUrl);
       return;
     }
     try {
-      this.sound.getCurrentTime((seconds) => {
-        // getCurrentTime 是 Sound 提供的存活检测
-      });
+      this.sound.getCurrentTime(() => {});
       this.playLoop();
     } catch {
-      // 实例已经死掉，重新初始化
       this.init(this.currentUrl);
     }
     console.log('[BgmManager] resume 调用完成');
-  }
-
-  public suspendForVideo() {
-    if (this.isPlaying) {
-      this.isSuspendedForVideo = true;
-      if (this.sound) {
-        try { this.sound.pause(); } catch {}
-      }
-    }
-  }
-
-  public resumeFromVideo() {
-    if (this.isSuspendedForVideo) {
-      this.isSuspendedForVideo = false;
-      this.isPlaying = true;
-      if (this.sound) this.playLoop();
-      else this.init(this.currentUrl);
-    }
   }
 
   private releaseSound() {
