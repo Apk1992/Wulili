@@ -35,14 +35,16 @@ const SEASON_LABELS: Record<Season, string> = {
 
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-// ⚠️ R2 上无 shy.png，shy → blush.png
+// ⚠️ R2 实际文件：angry / blush / happy / normal / sad / sick / sleepy
+// 无 calm.png → 用 normal.png
+// 无 shy.png  → 用 blush.png
 const AVATAR_FILE_MAP: Record<Mood, string> = {
-  calm: 'calm.png',
-  happy: 'happy.png',
-  sad: 'sad.png',
-  sick: 'sick.png',
+  calm:   'normal.png',
+  happy:  'happy.png',
+  sad:    'sad.png',
+  sick:   'sick.png',
   sleepy: 'sleepy.png',
-  shy: 'blush.png',
+  shy:    'blush.png',
 };
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
@@ -72,14 +74,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  // 直播 / 睡眠时每秒 tick
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  // 场景图：睡觉 → 卧室；否则按季节 + 昼夜
   const sceneUri = useMemo(() => {
     if (isSleeping) return `${R2_BASE}/images/scenes/bedroom_sleep.png`;
     const seasonStr = season ?? 'autumn';
@@ -88,7 +88,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return `${R2_BASE}/images/scenes/living_${seasonStr}${isNight ? '_night' : ''}.png`;
   }, [isSleeping, season]);
 
-  // 当前情绪
   const mood: Mood = useMemo(() => {
     if (illness?.type && illness.type !== 'none') return 'sick';
     if (energy < 15) return 'sleepy';
@@ -98,7 +97,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return 'calm';
   }, [illness, energy, moodVal, affinity]);
 
-  // 睡觉时统一 sleepy
   const displayMood: Mood = isSleeping ? 'sleepy' : mood;
   const avatarUri = `${R2_BASE}/images/avatar/${AVATAR_FILE_MAP[displayMood]}`;
 
@@ -274,19 +272,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
                     resizeMode="contain"
                   />
                 </Pressable>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    color: '#FFFFFF',
-                    fontWeight: 'bold',
-                    marginTop: 3,
-                    textShadowColor: '#000',
-                    textShadowOffset: { width: 0, height: 1 },
-                    textShadowRadius: 2,
-                  }}
-                >
-                  {btn.label}
-                </Text>
               </View>
             ))}
           </View>
