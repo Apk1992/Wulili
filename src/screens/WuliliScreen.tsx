@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, Text, View, useWindowDimensions, Image } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import WuliliAvatar from '@/components/WuliliAvatar';
 import EventModal from '@/components/EventModal';
-import RemoteImage from '@/components/RemoteImage'; // 👈 引入图片组件
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
@@ -180,7 +179,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const canSleep = canStartSleep(energy);
   const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
-  // 🔥 图标绑定（对应你 R2 images/ui/ 下的图片）
   const actionButtons = [
     { img: 'images/ui/btn_feed.png', label: '投喂', onPress: () => navigation.navigate('Feed') },
     { img: 'images/ui/btn_game.png', label: '娱乐', onPress: () => navigation.navigate('Entertain') },
@@ -194,7 +192,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
         
-        {/* 背景与人物 */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.1} characterVerticalBias={0.25} characterHeightOverflow={1.15} characterHorizontalOffset={90} />
         </View>
@@ -227,24 +224,32 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           )}
         </View>
 
-        {/* 🔥 左侧美化按钮 */}
+        {/* 🔥 左侧自定义图片按钮 */}
         {!isSleeping && (
           <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.25 }}>
             {actionButtons.map((btn) => (
-              <View key={btn.label} style={{ marginBottom: 12 }}>
-                <Pressable onPress={btn.onPress} style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(15,23,42,0.6)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {/* 使用 RemoteImage 加载 R2 上的自定义图标 */}
-                  <RemoteImage 
-                    uri={`${R2_BASE}/${btn.img}`} 
-                    width={40} 
-                    height={40} 
-                    resizeMode="contain" 
-                    fallbackIcon="ellipse" 
-                    className="bg-transparent"
+              <View key={btn.label} style={{ marginBottom: 12, alignItems: 'center' }}>
+                <Pressable 
+                  onPress={btn.onPress} 
+                  style={{ 
+                    width: 64, 
+                    height: 64, 
+                    borderRadius: 32, 
+                    backgroundColor: 'rgba(15,23,42,0.6)', 
+                    borderWidth: 2, 
+                    borderColor: 'rgba(255,255,255,0.2)', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <Image 
+                    source={{ uri: `${R2_BASE}/${btn.img}` }}
+                    style={{ width: 44, height: 44 }}
+                    resizeMode="contain"
                   />
                 </Pressable>
-                {/* 按钮底部的文字 */}
-                <Text style={{ textAlign: 'center', fontSize: 10, color: '#FFFFFF', marginTop: 4, fontWeight: 'bold', textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
+                <Text style={{ fontSize: 10, color: '#FFFFFF', fontWeight: 'bold', marginTop: 4, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
                   {btn.label}
                 </Text>
               </View>
@@ -259,7 +264,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           </Pressable>
         )}
 
-        {/* 底部状态按钮 */}
+        {/* 底部按钮 */}
         <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
           {isSleeping ? (
             <Pressable onPress={handleWakeUp} style={{ backgroundColor: '#EF4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
