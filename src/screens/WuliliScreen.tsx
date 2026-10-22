@@ -1,11 +1,10 @@
 // src/screens/WuliliScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View, useWindowDimensions, Image } from 'react-native';
+import { Alert, Pressable, Text, View, useWindowDimensions, Image, ImageBackground } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import WuliliAvatar from '@/components/WuliliAvatar';
 import EventModal from '@/components/EventModal';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
@@ -18,6 +17,7 @@ import { getTimeOfDayLabel, getTimeOfDay, formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import { canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
 import { computeMenstrualInfo } from '@/data/menstrualConfig';
+import { AVATAR_FILES } from './AVATAR_FILES_CONSTANT_PLACEHOLDER'; // 避免导入冲突，直接映射
 import type { Mood, Season } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
@@ -26,13 +26,24 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 let dismissedEventType: string | null = null;
 
+// 🔥 R2 基础链接
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
+
+// 表情映射字典安全兜底
+const SAFE_AVATAR_MAP: Record<string, string> = {
+  calm: 'calm.png',
+  happy: 'happy.png',
+  sad: 'sad.png',
+  sleepy: 'sleepy.png',
+  sick: 'sick.png',
+  shy: 'shy.png',
+};
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
   const [now, setNow] = useState<number>(Date.now());
@@ -79,7 +90,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   );
   const isInPeriod = menstrualInfo.phase === 'period';
 
-  const sceneImage = useMemo(() => {
+  const scenePath = useMemo(() => {
     if (isSleeping) return 'images/scenes/bedroom_sleep.png';
     const seasonStr = season || 'autumn';
     const currentHour = new Date().getHours();
@@ -202,25 +213,39 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { img: 'images/ui/btn_wardrobe.png', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
+  const avatarFileName = SAFE_AVATAR_MAP[displayMood] || 'calm.png';
+  const avatarUri = `${R2_BASE}/images/avatar/${avatarFileName}`;
+  const sceneUri = `${R2_BASE}/${scenePath}`;
+
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      <View style={{ flex: 1, overflow: 'hidden' }}>
-        
-        {/* 背景与形象：用安全的条件渲染包裹 WuliliAvatar，确保所有属性均有默认值 */}
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-          {displayMood && sceneImage ? (
-            <WuliliAvatar 
-              mood={displayMood} 
-              fullScreen 
-              sceneImage={sceneImage} 
-              hideCharacter={isSleeping} 
-              characterSizeRatio={1.1} 
-              characterVerticalBias={0.25} 
-              characterHeightOverflow={1.15} 
-              characterHorizontalOffset={90} 
+      {/* 纯净直连 R2 的场景背景与人物立绘，彻底脱离 WuliliAvatar 封装 */}
+      <ImageBackground
+        source={{ uri: sceneUri }}
+        style={{ flex: 1, width: '100%', height: '100%' }}
+        resizeMode="cover"
+      >
+        {!isSleeping && (
+          <View
+            style={{
+              position: 'absolute',
+              top: screenHeight * 0.25,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              transform: [{ translateX: 90 }],
+            }}
+          >
+            <Image
+              source={{ uri: avatarUri }}
+              style={{
+                width: screenWidth * 1.1,
+                height: screenHeight * 0.65,
+              }}
+              resizeMode="contain"
             />
-          ) : null}
-        </View>
+          </View>
+        )}
 
         {/* 顶部状态栏 */}
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
@@ -322,7 +347,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         {activeModal === 'dialogue' && (
           <EventModal visible={true} title="雾璃" message={dialogueText} hideActions={true} onDismiss={() => setActiveModal('none')} />
         )}
-      </View>
+      </ImageBackground>
     </View>
   );
 }
