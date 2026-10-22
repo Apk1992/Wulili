@@ -1,14 +1,12 @@
-// src/screens/WuliliScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, Text, View, useWindowDimensions, Image, ImageBackground } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import EventModal from '@/components/EventModal';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useSeason } from '@/hooks/useSeason';
-import { bgmManager } from '@/services/bgmManager';
+import { useBgm } from '@/hooks/useBgm';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
@@ -16,193 +14,77 @@ import { useAffinity } from '@/hooks/useAffinity';
 import { getTimeOfDayLabel, getTimeOfDay, formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import { canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
-import { computeMenstrualInfo } from '@/data/menstrualConfig';
-import { AVATAR_FILES } from './AVATAR_FILES_CONSTANT_PLACEHOLDER'; // 避免导入冲突，直接映射
 import type { Mood, Season } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
-
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
-let dismissedEventType: string | null = null;
-
-// 🔥 R2 基础链接
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-// 表情映射字典安全兜底
-const SAFE_AVATAR_MAP: Record<string, string> = {
-  calm: 'calm.png',
-  happy: 'happy.png',
-  sad: 'sad.png',
-  sleepy: 'sleepy.png',
-  sick: 'sick.png',
-  shy: 'shy.png',
-};
-
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
-  const { speak } = useDialogue();
+  useBgm();
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
   const [now, setNow] = useState<number>(Date.now());
-  const [activeModal, setActiveModal] = useState<'none' | 'dialogue' | 'event'>('none');
-  const [eventConfig, setEventConfig] = useState<{ title: string; msg: string; type: string } | null>(null);
-  const [dialogueText, setDialogueText] = useState<string>('');
+  const [mood, setMood] = useState<Mood>(() => computeMood());
 
   const timeOfDay = getTimeOfDay();
-  
-  const wuliliState = useWuliliStore((s) => s.state) || {};
-  const illness = wuliliState?.illness;
-  const menstrual = wuliliState?.menstrual;
-  const coins = wuliliState?.coins ?? 0;
-  const energy = wuliliState?.stats?.energy ?? 100;
-  const satiety = wuliliState?.stats?.satiety ?? 100;
-  const moodVal = wuliliState?.stats?.mood ?? 80;
-  const affinity = useWuliliStore((s) => s.affinity) ?? 0;
-  const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
-  const markInteraction = useWuliliStore((s) => s.markInteraction);
-
-  const streamState = useStreamStore((s) => s.state) || {};
-  const isStreaming = streamState?.isStreaming ?? false;
-  const streamStartedAt = streamState?.startedAt;
-
-  const sleepState = useSleepStore((s) => s.state) || {};
-  const isSleeping = sleepState?.isSleeping ?? false;
-  const sleepStartedAt = sleepState?.startedAt;
-  const sleepTotalSeconds = sleepState?.totalSeconds ?? 0;
+  const energy = useWuliliStore((s) => s.state?.stats?.energy) ?? 100;
+  const coins = useWuliliStore((s) => s.state?.coins) ?? 0;
+  const isStreaming = useStreamStore((s) => s.state?.isStreaming) ?? false;
+  const streamStartedAt = useStreamStore((s) => s.state?.startedAt);
+  const isSleeping = useSleepStore((s) => s.state?.isSleeping) ?? false;
+  const sleepStartedAt = useSleepStore((s) => s.state?.startedAt);
+  const sleepTotalSeconds = useSleepStore((s) => s.state?.totalSeconds) ?? 0;
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  const mood: Mood = useMemo(() => {
-    if (illness?.type && illness.type !== 'none') return 'sick';
-    if (energy < 15) return 'sleepy';
-    if (moodVal < 30) return 'sad';
-    if (moodVal >= 80) return 'happy';
-    if (affinity >= 60) return 'shy';
-    return 'calm';
-  }, [illness, energy, moodVal, affinity]);
-
-  const menstrualInfo = useMemo(
-    () => menstrual ? computeMenstrualInfo(menstrual) : { phase: 'unknown', isMedicineActive: false, dayInCycle: 0 },
-    [menstrual, now]
-  );
-  const isInPeriod = menstrualInfo.phase === 'period';
-
-  const scenePath = useMemo(() => {
-    if (isSleeping) return 'images/scenes/bedroom_sleep.png';
-    const seasonStr = season || 'autumn';
-    const currentHour = new Date().getHours();
-    const isNight = currentHour >= 18 || currentHour < 6;
-    const suffix = isNight ? '_night' : '';
-    return `images/scenes/living_${seasonStr}${suffix}.png`;
-  }, [isSleeping, season]);
-
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
   }, [isStreaming, isSleeping]);
 
-  useFocusEffect(
-    useCallback(() => {
-      bgmManager.init();
+  const sceneUri = useMemo(() => {
+    if (isSleeping) return `${R2_BASE}/images/scenes/bedroom_sleep.png`;
+    const seasonStr = season ?? 'autumn';
+    const h = new Date().getHours();
+    const isNight = h >= 18 || h < 6;
+    return `${R2_BASE}/images/scenes/living_${seasonStr}${isNight ? '_night' : ''}.png`;
+  }, [isSleeping, season]);
 
-      try {
-        if (typeof updateLoginStreak === 'function') updateLoginStreak();
-        if (isSleeping || activeModal !== 'none') return;
-
-        if (illness && illness.type !== 'none' && dismissedEventType !== 'sick') {
-          setEventConfig({ title: '雾璃生病了', msg: '她看起来很难受，一直咳嗽。需要带她去药房吗？', type: 'sick' });
-          setActiveModal('event');
-          return;
-        }
-
-        if (isInPeriod && !menstrualInfo.isMedicineActive && dismissedEventType !== 'period') {
-          setEventConfig({ title: '经期不适', msg: '雾璃捂着肚子，脸色有点苍白，可能需要吃点布洛芬。', type: 'period' });
-          setActiveModal('event');
-          return;
-        }
-
-        if (satiety < 30 && dismissedEventType !== 'hungry') {
-          setEventConfig({ title: '她饿了', msg: '肚子发出了咕咕的声音... 要给她弄点吃的吗？', type: 'hungry' });
-          setActiveModal('event');
-          return;
-        }
-
-        if (energy < 20 && dismissedEventType !== 'sleepy') {
-          setEventConfig({ title: '非常疲惫', msg: '雾璃的眼皮在打架，看来今天真的累坏了。', type: 'sleepy' });
-          setActiveModal('event');
-          return;
-        }
-
-        if (typeof speak === 'function') {
-          const greeting = speak({ forceCategory: 'greeting' });
-          if (greeting) {
-            const text = typeof greeting === 'string' ? greeting : (greeting as any).text;
-            if (typeof text === 'string') {
-              setDialogueText(text);
-              setActiveModal('dialogue');
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('触发主页事件失败:', err);
-      }
-    }, [illness, isInPeriod, menstrualInfo.isMedicineActive, satiety, energy, isSleeping, speak, updateLoginStreak, activeModal])
-  );
-
-  const handleModalDismiss = () => {
-    if (eventConfig) dismissedEventType = eventConfig.type;
-    setActiveModal('none');
-    setEventConfig(null);
-  };
-
-  const getEventActions = () => {
-    if (!eventConfig) return [];
-    const dismissAction = { label: '暂时不理她', icon: '', onPress: handleModalDismiss };
-
-    switch (eventConfig.type) {
-      case 'sick':
-      case 'period':
-        return [
-          { label: '马上带她去药房', icon: '', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Medicine'); } },
-          dismissAction
-        ];
-      case 'hungry':
-        return [
-          { label: '去厨房投喂', icon: '', primary: true, onPress: () => { setActiveModal('none'); navigation.navigate('Feed'); } },
-          { label: '让她先饿着', icon: '', onPress: handleModalDismiss }
-        ];
-      case 'sleepy':
-        return [
-          { label: '哄她睡觉', icon: '', primary: true, onPress: () => { setActiveModal('none'); startSleep(); markInteraction('sleep'); } },
-          dismissAction
-        ];
-      default:
-        return [dismissAction];
+  const avatarFileName = useMemo(() => {
+    switch (mood) {
+      case 'sick': return 'sick.png';
+      case 'sleepy': return 'sleepy.png';
+      case 'sad': return 'sad.png';
+      case 'happy': return 'happy.png';
+      case 'shy': return 'shy.png';
+      default: return 'calm.png';
     }
-  };
+  }, [mood]);
 
   const handleSleepPress = () => {
     if (isStreaming) return Alert.alert('正在直播', '要先下播才能睡觉哦。');
     if (isSleeping) return handleWakeUp();
     if (!canStartSleep(energy)) return Alert.alert('还不困', '雾璃现在精力充沛，不需要睡觉。');
     startSleep();
-    markInteraction('sleep');
+    useWuliliStore.getState().markInteraction('sleep');
   };
 
   const handleWakeUp = () => {
     stopSleep();
-    const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
-    Alert.alert('已起床', `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + sleepElapsedMs / 1000)}，精力恢复了一些。`);
+    setMood('happy');
+    const elapsed = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
+    Alert.alert('已起床', `雾璃睡了 ${formatSleepDuration(sleepTotalSeconds + elapsed / 1000)}，精力恢复了一些。`);
   };
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
   const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
   const canSleep = canStartSleep(energy);
-  const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
   const actionButtons = [
     { img: 'images/ui/btn_feed.png', label: '投喂', onPress: () => navigation.navigate('Feed') },
@@ -213,143 +95,74 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     { img: 'images/ui/btn_wardrobe.png', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
-  const avatarFileName = SAFE_AVATAR_MAP[displayMood] || 'calm.png';
-  const avatarUri = `${R2_BASE}/images/avatar/${avatarFileName}`;
-  const sceneUri = `${R2_BASE}/${scenePath}`;
-
   return (
-    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      {/* 纯净直连 R2 的场景背景与人物立绘，彻底脱离 WuliliAvatar 封装 */}
-      <ImageBackground
-        source={{ uri: sceneUri }}
-        style={{ flex: 1, width: '100%', height: '100%' }}
-        resizeMode="cover"
-      >
-        {!isSleeping && (
-          <View
-            style={{
-              position: 'absolute',
-              top: screenHeight * 0.25,
-              left: 0,
-              right: 0,
-              alignItems: 'center',
-              transform: [{ translateX: 90 }],
-            }}
-          >
-            <Image
-              source={{ uri: avatarUri }}
-              style={{
-                width: screenWidth * 1.1,
-                height: screenHeight * 0.65,
-              }}
-              resizeMode="contain"
-            />
+    <ImageBackground source={{ uri: sceneUri }} style={{ flex: 1 }} resizeMode="cover">
+      {!isSleeping && (
+        <Image
+          source={{ uri: `${R2_BASE}/images/avatar/${avatarFileName}` }}
+          style={{
+            position: 'absolute',
+            width: screenWidth * 0.85,
+            height: screenHeight * 0.60,
+            left: (screenWidth - screenWidth * 0.85) / 2,
+            top: screenHeight * 0.30,
+          }}
+          resizeMode="contain"
+        />
+      )}
+
+      <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
+            <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text>
           </View>
-        )}
-
-        {/* 顶部状态栏 */}
-        <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
-              <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel ?? '新手'}</Text>
-            </View>
-            <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ marginLeft: 4, fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>💰 {formatNumber(coins)}</Text>
-            </View>
+          <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
+            <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>💰 {formatNumber(coins)}</Text>
           </View>
-
-          {isStreaming && (
-            <Pressable onPress={() => navigation.navigate('Stream')} style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.9)' }}>
-              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>🔴 正在直播中</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已播 {formatDuration(streamElapsedMs)} · 点此查看</Text></View>
-            </Pressable>
-          )}
-
-          {isSleeping && (
-            <View style={{ marginBottom: 8, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(99,102,241,0.9)' }}>
-              <View style={{ marginLeft: 8, flex: 1 }}><Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '600' }}>💤 雾璃正在睡觉</Text><Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 10, marginTop: 2 }}>已睡 {formatSleepDuration(sleepElapsedMs / 1000)}</Text></View>
-            </View>
-          )}
         </View>
+        {isStreaming && <Text style={{ color: 'red', fontSize: 20 }}>正在直播</Text>}
+        {isSleeping && <Text style={{ color: 'blue', fontSize: 20 }}>正在睡觉</Text>}
+      </View>
 
-        {/* 左侧自定义 R2 图片按钮 */}
-        {!isSleeping && (
-          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.22 }}>
-            {actionButtons.map((btn) => (
-              <View key={btn.label} style={{ marginBottom: 10, alignItems: 'center' }}>
-                <Pressable 
-                  onPress={btn.onPress} 
-                  style={{ 
-                    width: 58, 
-                    height: 58, 
-                    borderRadius: 29, 
-                    backgroundColor: 'rgba(15,23,42,0.6)', 
-                    borderWidth: 2, 
-                    borderColor: 'rgba(255,255,255,0.25)', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    overflow: 'hidden'
-                  }}
-                >
-                  <Image 
-                    source={{ uri: `${R2_BASE}/${btn.img}` }}
-                    style={{ width: 38, height: 38 }}
-                    resizeMode="contain"
-                  />
-                </Pressable>
-                <Text style={{ fontSize: 10, color: '#FFFFFF', fontWeight: 'bold', marginTop: 3, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
-                  {btn.label}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* 睡觉按钮 */}
-        {!isSleeping && (
-          <Pressable 
-            onPress={handleSleepPress} 
-            disabled={!canSleep} 
-            style={{ 
-              position: 'absolute', 
-              right: 16, 
-              top: screenHeight * 0.22, 
-              width: 52, 
-              height: 52, 
-              borderRadius: 26, 
-              backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', 
-              borderWidth: 2, 
-              borderColor: 'rgba(255,255,255,0.4)', 
-              alignItems: 'center', 
-              justifyContent: 'center' 
-            }}
-          >
-            <Text style={{ fontSize: 22 }}>🌙</Text>
-          </Pressable>
-        )}
-
-        {/* 底部状态跳转按钮 */}
-        <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
-          {isSleeping ? (
-            <Pressable onPress={handleWakeUp} style={{ backgroundColor: '#EF4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>叫醒她</Text>
-            </Pressable>
-          ) : (
-            <Pressable onPress={() => navigation.navigate('Status')} style={{ backgroundColor: '#2563EB', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>查看雾璃的状态</Text>
-            </Pressable>
-          )}
+      {!isSleeping && (
+        <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.25 }}>
+          {actionButtons.map((btn) => (
+            <View key={btn.label} style={{ marginBottom: 12, alignItems: 'center' }}>
+              <Pressable onPress={btn.onPress} style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(15,23,42,0.6)', borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                <Image source={{ uri: `${R2_BASE}/${btn.img}` }} style={{ width: 44, height: 44 }} resizeMode="contain" />
+              </Pressable>
+              <Text style={{ fontSize: 10, color: '#FFFFFF', marginTop: 4 }}>{btn.label}</Text>
+            </View>
+          ))}
         </View>
+      )}
 
-        {/* 弹窗 */}
-        {activeModal === 'event' && eventConfig && (
-          <EventModal visible={true} title={eventConfig.title} message={eventConfig.msg} actions={getEventActions()} />
+      {!isSleeping && (
+        <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.25, width: 56, height: 56, borderRadius: 28, backgroundColor: !canSleep ? 'gray' : 'red', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 24 }}>🌙</Text>
+        </Pressable>
+      )}
+
+      <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
+        {isSleeping ? (
+          <Pressable onPress={handleWakeUp} style={{ backgroundColor: 'red', padding: 16, alignItems: 'center' }}><Text style={{ color: 'white' }}>叫醒她</Text></Pressable>
+        ) : (
+          <Pressable onPress={() => navigation.navigate('Status')} style={{ backgroundColor: 'blue', padding: 16, alignItems: 'center' }}><Text style={{ color: 'white' }}>查看状态</Text></Pressable>
         )}
-        {activeModal === 'dialogue' && (
-          <EventModal visible={true} title="雾璃" message={dialogueText} hideActions={true} onDismiss={() => setActiveModal('none')} />
-        )}
-      </ImageBackground>
-    </View>
+      </View>
+    </ImageBackground>
   );
+}
+
+function computeMood(): Mood {
+  const s = useWuliliStore.getState().state;
+  if (!s) return 'calm';
+  if (s.illness?.type !== 'none') return 'sick';
+  if ((s.stats?.energy ?? 100) < 15) return 'sleepy';
+  if ((s.stats?.mood ?? 80) < 30) return 'sad';
+  if ((s.stats?.mood ?? 80) >= 80) return 'happy';
+  if ((s.affinity ?? 0) >= 60) return 'shy';
+  return 'calm';
 }
 
 export default WuliliScreen;
