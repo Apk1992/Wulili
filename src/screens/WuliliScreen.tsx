@@ -43,24 +43,26 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   const timeOfDay = getTimeOfDay();
   
-  // 使用 Zustand 订阅状态，保证响应式
-  const wuliliState = useWuliliStore((s) => s.state);
+  // 安全获取 Zustand 状态，带默认空对象防御
+  const wuliliState = useWuliliStore((s) => s.state) || {};
   const illness = wuliliState?.illness;
   const menstrual = wuliliState?.menstrual;
   const coins = wuliliState?.coins ?? 0;
   const energy = wuliliState?.stats?.energy ?? 100;
   const satiety = wuliliState?.stats?.satiety ?? 100;
   const moodVal = wuliliState?.stats?.mood ?? 80;
-  const affinity = useWuliliStore((s) => s.affinity);
+  const affinity = useWuliliStore((s) => s.affinity) ?? 0;
   const updateLoginStreak = useWuliliStore((s) => s.updateLoginStreak);
   const markInteraction = useWuliliStore((s) => s.markInteraction);
 
-  const isStreaming = useStreamStore((s) => s.state?.isStreaming) ?? false;
-  const streamStartedAt = useStreamStore((s) => s.state?.startedAt);
+  const streamState = useStreamStore((s) => s.state) || {};
+  const isStreaming = streamState?.isStreaming ?? false;
+  const streamStartedAt = streamState?.startedAt;
 
-  const isSleeping = useSleepStore((s) => s.state?.isSleeping) ?? false;
-  const sleepStartedAt = useSleepStore((s) => s.state?.startedAt);
-  const sleepTotalSeconds = useSleepStore((s) => s.state?.totalSeconds) ?? 0;
+  const sleepState = useSleepStore((s) => s.state) || {};
+  const isSleeping = sleepState?.isSleeping ?? false;
+  const sleepStartedAt = sleepState?.startedAt;
+  const sleepTotalSeconds = sleepState?.totalSeconds ?? 0;
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
@@ -89,21 +91,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return `images/scenes/living_${seasonStr}${suffix}.png`;
   }, [isSleeping, season]);
 
-  // 定时刷新（直播或睡觉时刷新时间差）
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  // 页面聚焦时触发 BGM 和事件检测
   useFocusEffect(
     useCallback(() => {
-      // 确保 BGM 稳妥启动
       bgmManager.init();
 
       try {
-        updateLoginStreak();
+        if (typeof updateLoginStreak === 'function') {
+          updateLoginStreak();
+        }
         if (isSleeping || activeModal !== 'none') return;
 
         if (illness && illness.type !== 'none' && dismissedEventType !== 'sick') {
@@ -130,12 +131,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
           return;
         }
 
-        const greeting = speak({ forceCategory: 'greeting' });
-        if (greeting) {
-          const text = typeof greeting === 'string' ? greeting : (greeting as any).text;
-          if (typeof text === 'string') {
-            setDialogueText(text);
-            setActiveModal('dialogue');
+        if (typeof speak === 'function') {
+          const greeting = speak({ forceCategory: 'greeting' });
+          if (greeting) {
+            const text = typeof greeting === 'string' ? greeting : (greeting as any).text;
+            if (typeof text === 'string') {
+              setDialogueText(text);
+              setActiveModal('dialogue');
+            }
           }
         }
       } catch (err) {
@@ -218,7 +221,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         <View style={{ position: 'absolute', left: 0, right: 0, top: insets.top + 12, paddingHorizontal: 16 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4 }}>
-              <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel}</Text>
+              <Text style={{ fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>{getTimeOfDayLabel(timeOfDay)} · {SEASON_LABELS[season] ?? ''}季 · {levelLabel ?? '新手'}</Text>
             </View>
             <View style={{ borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 4, flexDirection: 'row', alignItems: 'center' }}>
               <Text style={{ marginLeft: 4, fontSize: 12, color: '#FFFFFF', fontWeight: '500' }}>💰 {formatNumber(coins)}</Text>
@@ -273,7 +276,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 睡觉按钮 */}
         {!isSleeping && (
-          <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.22, width: 52, height: 52, borderRadius: 26, backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center' }}>
+          <Pressable 
+            onPress={handleSleepPress} 
+            disabled={!canSleep} 
+            style={{ 
+              position: 'absolute', 
+              right: 16, 
+              top: screenHeight * 0.22, 
+              width: 52, 
+              height: 52, 
+              borderRadius: 26, 
+              backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', 
+              borderWidth: 2, 
+              borderColor: 'rgba(255,255,255,0.4)', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}
+          >
             <Text style={{ fontSize: 22 }}>🌙</Text>
           </Pressable>
         )}
