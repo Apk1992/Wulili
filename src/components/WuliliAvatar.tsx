@@ -23,7 +23,7 @@ export interface WuliliAvatarProps {
   characterVerticalBias?: number;
   characterHeightOverflow?: number;
   characterBottomOffset?: number;
-  characterHorizontalOffset?: number; // 👈 新增：水平偏移量，正数向右
+  characterHorizontalOffset?: number;
 }
 
 const RAW_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
@@ -38,7 +38,7 @@ export function WuliliAvatar({
   characterSizeRatio = 1.2,
   characterVerticalBias = 0.25,
   characterHeightOverflow = 1.5,
-  characterHorizontalOffset = 0, // 默认 0
+  characterHorizontalOffset = 0,
 }: WuliliAvatarProps): React.JSX.Element {
   const useRemoteImages = useSettingsStore((s) => s.settings.useRemoteImages);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -47,7 +47,8 @@ export function WuliliAvatar({
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const avatarFile = AVATAR_FILES[mood];
+  // 🔥 核心防护：防止 AVATAR_FILES[mood] 为 undefined 引发连锁崩溃
+  const avatarFile = (AVATAR_FILES && mood && AVATAR_FILES[mood]) || 'calm.png';
   const avatarUri = useRemoteImages && avatarFile ? `${RAW_BASE}/images/avatar/${avatarFile}` : null;
 
   const primaryPath = typeof sceneImage === 'string' ? sceneImage : sceneImage?.primary;
@@ -71,7 +72,7 @@ export function WuliliAvatar({
   const character = hideCharacter ? null : (
     <View
       style={{
-        transform: [{ translateX: characterHorizontalOffset }], // 👈 核心：水平平移实现靠右出屏
+        transform: [{ translateX: characterHorizontalOffset }],
       }}
     >
       <RemoteImage
