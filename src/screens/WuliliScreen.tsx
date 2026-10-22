@@ -197,12 +197,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   // 6个 R2 UI 按钮
   const actionButtons = [
-    { img: 'images/ui/btn_feed.png', onPress: () => navigation.navigate('Feed') },
-    { img: 'images/ui/btn_game.png', onPress: () => navigation.navigate('Entertain') },
-    { img: 'images/ui/btn_stream.png', onPress: () => navigation.navigate('Stream') },
-    { img: 'images/ui/btn_exercise.png', onPress: () => navigation.navigate('Exercise') },
-    { img: 'images/ui/btn_medicine.png', onPress: () => navigation.navigate('Medicine') },
-    { img: 'images/ui/btn_wardrobe.png', onPress: () => navigation.navigate('Shop') },
+    { img: 'images/ui/btn_feed.png', label: '投喂', onPress: () => navigation.navigate('Feed') },
+    { img: 'images/ui/btn_game.png', label: '娱乐', onPress: () => navigation.navigate('Entertain') },
+    { img: 'images/ui/btn_stream.png', label: '直播', onPress: () => navigation.navigate('Stream') },
+    { img: 'images/ui/btn_exercise.png', label: '运动', onPress: () => navigation.navigate('Exercise') },
+    { img: 'images/ui/btn_medicine.png', label: '药房', onPress: () => navigation.navigate('Medicine') },
+    { img: 'images/ui/btn_wardrobe.png', label: '衣柜', onPress: () => navigation.navigate('Shop') },
   ];
 
   return (
@@ -273,4 +273,34 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* 睡觉按钮 */}
         {!isSleeping && (
-          <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.22, width: 52, height: 52, borderRadius: 26, backgroundColor: !canSleep ? 'rgba(100,116,139,0.
+          <Pressable onPress={handleSleepPress} disabled={!canSleep} style={{ position: 'absolute', right: 16, top: screenHeight * 0.22, width: 52, height: 52, borderRadius: 26, backgroundColor: !canSleep ? 'rgba(100,116,139,0.8)' : '#EF4444', borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 22 }}>🌙</Text>
+          </Pressable>
+        )}
+
+        {/* 底部状态跳转按钮 */}
+        <View style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
+          {isSleeping ? (
+            <Pressable onPress={handleWakeUp} style={{ backgroundColor: '#EF4444', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>叫醒她</Text>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => navigation.navigate('Status')} style={{ backgroundColor: '#2563EB', borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: 'bold' }}>查看雾璃的状态</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* 弹窗 */}
+        {activeModal === 'event' && eventConfig && (
+          <EventModal visible={true} title={eventConfig.title} message={eventConfig.msg} actions={getEventActions()} />
+        )}
+        {activeModal === 'dialogue' && (
+          <EventModal visible={true} title="雾璃" message={dialogueText} hideActions={true} onDismiss={() => setActiveModal('none')} />
+        )}
+      </View>
+    </View>
+  );
+}
+
+export default WuliliScreen;
