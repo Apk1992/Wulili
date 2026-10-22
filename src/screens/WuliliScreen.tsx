@@ -26,7 +26,6 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Tabs'>;
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' };
 let dismissedEventType: string | null = null;
 
-// 🔥 R2 基础链接
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
@@ -43,7 +42,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
   const timeOfDay = getTimeOfDay();
   
-  // 安全获取 Zustand 状态，带默认空对象防御
   const wuliliState = useWuliliStore((s) => s.state) || {};
   const illness = wuliliState?.illness;
   const menstrual = wuliliState?.menstrual;
@@ -66,7 +64,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  // 计算当前情绪状态
   const mood: Mood = useMemo(() => {
     if (illness?.type && illness.type !== 'none') return 'sick';
     if (energy < 15) return 'sleepy';
@@ -102,9 +99,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
       bgmManager.init();
 
       try {
-        if (typeof updateLoginStreak === 'function') {
-          updateLoginStreak();
-        }
+        if (typeof updateLoginStreak === 'function') updateLoginStreak();
         if (isSleeping || activeModal !== 'none') return;
 
         if (illness && illness.type !== 'none' && dismissedEventType !== 'sick') {
@@ -198,7 +193,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const canSleep = canStartSleep(energy);
   const displayMood: Mood = isSleeping ? 'sleepy' : isInPeriod ? 'sad' : mood;
 
-  // 6个 R2 UI 按钮
   const actionButtons = [
     { img: 'images/ui/btn_feed.png', label: '投喂', onPress: () => navigation.navigate('Feed') },
     { img: 'images/ui/btn_game.png', label: '娱乐', onPress: () => navigation.navigate('Entertain') },
@@ -212,9 +206,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       <View style={{ flex: 1, overflow: 'hidden' }}>
         
-        {/* 背景与形象 */}
+        {/* 背景与形象：用安全的条件渲染包裹 WuliliAvatar，确保所有属性均有默认值 */}
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-          <WuliliAvatar mood={displayMood} fullScreen sceneImage={sceneImage} hideCharacter={isSleeping} characterSizeRatio={1.1} characterVerticalBias={0.25} characterHeightOverflow={1.15} characterHorizontalOffset={90} />
+          {displayMood && sceneImage ? (
+            <WuliliAvatar 
+              mood={displayMood} 
+              fullScreen 
+              sceneImage={sceneImage} 
+              hideCharacter={isSleeping} 
+              characterSizeRatio={1.1} 
+              characterVerticalBias={0.25} 
+              characterHeightOverflow={1.15} 
+              characterHorizontalOffset={90} 
+            />
+          ) : null}
         </View>
 
         {/* 顶部状态栏 */}
