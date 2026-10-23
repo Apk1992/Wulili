@@ -1,6 +1,6 @@
 // src/screens/MusicPlayerScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View, ActivityIndicator } from 'react-native';
+import { FlatList, Pressable, Text, View, ActivityIndicator, Alert } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -32,14 +32,12 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-const NEW_FILES_KEY = '@wulili/known_files_r2_music_v7';
+const NEW_FILES_KEY = '@wulili/known_files_r2_music_v8';   // v7 → v8，清旧缓存
 
-// 🔥 按段编码中文
 function encodeR2Url(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
-// 🔥 你验证过能开的 URL（浏览器直接开能听）
 const TEST_URL =
   'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/%E5%93%84%E7%9D%A1%E8%AF%BB%E6%96%87/2026%E5%B9%B410%E6%9C%8815%E6%97%A5-%E5%BD%92%E5%AE%BF.m4a';
 
@@ -90,7 +88,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       .catch(() => {});
   }, []);
 
-  // 进入回忆页占用音频；离开时释放
   useFocusEffect(
     useCallback(() => {
       bgmManager.acquireExternal('memory-player');
@@ -141,19 +138,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles) };
   }, [rawData, knownFiles]);
 
-  // 🔍 测试日志 1：items 里的每条记录
-  useEffect(() => {
-    console.log('[TEST-1] items 列表:');
-    items.forEach((it, i) => {
-      console.log(`  [${i}]`, {
-        name: it.name,
-        displayName: it.displayName,
-        path: it.path,
-        isNew: it.isNew,
-      });
-    });
-  }, [items]);
-
   const handleFolderPress = (path: string) => setCurrentPath(path);
 
   const handleGoBackFolder = () => {
@@ -186,12 +170,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], async (event) => {
     try {
       const index = event.index;
-      // 🔍 测试日志 2：TrackChanged 实际拿到什么
-      console.log('[TEST-2] PlaybackActiveTrackChanged:', {
-        index,
-        itemsLength: items.length,
-        itemAtIndex: typeof index === 'number' ? items[index] : null,
-      });
       if (typeof index === 'number' && index >= 0 && index < items.length) {
         setCurrentIndex(index);
         isSeekingRef.current = false;
@@ -204,21 +182,12 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
           error: null,
         }));
       }
-    } catch (e) {
-      console.error('[TEST-2] event 处理异常:', e);
-    }
+    } catch {}
   });
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
     return musicItems.map((item) => {
       const url = `${R2_BASE_URL}/${encodeR2Url(item.path)}`;
-      // 🔍 测试日志 3：实际传给 TrackPlayer 的 track
-      console.log('[TEST-3] buildTracks:', {
-        name: item.name,
-        displayName: item.displayName,
-        path: item.path,
-        url,
-      });
       return {
         id: item.id,
         url,
@@ -239,9 +208,8 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
         await TrackPlayer.skip(startIndex);
         await TrackPlayer.play();
         setCurrentIndex(startIndex);
-      } catch (e) {
-        // 🔍 测试日志 4：ensureQueue 失败原因
-        console.error('[TEST-4] ensureQueue 失败:', e);
+      } catch (e: any) {
+        Alert.alert('ensureQueue 失败', String(e?.message ?? e));
         throw e;
       }
     },
@@ -252,7 +220,32 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     async (index: number) => {
       try {
         const item = items[index];
-        if (!item) return;
+        if (!item) {
+          Alert.alert('调试', `items[${index}] 不存在，items.length = ${items.length}`);
+          return;
+        }
+
+        // 🔥 关键调试弹窗：点音频时显示真实 path / url
+        const trackUrl = `${R2_BASE_URL}/${encodeR2Url(item.path)}`;
+        Alert.alert(
+          `点击音频调试 (index=${index})`,
+          [
+            `name: ${item.name}`,
+            '',
+            `displayName: ${item.displayName}`,
+            '',
+            `path: ${item.path}`,
+            '',
+            `url:`,
+            trackUrl,
+            '',
+            `TEST_URL 对比:`,
+            TEST_URL,
+            '',
+            `两者是否相同: ${trackUrl === TEST_URL ? '✅ 相同' : '❌ 不同'}`,
+          ].join('\n'),
+          [{ text: '知道了' }],
+        );
 
         const newKnown = {
           ...knownFiles,
@@ -290,18 +283,17 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             setCurrentIndex(index);
           }
         }
-      } catch (e) {
-        console.error('[handlePlayAt] 失败:', e);
+      } catch (e: any) {
+        Alert.alert('handlePlayAt 失败', String(e?.message ?? e));
         setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
       }
     },
     [items, ensureQueue, knownFiles],
   );
 
-  // 🔍 手动测试：直接用你验证过能开的 URL 播一次
+  // 🧪 测试播放按钮
   const handleTestPlay = useCallback(async () => {
     try {
-      console.log('[TEST-5] 手动播放开始，URL =', TEST_URL);
       await TrackPlayer.reset();
       await TrackPlayer.add({
         id: 'test-track',
@@ -310,24 +302,27 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
         artist: '测试',
       });
       await TrackPlayer.play();
-      console.log('[TEST-5] TrackPlayer.play() 调用完成');
 
-      // 500ms 后查状态
       setTimeout(async () => {
         try {
           const state = await TrackPlayer.getPlaybackState();
-          const progress = await TrackPlayer.getProgress();
-          console.log('[TEST-5] 500ms 后状态:', {
-            state: state.state,
-            position: progress.position,
-            duration: progress.duration,
-          });
-        } catch (e) {
-          console.error('[TEST-5] 查状态失败:', e);
+          const prog = await TrackPlayer.getProgress();
+          Alert.alert(
+            '测试播放 500ms 后状态',
+            [
+              `state: ${state.state}`,
+              `（3=Playing, 2=Buffering, 6=Error, 1=Ready）`,
+              '',
+              `position: ${prog.position.toFixed(2)}s`,
+              `duration: ${prog.duration.toFixed(2)}s`,
+            ].join('\n'),
+          );
+        } catch (e: any) {
+          Alert.alert('查状态失败', String(e?.message ?? e));
         }
       }, 500);
-    } catch (e) {
-      console.error('[TEST-5] 手动播放失败:', e);
+    } catch (e: any) {
+      Alert.alert('测试播放失败', String(e?.message ?? e));
     }
   }, []);
 
@@ -426,7 +421,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
-      {/* 🔍 测试按钮：手动播放 TEST_URL */}
+      {/* 🧪 测试按钮 */}
       <Pressable
         onPress={() => void handleTestPlay()}
         style={{
@@ -438,7 +433,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
         }}
       >
         <Text style={{ color: '#fff', fontWeight: 'bold' }}>
-          🧪 测试播放（直接播 TEST_URL）
+          🧪 测试播放（TEST_URL）
         </Text>
       </Pressable>
 
