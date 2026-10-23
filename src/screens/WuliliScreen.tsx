@@ -48,9 +48,9 @@ const AVATAR_FILE_MAP: Record<Mood, string> = {
 };
 
 // ===== 人物立绘布局参数（只调这三个） =====
-const AVATAR_SCALE        = 1.80;   // 人物大小：1.0 原尺寸，1.35 放大 35%
-const AVATAR_TOP_RATIO    = 0.05;   // 顶部位置：0.25 = 屏幕上往下 28%
-const AVATAR_RIGHT_ANCHOR = 0.70;   // 右边缘超出屏幕比例：0.15 = 超出 15% 屏宽
+const AVATAR_SCALE        = 1.35;
+const AVATAR_TOP_RATIO    = 0.28;
+const AVATAR_RIGHT_ANCHOR = 0.15;
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
@@ -79,23 +79,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const startSleep = useSleepStore((s) => s.start);
   const stopSleep = useSleepStore((s) => s.stop);
 
-  // 直播 / 睡眠时每秒 tick，用于计时展示
   useEffect(() => {
     if (!isStreaming && !isSleeping) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
-  // 场景图：睡觉 → 卧室；否则按季节 + 昼夜
-  const sceneUri = useMemo(() => {
-    if (isSleeping) return `${R2_BASE}/images/scenes/bedroom_sleep.png`;
+  // ===== 场景图 =====
+  const awakeSceneUri = useMemo(() => {
     const seasonStr = season ?? 'autumn';
     const h = new Date().getHours();
     const isNight = h >= 18 || h < 6;
     return `${R2_BASE}/images/scenes/living_${seasonStr}${isNight ? '_night' : ''}.png`;
-  }, [isSleeping, season]);
+  }, [season]);
 
-  // 当前情绪（angry 暂不接，等情绪系统）
+  const sleepSceneUri = `${R2_BASE}/images/scenes/bedroom_sleep.png`;
+  const sceneUri = isSleeping ? sleepSceneUri : awakeSceneUri;
+
   const mood: Mood = useMemo(() => {
     if (illness?.type && illness.type !== 'none') return 'sick';
     if (energy < 15) return 'sleepy';
@@ -105,8 +105,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return 'calm';
   }, [illness, energy, moodVal, affinity]);
 
-  const displayMood: Mood = isSleeping ? 'sleepy' : mood;
-  const avatarUri = `${R2_BASE}/images/avatar/${AVATAR_FILE_MAP[displayMood]}`;
+  const avatarUri = `${R2_BASE}/images/avatar/${AVATAR_FILE_MAP[mood]}`;
 
   const handleSleepPress = () => {
     if (isStreaming) {
@@ -155,11 +154,13 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   return (
     <View style={{ flex: 1, backgroundColor: '#1E293B' }}>
       <ImageBackground
+        key={isSleeping ? 'sleep' : 'awake'}      // 🔥 强制重建
         source={{ uri: sceneUri }}
-        style={{ flex: 1, width: '100%', height: '100%' }}
+        style={{ flex: 1 }}                      // 🔥 只留 flex: 1
         resizeMode="cover"
       >
-        {/* ====== 人物立绘（最底层，靠右、允许出屏；睡觉时隐藏） ====== */}
+        {/* ====== 人物立绘（睡觉时隐藏） ====== */}
+        {!isSleeping && (
           <Image
             source={{ uri: avatarUri }}
             style={{
@@ -171,6 +172,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             }}
             resizeMode="contain"
           />
+        )}
 
         {/* ====== 顶部状态栏 ====== */}
         <View
@@ -257,7 +259,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* ====== 左侧操作按钮 ====== */}
         {!isSleeping && (
-          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.15 }}>
+          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.25 }}>
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 12, alignItems: 'center' }}>
                 <Pressable
@@ -276,10 +278,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
                 >
                   <Image
                     source={{ uri: `${R2_BASE}/${btn.img}` }}
-                    style={{ width: 64, height: 64 }}
+                    style={{ width: 44, height: 44 }}
                     resizeMode="contain"
                   />
                 </Pressable>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    color: '#FFFFFF',
+                    fontWeight: 'bold',
+                    marginTop: 3,
+                    textShadowColor: '#000',
+                    textShadowOffset: { width: 0, height: 1 },
+                    textShadowRadius: 2,
+                  }}
+                >
+                  {btn.label}
+                </Text>
               </View>
             ))}
           </View>
@@ -293,7 +308,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             style={{
               position: 'absolute',
               right: 16,
-              top: screenHeight * 0.15,
+              top: screenHeight * 0.25,
               width: 56,
               height: 56,
               borderRadius: 28,
