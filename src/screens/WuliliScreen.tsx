@@ -48,9 +48,9 @@ const AVATAR_FILE_MAP: Record<Mood, string> = {
 };
 
 // ===== 人物立绘布局参数（只调这三个） =====
-const AVATAR_SCALE        = 1.35;
-const AVATAR_TOP_RATIO    = 0.28;
-const AVATAR_RIGHT_ANCHOR = 0.15;
+const AVATAR_SCALE        = 1.50;
+const AVATAR_TOP_RATIO    = 0.10;
+const AVATAR_RIGHT_ANCHOR = 0.70;
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
@@ -259,7 +259,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
 
         {/* ====== 左侧操作按钮 ====== */}
         {!isSleeping && (
-          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.25 }}>
+          <View style={{ position: 'absolute', left: 16, top: screenHeight * 0.15 }}>
             {actionButtons.map((btn) => (
               <View key={btn.label} style={{ marginBottom: 12, alignItems: 'center' }}>
                 <Pressable
@@ -278,23 +278,10 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
                 >
                   <Image
                     source={{ uri: `${R2_BASE}/${btn.img}` }}
-                    style={{ width: 44, height: 44 }}
+                    style={{ width: 64, height: 64 }}
                     resizeMode="contain"
                   />
                 </Pressable>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    color: '#FFFFFF',
-                    fontWeight: 'bold',
-                    marginTop: 3,
-                    textShadowColor: '#000',
-                    textShadowOffset: { width: 0, height: 1 },
-                    textShadowRadius: 2,
-                  }}
-                >
-                  {btn.label}
-                </Text>
               </View>
             ))}
           </View>
@@ -308,7 +295,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             style={{
               position: 'absolute',
               right: 16,
-              top: screenHeight * 0.25,
+              top: screenHeight * 0.15,
               width: 56,
               height: 56,
               borderRadius: 28,
