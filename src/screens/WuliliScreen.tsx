@@ -48,9 +48,9 @@ const AVATAR_FILE_MAP: Record<Mood, string> = {
 };
 
 // ===== 人物立绘布局参数（只调这三个） =====
-const AVATAR_SCALE        = 1.35;   // 人物大小：1.0 原尺寸，1.35 放大 35%
-const AVATAR_TOP_RATIO    = 0.28;   // 顶部位置：0.28 = 屏幕上往下 28%
-const AVATAR_RIGHT_ANCHOR = 0.15;   // 右边缘超出屏幕比例：0.15 = 超出 15% 屏宽
+const AVATAR_SCALE        = 1.55;   // 人物大小：1.0 原尺寸，1.35 放大 35%
+const AVATAR_TOP_RATIO    = 0.28;   // 顶部位置：0.25 = 屏幕上往下 28%
+const AVATAR_RIGHT_ANCHOR = 0.50;   // 右边缘超出屏幕比例：0.15 = 超出 15% 屏宽
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
