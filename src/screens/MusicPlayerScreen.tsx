@@ -81,7 +81,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       .catch(() => {});
   }, []);
 
-  // 🔥 核心改动：进入回忆页占用音频；离开时释放，并清空队列
+  // 进入回忆页占用音频；离开时释放
   useFocusEffect(
     useCallback(() => {
       bgmManager.acquireExternal('memory-player');
@@ -179,17 +179,16 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch {}
   });
 
-  const buildTracks = useCallback(
-    (musicItems: MemoryItem[]): Track[] => {
-      return musicItems.map((item) => ({
-        id: item.id,
-        url: `${R2_BASE_URL}/${item.path}`,
-        title: humanizeFileName(item.displayName),
-        artist: '雾璃',
-      }));
-    },
-    [],
-  );
+  // 🔥 核心修复 1：title 直接用 displayName，不再二次 humanize
+  // 🔥 核心修复 2：url 用 encodeURI 处理中文文件名
+  const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
+    return musicItems.map((item) => ({
+      id: item.id,
+      url: encodeURI(`${R2_BASE_URL}/${item.path}`),
+      title: item.displayName,
+      artist: '雾璃',
+    }));
+  }, []);
 
   const ensureQueue = useCallback(
     async (startIndex: number) => {
@@ -467,7 +466,7 @@ function buildMusicItems(
       path: file.path,
       size: file.size,
       sha: file.sha,
-      downloadUrl: `${R2_BASE_URL}/${file.path}`,
+      downloadUrl: encodeURI(`${R2_BASE_URL}/${file.path}`),
       updatedAt: null,
       source: 'repo',
     };
