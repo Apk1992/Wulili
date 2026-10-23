@@ -32,7 +32,12 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-const NEW_FILES_KEY = '@wulili/known_files_r2_music_v6';
+const NEW_FILES_KEY = '@wulili/known_files_r2_music_v7';   // v6 → v7，清旧缓存
+
+// 🔥 按段编码：中文 → %E5%93%84...，/ 保留
+function encodeR2Url(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
 
 function isFileKnown(
   file: { path: string; sha?: string; id?: string },
@@ -179,27 +184,42 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     } catch {}
   });
 
-  // 🔥 核心修复 1：title 直接用 displayName，不再二次 humanize
-  // 🔥 核心修复 2：url 用 encodeURI 处理中文文件名
+  // 🔥 核心修复 1：encodeR2Url 按段编码中文
+  // 🔥 核心修复 2：title 直接用 displayName
+  // 🔥 核心修复 3：加日志，定位播放失败的具体 URL
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
-    return musicItems.map((item) => ({
-      id: item.id,
-      url: encodeURI(`${R2_BASE_URL}/${item.path}`),
-      title: item.displayName,
-      artist: '雾璃',
-    }));
+    return musicItems.map((item) => {
+      const url = `${R2_BASE_URL}/${encodeR2Url(item.path)}`;
+      console.log('[MusicPlayer] track:', {
+        name: item.name,
+        displayName: item.displayName,
+        path: item.path,
+        url,
+      });
+      return {
+        id: item.id,
+        url,
+        title: item.displayName,
+        artist: '雾璃',
+      };
+    });
   }, []);
 
   const ensureQueue = useCallback(
     async (startIndex: number) => {
-      await TrackPlayer.reset();
-      const tracks = buildTracks(items);
-      await TrackPlayer.add(tracks);
-      await TrackPlayer.setRepeatMode(RepeatMode.Queue);
-      queueReadyRef.current = true;
-      await TrackPlayer.skip(startIndex);
-      await TrackPlayer.play();
-      setCurrentIndex(startIndex);
+      try {
+        await TrackPlayer.reset();
+        const tracks = buildTracks(items);
+        await TrackPlayer.add(tracks);
+        await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+        queueReadyRef.current = true;
+        await TrackPlayer.skip(startIndex);
+        await TrackPlayer.play();
+        setCurrentIndex(startIndex);
+      } catch (e) {
+        console.error('[MusicPlayer] ensureQueue 失败:', e);
+        throw e;
+      }
     },
     [items, buildTracks],
   );
@@ -246,7 +266,8 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             setCurrentIndex(index);
           }
         }
-      } catch {
+      } catch (e) {
+        console.error('[MusicPlayer] handlePlayAt 失败:', e);
         setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
       }
     },
@@ -466,7 +487,7 @@ function buildMusicItems(
       path: file.path,
       size: file.size,
       sha: file.sha,
-      downloadUrl: encodeURI(`${R2_BASE_URL}/${file.path}`),
+      downloadUrl: `${R2_BASE_URL}/${encodeR2Url(file.path)}`,
       updatedAt: null,
       source: 'repo',
     };
