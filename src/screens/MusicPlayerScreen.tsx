@@ -1,10 +1,9 @@
 // src/screens/MusicPlayerScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View, ActivityIndicator, Alert } from 'react-native';
+import { FlatList, Pressable, Text, View, ActivityIndicator } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrackPlayer, {
   Event,
   RepeatMode,
@@ -23,7 +22,6 @@ import EmptyView from '@/components/EmptyView';
 import { GITHUB_PATHS } from '@/api/githubConfig';
 import { detectMemoryKind } from '@/utils/mediaType';
 import { humanizeFileName } from '@/utils/format';
-import { getGitHubToken } from '@/api/githubClient';
 import { bgmManager } from '@/services/bgmManager';
 import type { MemoryItem, PlaybackState } from '@/types/memory';
 import type { GitHubContentItem } from '@/types/github';
@@ -32,30 +30,23 @@ import type { RootStackParamList } from '@/types/navigation';
 type Props = NativeStackScreenProps<RootStackParamList, 'MusicPlayer'>;
 
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-const NEW_FILES_KEY = '@wulili/known_files_r2_music_v8';   // v7 → v8，清旧缓存
+const MANIFEST_URL = `${R2_BASE_URL}/manifest.json`;
 
 function encodeR2Url(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
-const TEST_URL =
-  'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev/music/%E5%93%84%E7%9D%A1%E8%AF%BB%E6%96%87/2026%E5%B9%B410%E6%9C%8815%E6%97%A5-%E5%BD%92%E5%AE%BF.m4a';
-
-function isFileKnown(
-  file: { path: string; sha?: string; id?: string },
-  knownMap: Record<string, boolean>,
-) {
-  if (file.path && knownMap[file.path]) return true;
-  if (file.sha && knownMap[file.sha]) return true;
-  if (file.id && knownMap[file.id]) return true;
-  return false;
+interface ManifestFile {
+  path: string;
+  size: number;
+  updatedAt: string;
 }
 
 export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   const [currentPath, setCurrentPath] = useState<string>(
     route.params?.initialPath || GITHUB_PATHS.music,
   );
-  const [rawData, setRawData] = useState<GitHubContentItem[]>([]);
+  const [allFiles, setAllFiles] = useState<ManifestFile[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
 
@@ -67,76 +58,91 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     error: null,
   });
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
-  const [knownFiles, setKnownFiles] = useState<Record<string, boolean>>({});
 
   const isSeekingRef = useRef<boolean>(false);
   const queueReadyRef = useRef<boolean>(false);
   const trackPlayerState = usePlaybackState();
   const progress = useProgress(250);
 
-  useEffect(() => {
-    AsyncStorage.getItem(NEW_FILES_KEY)
-      .then((res) => {
-        if (res) {
-          try {
-            setKnownFiles(JSON.parse(res));
-          } catch {
-            setKnownFiles({});
-          }
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      bgmManager.acquireExternal('memory-player');
-      return () => {
-        bgmManager.releaseExternal('memory-player');
-        void TrackPlayer.reset().catch(() => undefined);
-        queueReadyRef.current = false;
-      };
-    }, []),
-  );
-
-  const fetchFolder = async () => {
+  // ===== 拉取 manifest =====
+  const fetchManifest = async () => {
     setLoading(true);
     setError(false);
     try {
-      const token = getGitHubToken();
-      const apiUrl = `https://api.github.com/repos/yukee520/Wulili_assets/contents/${currentPath}?t=${Date.now()}`;
-      const res = await fetch(apiUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-          'Cache-Control': 'no-cache',
-        },
-      });
-      if (!res.ok) throw new Error('获取失败');
+      const res = await fetch(`${MANIFEST_URL}?t=${Date.now()}`);
+      if (!res.ok) throw new Error('manifest 获取失败');
       const data = await res.json();
-      setRawData(Array.isArray(data) ? data : []);
-    } catch {
+      const files: ManifestFile[] = Array.isArray(data?.files) ? data.files : [];
+      setAllFiles(files);
+    } catch (e) {
+      console.error('[manifest] 加载失败:', e);
       setError(true);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    void fetchManifest();
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      void fetchFolder();
-    }, [currentPath]),
+      void fetchManifest();
+      return () => {
+        void TrackPlayer.reset().catch(() => undefined);
+        queueReadyRef.current = false;
+      };
+    }, []),
   );
 
+  // ===== 从 manifest 提取当前目录的 folders + items =====
   const { folders, items } = useMemo(() => {
-    const dirs: GitHubContentItem[] = [];
-    const musicFiles: GitHubContentItem[] = [];
-    for (const file of rawData) {
-      if (file.type === 'dir') dirs.push(file);
-      else if (file.type === 'file') musicFiles.push(file);
+    const prefix = currentPath.endsWith('/') ? currentPath : `${currentPath}/`;
+    const inFolder = allFiles.filter(
+      (f) => f.path.startsWith(prefix) && f.path !== prefix && f.size > 0,
+    );
+
+    // 子文件夹
+    const folderSet = new Set<string>();
+    // 文件
+    const musicItems: any[] = [];
+
+    for (const f of inFolder) {
+      const rel = f.path.slice(prefix.length);
+      const slashIdx = rel.indexOf('/');
+      if (slashIdx >= 0) {
+        folderSet.add(prefix + rel.slice(0, slashIdx));
+      } else {
+        const kind = detectMemoryKind(f.path);
+        if (kind !== 'music') continue;
+        musicItems.push({
+          id: f.path,
+          kind: 'music',
+          name: rel,
+          displayName: humanizeFileName(rel),
+          path: f.path,
+          size: f.size,
+          sha: f.path,
+          downloadUrl: `${R2_BASE_URL}/${encodeR2Url(f.path)}`,
+          updatedAt: null,
+          source: 'r2',
+          isNew: false,
+        });
+      }
     }
-    return { folders: dirs, items: buildMusicItems(musicFiles, knownFiles) };
-  }, [rawData, knownFiles]);
+
+    const dirs: GitHubContentItem[] = Array.from(folderSet).map((p) => ({
+      type: 'dir',
+      name: p.split('/').pop() || p,
+      path: p,
+      size: 0,
+      sha: p,
+    }));
+
+    musicItems.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+    return { folders: dirs, items: musicItems };
+  }, [allFiles, currentPath]);
 
   const handleFolderPress = (path: string) => setCurrentPath(path);
 
@@ -186,32 +192,24 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   });
 
   const buildTracks = useCallback((musicItems: MemoryItem[]): Track[] => {
-    return musicItems.map((item) => {
-      const url = `${R2_BASE_URL}/${encodeR2Url(item.path)}`;
-      return {
-        id: item.id,
-        url,
-        title: item.displayName,
-        artist: '雾璃',
-      };
-    });
+    return musicItems.map((item) => ({
+      id: item.id,
+      url: `${R2_BASE_URL}/${encodeR2Url(item.path)}`,
+      title: item.displayName,
+      artist: '雾璃',
+    }));
   }, []);
 
   const ensureQueue = useCallback(
     async (startIndex: number) => {
-      try {
-        await TrackPlayer.reset();
-        const tracks = buildTracks(items);
-        await TrackPlayer.add(tracks);
-        await TrackPlayer.setRepeatMode(RepeatMode.Queue);
-        queueReadyRef.current = true;
-        await TrackPlayer.skip(startIndex);
-        await TrackPlayer.play();
-        setCurrentIndex(startIndex);
-      } catch (e: any) {
-        Alert.alert('ensureQueue 失败', String(e?.message ?? e));
-        throw e;
-      }
+      await TrackPlayer.reset();
+      const tracks = buildTracks(items);
+      await TrackPlayer.add(tracks);
+      await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+      queueReadyRef.current = true;
+      await TrackPlayer.skip(startIndex);
+      await TrackPlayer.play();
+      setCurrentIndex(startIndex);
     },
     [items, buildTracks],
   );
@@ -220,41 +218,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     async (index: number) => {
       try {
         const item = items[index];
-        if (!item) {
-          Alert.alert('调试', `items[${index}] 不存在，items.length = ${items.length}`);
-          return;
-        }
-
-        // 🔥 关键调试弹窗：点音频时显示真实 path / url
-        const trackUrl = `${R2_BASE_URL}/${encodeR2Url(item.path)}`;
-        Alert.alert(
-          `点击音频调试 (index=${index})`,
-          [
-            `name: ${item.name}`,
-            '',
-            `displayName: ${item.displayName}`,
-            '',
-            `path: ${item.path}`,
-            '',
-            `url:`,
-            trackUrl,
-            '',
-            `TEST_URL 对比:`,
-            TEST_URL,
-            '',
-            `两者是否相同: ${trackUrl === TEST_URL ? '✅ 相同' : '❌ 不同'}`,
-          ].join('\n'),
-          [{ text: '知道了' }],
-        );
-
-        const newKnown = {
-          ...knownFiles,
-          [item.path]: true,
-          ...(item.sha ? { [item.sha]: true } : {}),
-          ...(item.id ? { [item.id]: true } : {}),
-        };
-        setKnownFiles(newKnown);
-        await AsyncStorage.setItem(NEW_FILES_KEY, JSON.stringify(newKnown)).catch(() => {});
+        if (!item) return;
 
         setPlayback({
           current: item,
@@ -283,48 +247,13 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
             setCurrentIndex(index);
           }
         }
-      } catch (e: any) {
-        Alert.alert('handlePlayAt 失败', String(e?.message ?? e));
+      } catch (e) {
+        console.error('[handlePlayAt] 失败:', e);
         setPlayback((prev) => ({ ...prev, status: 'error', error: '播放失败' }));
       }
     },
-    [items, ensureQueue, knownFiles],
+    [items, ensureQueue],
   );
-
-  // 🧪 测试播放按钮
-  const handleTestPlay = useCallback(async () => {
-    try {
-      await TrackPlayer.reset();
-      await TrackPlayer.add({
-        id: 'test-track',
-        url: TEST_URL,
-        title: '测试',
-        artist: '测试',
-      });
-      await TrackPlayer.play();
-
-      setTimeout(async () => {
-        try {
-          const state = await TrackPlayer.getPlaybackState();
-          const prog = await TrackPlayer.getProgress();
-          Alert.alert(
-            '测试播放 500ms 后状态',
-            [
-              `state: ${state.state}`,
-              `（3=Playing, 2=Buffering, 6=Error, 1=Ready）`,
-              '',
-              `position: ${prog.position.toFixed(2)}s`,
-              `duration: ${prog.duration.toFixed(2)}s`,
-            ].join('\n'),
-          );
-        } catch (e: any) {
-          Alert.alert('查状态失败', String(e?.message ?? e));
-        }
-      }, 500);
-    } catch (e: any) {
-      Alert.alert('测试播放失败', String(e?.message ?? e));
-    }
-  }, []);
 
   const handleTogglePlay = useCallback(async () => {
     try {
@@ -402,7 +331,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
   if (error) {
     return (
       <ScreenContainer edges={['bottom']}>
-        <ErrorView title="加载失败" onRetry={() => void fetchFolder()} fullScreen />
+        <ErrorView title="加载失败" onRetry={() => void fetchManifest()} fullScreen />
       </ScreenContainer>
     );
   }
@@ -421,22 +350,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
-      {/* 🧪 测试按钮 */}
-      <Pressable
-        onPress={() => void handleTestPlay()}
-        style={{
-          margin: 12,
-          padding: 12,
-          backgroundColor: '#F59E0B',
-          borderRadius: 8,
-          alignItems: 'center',
-        }}
-      >
-        <Text style={{ color: '#fff', fontWeight: 'bold' }}>
-          🧪 测试播放（TEST_URL）
-        </Text>
-      </Pressable>
-
       <FlatList
         data={[{ isFolderHeader: true } as any, ...folders, ...items]}
         keyExtractor={(item: any, index) =>
@@ -459,7 +372,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
                 ) : (
                   <View />
                 )}
-                <Pressable className="flex-row items-center" onPress={() => void fetchFolder()}>
+                <Pressable className="flex-row items-center" onPress={() => void fetchManifest()}>
                   <Ionicons name="refresh" size={14} color="#2563EB" />
                   <Text className="ml-1 text-xs text-primary">刷新</Text>
                 </Pressable>
@@ -494,11 +407,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
                   item={item}
                   onPress={() => void handlePlayAt(musicIndex)}
                 />
-                {item.isNew && (
-                  <View className="absolute top-2 right-2 bg-danger px-1.5 py-0.5 rounded-full">
-                    <Text className="text-[9px] text-white font-bold">NEW</Text>
-                  </View>
-                )}
               </View>
               {isCurrent && (
                 <View className="flex-row items-center mb-2 ml-4">
@@ -535,37 +443,6 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       )}
     </ScreenContainer>
   );
-}
-
-function buildMusicItems(
-  files: GitHubContentItem[],
-  knownFiles: Record<string, boolean>,
-): any[] {
-  const items: any[] = [];
-  for (const file of files) {
-    const kind = detectMemoryKind(file.name);
-    if (kind !== 'music') continue;
-    const uniqueId = file.sha || file.path;
-
-    const itemObj = {
-      id: uniqueId,
-      kind: 'music',
-      name: file.name,
-      displayName: humanizeFileName(file.name),
-      path: file.path,
-      size: file.size,
-      sha: file.sha,
-      downloadUrl: `${R2_BASE_URL}/${encodeR2Url(file.path)}`,
-      updatedAt: null,
-      source: 'repo',
-    };
-
-    items.push({
-      ...itemObj,
-      isNew: !isFileKnown(itemObj, knownFiles),
-    });
-  }
-  return items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
 }
 
 export default MusicPlayerScreen;
