@@ -86,10 +86,13 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
     void fetchManifest();
   }, []);
 
+  // 进页面占用音频（暂停 BGM）；离开时释放 + 清空队列
   useFocusEffect(
     useCallback(() => {
+      bgmManager.acquireExternal('memory-player');
       void fetchManifest();
       return () => {
+        bgmManager.releaseExternal('memory-player');
         void TrackPlayer.reset().catch(() => undefined);
         queueReadyRef.current = false;
       };
@@ -103,9 +106,7 @@ export function MusicPlayerScreen({ route }: Props): React.JSX.Element {
       (f) => f.path.startsWith(prefix) && f.path !== prefix && f.size > 0,
     );
 
-    // 子文件夹
     const folderSet = new Set<string>();
-    // 文件
     const musicItems: any[] = [];
 
     for (const f of inFolder) {
