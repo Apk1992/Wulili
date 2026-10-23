@@ -1,3 +1,4 @@
+// src/hooks/useBgm.ts
 import { useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,15 +10,16 @@ export function useBgm() {
   const { season } = useSeason();
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
 
-  // 1. 冷启动初始化
+  // 1. 冷启动 / 季节变化：按当前季节+昼夜设置 BGM
   useEffect(() => {
-    if (bgmEnabled) {
-      const t = setTimeout(() => {
-        bgmManager.init();
-      }, 500);
-      return () => clearTimeout(t);
-    }
-  }, [bgmEnabled]);
+    if (!bgmEnabled) return;
+    const t = setTimeout(() => {
+      const h = new Date().getHours();
+      const isNight = h >= 18 || h < 6;
+      void bgmManager.setScene(season ?? 'autumn', isNight);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [bgmEnabled, season]);
 
   // 2. 每次回到页面时检查一次
   useFocusEffect(
@@ -28,7 +30,7 @@ export function useBgm() {
     }, [bgmEnabled]),
   );
 
-  // 3. App 切后台暂停 / 切前台恢复
+  // 3. App 切后台暂停，切前台恢复
   useEffect(() => {
     const handleAppState = (nextState: AppStateStatus) => {
       if (!bgmEnabled) return;
@@ -44,7 +46,7 @@ export function useBgm() {
     return () => sub.remove();
   }, [bgmEnabled]);
 
-  // 4. 兜底：BGM 没播起来时每 3 秒重试（外部占用期间不重试）
+  // 4. 兜底：BGM 没播起来时每 3 秒重试
   useEffect(() => {
     if (!bgmEnabled) return;
     const timer = setInterval(() => {
