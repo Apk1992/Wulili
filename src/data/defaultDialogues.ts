@@ -492,4 +492,32 @@ export const defaultDialogues: Dialogue[] = [
     cooldownHours: 0,
     once: true,
   }),
+
+  // ============ 被摸头 ============ 
+  d({
+  id: 'poke_head_1',
+  text: '欸……？别、别突然摸我头啦。',
+  category: 'poke',
+  emotion: 'shy',
+  triggers: [],
+  cooldownHours: 2,
+}),
+d({
+  id: 'poke_head_2',
+  text: '……（小声）其实，不讨厌。',
+  category: 'poke',
+  emotion: 'shy',
+  minAffinity: 40,
+  triggers: [],
+  cooldownHours: 4,
+}),
+d({
+  id: 'poke_head_3',
+  text: '再摸的话……我会当真的哦。',
+  category: 'poke',
+  emotion: 'warm',
+  minAffinity: 70,
+  triggers: [],
+  cooldownHours: 6,
+}),
 ];
