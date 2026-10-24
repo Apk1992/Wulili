@@ -1,21 +1,27 @@
 // src/hooks/useBgm.ts
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { bgmManager } from '@/services/bgmManager';
 import { useSeason } from '@/hooks/useSeason';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
+function getIsNight(): boolean {
+  const h = new Date().getHours();
+  return h >= 18 || h < 6;
+}
+
 export function useBgm() {
   const { season } = useSeason();
   const bgmEnabled = useSettingsStore((s) => (s.settings as any).bgmEnabled ?? true);
+  const lastIsNightRef = useRef<boolean | null>(null);
 
   // 1. 冷启动 / 季节变化：按当前季节+昼夜设置 BGM
   useEffect(() => {
     if (!bgmEnabled) return;
     const t = setTimeout(() => {
-      const h = new Date().getHours();
-      const isNight = h >= 18 || h < 6;
+      const isNight = getIsNight();
+      lastIsNightRef.current = isNight;
       void bgmManager.setScene(season ?? 'autumn', isNight);
     }, 500);
     return () => clearTimeout(t);
@@ -46,16 +52,30 @@ export function useBgm() {
     return () => sub.remove();
   }, [bgmEnabled]);
 
-  // 4. 兜底：BGM 没播起来时每 3 秒重试（走 setScene，确保 URL 正确）
+  // 4. 兜底：BGM 没播起来时每 3 秒重试
   useEffect(() => {
     if (!bgmEnabled) return;
     const timer = setInterval(() => {
       if (!bgmManager.getIsPlaying() && !bgmManager.isExternallyHeld()) {
-        const h = new Date().getHours();
-        const isNight = h >= 18 || h < 6;
-        void bgmManager.setScene(season ?? 'autumn', isNight);
+        void bgmManager.setScene(season ?? 'autumn', getIsNight());
       }
     }, 3000);
+    return () => clearInterval(timer);
+  }, [bgmEnabled, season]);
+
+  // 5. 每分钟检查昼夜是否变化，变了就切 BGM
+  useEffect(() => {
+    if (!bgmEnabled) return;
+    const timer = setInterval(() => {
+      const isNight = getIsNight();
+      if (lastIsNightRef.current !== null && lastIsNightRef.current !== isNight) {
+        lastIsNightRef.current = isNight;
+        console.log('[useBgm] 昼夜变化，切换 BGM:', { isNight });
+        void bgmManager.setScene(season ?? 'autumn', isNight);
+      } else if (lastIsNightRef.current === null) {
+        lastIsNightRef.current = isNight;
+      }
+    }, 60_000);
     return () => clearInterval(timer);
   }, [bgmEnabled, season]);
 }
