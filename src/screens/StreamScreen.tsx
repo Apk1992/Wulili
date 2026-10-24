@@ -6,7 +6,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
-import DialogueBubble from '@/components/DialogueBubble';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入新的弹窗
 import { useDialogue } from '@/hooks/useDialogue';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
@@ -18,10 +18,9 @@ import {
   computeDurationBonus,
 } from '@/data/streamConfig';
 import { aggregateBonus, describeAggregated } from '@/utils/equipmentBonus';
-import { formatCoins, formatNumber } from '@/utils/format';
+import { formatCoins } from '@/utils/format';
 import { formatDuration } from '@/utils/time';
 import { clamp } from '@/utils/random';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Stream'>;
@@ -40,7 +39,15 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
   const getOutfitById = useAppConfigStore((s) => s.getOutfitById);
   const getAccessoryById = useAppConfigStore((s) => s.getAccessoryById);
 
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState<boolean>(false);
+  const [dialogText, setDialogText] = useState<string>('');
+  const [dialogTitle, setDialogTitle] = useState<string>('雾璃');
+  const [dialogIcon, setDialogIcon] = useState<string>('videocam');
+  
+  // 🔥 如果弹窗关闭后需要跳转页面，用这个存回调
+  const [onDialogClose, setOnDialogClose] = useState<(() => void) | null>(null);
+
   const [now, setNow] = useState<number>(Date.now());
 
   useEffect(() => {
@@ -48,10 +55,29 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, []);
 
+  // 提取台词并显示弹窗的工具函数
+  const showDialogue = (
+    line: any,
+    icon: string = 'videocam',
+    title: string = '雾璃',
+    onCloseAction?: () => void
+  ) => {
+    if (!line) return;
+    const text = typeof line === 'string' ? line : line.text;
+    if (!text) return;
+
+    setDialogText(text);
+    setDialogTitle(title);
+    setDialogIcon(icon);
+    setOnDialogClose(onCloseAction ? () => onDialogClose : null);
+    setDialogVisible(true);
+  };
+
+  // 进页面时的开场白
   useEffect(() => {
     if (!streamState.isStreaming) {
       const startLine = speak({ action: 'stream' });
-      if (startLine) setDialogue(startLine);
+      if (startLine) showDialogue(startLine, 'videocam');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -110,7 +136,7 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
     }
     startStream();
     const startLine = speak({ action: 'stream' });
-    if (startLine) setDialogue(startLine);
+    if (startLine) showDialogue(startLine, 'radio');
   };
 
   const handleStop = () => {
@@ -127,17 +153,36 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
             markInteraction('stream');
             gain(Math.min(5, Math.max(1, durationSec / 1800)));
           }
+          
           const endLine = speak({ action: 'stream' });
-          if (endLine) setDialogue(endLine);
-
-          Alert.alert(
-            '直播结束',
-            `这次直播 ${formatDuration(durationSec * 1000)}，赚到了 ${earned.toFixed(2)} 金币。`,
-            [{ text: '好', onPress: () => navigation.goBack() }],
-          );
+          const endText = endLine ? (typeof endLine === 'string' ? endLine : endLine.text) : '';
+          
+          const summaryText = `这次直播 ${formatDuration(durationSec * 1000)}，赚到了 ${earned.toFixed(2)} 金币。`;
+          
+          // 🔥 如果有结束语，先显示结束语，点击关闭后返回；如果没有，直接弹结算并返回
+          if (endText) {
+            setDialogTitle('直播结束');
+            setDialogIcon('checkmark-circle');
+            setDialogText(`${endText}\n\n${summaryText}`);
+            setOnDialogClose(() => () => navigation.goBack());
+            setDialogVisible(true);
+          } else {
+            Alert.alert('直播结束', summaryText, [
+              { text: '好', onPress: () => navigation.goBack() },
+            ]);
+          }
         },
       },
     ]);
+  };
+
+  // 处理弹窗关闭
+  const handleCloseDialog = () => {
+    setDialogVisible(false);
+    if (onDialogClose) {
+      onDialogClose();
+      setOnDialogClose(null);
+    }
   };
 
   const isLive = streamState.isStreaming;
@@ -147,7 +192,6 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <ScreenContainer edges={['bottom']} padded={false}>
-      {/* 🔥 核心修复：用 ScrollView 包裹，并增加底部 padding 留白 */}
       <ScrollView 
         className="flex-1 px-4 pt-4" 
         contentContainerStyle={{ paddingBottom: 40 }}
@@ -347,16 +391,6 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
           </Card>
         </View>
 
-        <View className="mt-3">
-          {dialogue ? (
-            <DialogueBubble
-              dialogue={dialogue}
-              onDismiss={() => setDialogue(null)}
-              autoDismissMs={8000}
-            />
-          ) : null}
-        </View>
-
         {isLive ? (
           <View className="mt-3">
             <Text className="text-center text-[10px] text-muted dark:text-dark-muted">
@@ -373,6 +407,15 @@ export function StreamScreen({ navigation }: Props): React.JSX.Element {
           </View>
         )}
       </ScrollView>
+
+      {/* 🔥 用统一的弹窗组件替代原来的 DialogueBubble */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        title={dialogTitle}
+        iconName={dialogIcon}
+        onClose={handleCloseDialog}
+      />
     </ScreenContainer>
   );
 }
