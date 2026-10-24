@@ -1,4 +1,4 @@
-// App.tsx (只贴有改动的部分)
+// App.tsx
 import React, { useEffect, useState } from 'react';
 import { StatusBar, View, Text, ScrollView } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -20,6 +20,8 @@ import { useMinigameStore } from '@/store/useMinigameStore';
 import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
+import { useTravelStore } from '@/store/useTravelStore'; // 🔥 引入旅游 Store
+import { useR2Store } from '@/store/useR2Store'; // 🔥 引入 R2 配置 Store
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
@@ -53,6 +55,7 @@ function AppInner(): React.JSX.Element {
   const [bootError, setBootError] = useState<string | null>(null);
   const [showPermissionGate, setShowPermissionGate] = useState<boolean>(false);
 
+  // Store 水合函数
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
   const hydrateDialogues = useDialogueStore((s) => s.hydrate);
@@ -63,6 +66,8 @@ function AppInner(): React.JSX.Element {
   const hydrateUpdate = useUpdateStore((s) => s.hydrate);
   const hydrateStream = useStreamStore((s) => s.hydrate);
   const hydrateSleep = useSleepStore((s) => s.hydrate);
+  const hydrateTravel = useTravelStore((s) => s.hydrate); // 🔥 旅游 Store 水合
+  const hydrateR2 = useR2Store((s) => s.hydrate); // 🔥 R2 密钥水合
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
   const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
@@ -92,6 +97,8 @@ function AppInner(): React.JSX.Element {
       await run('update', hydrateUpdate);
       await run('stream', hydrateStream);
       await run('sleep', hydrateSleep);
+      await run('travel', hydrateTravel); // 🔥 水合旅游
+      await run('r2', hydrateR2); // 🔥 水合 R2 密钥
 
       if (fails.length > 0) setBootError(fails.join('\n'));
       if (mounted) setReady(true);
@@ -108,7 +115,7 @@ function AppInner(): React.JSX.Element {
     })();
   }, [ready]);
 
-  // 🔥 3. R2 内容同步（替换掉原来的 GitHub 逻辑）
+  // 3. R2 内容同步
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -129,7 +136,6 @@ function AppInner(): React.JSX.Element {
           const res = await fetch(`${R2_BASE}/dialogue/dialogues.json?t=${Date.now()}`);
           if (res.ok) {
             const dialogueData = await res.json();
-            // 注意这里要取 .dialogues，因为你的导出格式是 { schemaVersion, updatedAt, dialogues: [...] }
             if (!cancelled && dialogueData.dialogues) {
               setRemoteDialogues(dialogueData.dialogues);
             }
