@@ -1,5 +1,5 @@
 // src/screens/WuliliScreen.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSeason } from '@/hooks/useSeason';
 import { useBgm } from '@/hooks/useBgm';
+import { useDialogue } from '@/hooks/useDialogue';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
@@ -52,8 +53,12 @@ const AVATAR_SCALE        = 1.80;
 const AVATAR_TOP_RATIO    = 0.05;
 const AVATAR_RIGHT_ANCHOR = 0.70;
 
+// 点摸头的害羞持续时间
+const POKE_DURATION_MS = 3000;
+
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
+  const { speak } = useDialogue();
 
   const { levelLabel } = useAffinity();
   const { season } = useSeason();
@@ -61,6 +66,8 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const insets = useSafeAreaInsets();
 
   const [now, setNow] = useState<number>(Date.now());
+  const [pokeMood, setPokeMood] = useState<Mood | null>(null);
+  const pokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const timeOfDay = getTimeOfDay();
   const energy = useWuliliStore((s) => s.state?.stats?.energy) ?? 100;
@@ -85,6 +92,13 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping]);
 
+  // 清理 poke 定时器
+  useEffect(() => {
+    return () => {
+      if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current);
+    };
+  }, []);
+
   // ===== 场景图 =====
   const awakeSceneUri = useMemo(() => {
     const seasonStr = season ?? 'autumn';
@@ -105,7 +119,33 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return 'calm';
   }, [illness, energy, moodVal, affinity]);
 
-  const avatarUri = `${R2_BASE}/images/avatar/${AVATAR_FILE_MAP[mood]}`;
+  // 点摸时临时覆盖表情
+  const displayMood: Mood = pokeMood ?? mood;
+  const avatarUri = `${R2_BASE}/images/avatar/${AVATAR_FILE_MAP[displayMood]}`;
+
+  // ===== 触摸交互：点头部 → 害羞 =====
+  const handlePokeHead = () => {
+    if (isSleeping) return;
+
+    setPokeMood('shy');
+    useWuliliStore.getState().markInteraction('poke_head');
+
+    // 触发台词（如果有 poke 分类；没有就走 greeting/默认随机）
+    try {
+      const line = speak({ forceCategory: 'poke' });
+      if (line) {
+        const text = typeof line === 'string' ? line : (line as any).text;
+        if (typeof text === 'string' && text.length > 0) {
+          Alert.alert('雾璃', text);
+        }
+      }
+    } catch (e) {
+      console.warn('[poke] 台词触发失败:', e);
+    }
+
+    if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current);
+    pokeTimerRef.current = setTimeout(() => setPokeMood(null), POKE_DURATION_MS);
+  };
 
   const handleSleepPress = () => {
     if (isStreaming) {
@@ -154,24 +194,42 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   return (
     <View style={{ flex: 1, backgroundColor: '#1E293B' }}>
       <ImageBackground
-        key={isSleeping ? 'sleep' : 'awake'}      // 🔥 强制重建
+        key={isSleeping ? 'sleep' : 'awake'}
         source={{ uri: sceneUri }}
-        style={{ flex: 1 }}                      // 🔥 只留 flex: 1
+        style={{ flex: 1 }}
         resizeMode="cover"
       >
-        {/* ====== 人物立绘（睡觉时隐藏） ====== */}
+        {/* ====== 人物立绘（睡觉时隐藏） + 头部触摸热区 ====== */}
         {!isSleeping && (
-          <Image
-            source={{ uri: avatarUri }}
-            style={{
-              position: 'absolute',
-              width:  screenWidth  * AVATAR_SCALE,
-              height: screenHeight * (AVATAR_SCALE * 0.7),
-              left:   screenWidth - screenWidth * AVATAR_SCALE + screenWidth * AVATAR_RIGHT_ANCHOR,
-              top:    screenHeight * AVATAR_TOP_RATIO,
-            }}
-            resizeMode="contain"
-          />
+          <>
+            <Image
+              source={{ uri: avatarUri }}
+              style={{
+                position: 'absolute',
+                width:  screenWidth  * AVATAR_SCALE,
+                height: screenHeight * (AVATAR_SCALE * 0.7),
+                left:   screenWidth - screenWidth * AVATAR_SCALE + screenWidth * AVATAR_RIGHT_ANCHOR,
+                top:    screenHeight * AVATAR_TOP_RATIO,
+              }}
+              resizeMode="contain"
+            />
+            {/* 头部触摸热区：覆盖人物容器顶部 35% 区域 */}
+            <Pressable
+              onPress={handlePokeHead}
+              style={{
+                position: 'absolute',
+                // 人物容器左边界
+                left:   screenWidth - screenWidth * AVATAR_SCALE + screenWidth * AVATAR_RIGHT_ANCHOR,
+                top:    screenHeight * AVATAR_TOP_RATIO,
+                // 头部一般位于人物容器顶部 35% 高度、水平居中
+                width:  screenWidth * AVATAR_SCALE,
+                height: screenHeight * (AVATAR_SCALE * 0.7) * 0.35,
+                // 调试：想看热区范围时打开下面这行
+                // backgroundColor: 'rgba(255,0,0,0.3)',
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            />
+          </>
         )}
 
         {/* ====== 顶部状态栏 ====== */}
