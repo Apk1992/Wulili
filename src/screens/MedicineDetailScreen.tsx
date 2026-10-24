@@ -6,8 +6,6 @@ import {
   Text,
   View,
   useWindowDimensions,
-  Modal,
-  Pressable,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -15,6 +13,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入统一弹窗
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -26,7 +25,6 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MedicineDetail'>;
 
-// 🔥 Cloudflare R2 专属存储桶公开域名
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function MedicineDetailScreen({
@@ -47,9 +45,11 @@ export function MedicineDetailScreen({
   const { speak } = useDialogue();
   const { gain } = useAffinity();
 
-  // 状态管理
-  const [dialogueText, setDialogueText] = useState<string | null>(null);
-  const [healModal, setHealModal] = useState<{ title: string; msg: string } | null>(null);
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
+  const [dialogTitle, setDialogTitle] = useState('雾璃');
+  const [dialogIcon, setDialogIcon] = useState('medkit');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const menstrualInfo = useMemo(
@@ -59,7 +59,6 @@ export function MedicineDetailScreen({
   const isInPeriod = menstrualInfo.phase === 'period';
   const isMedicineActive = menstrualInfo.isMedicineActive;
 
-  // 🔥 直接将药品图片对齐至 Cloudflare R2
   const imageUrl = useMemo(() => {
     if (!medicine || !medicine.image) return null;
     if (medicine.image.startsWith('http://') || medicine.image.startsWith('https://')) {
@@ -81,7 +80,6 @@ export function MedicineDetailScreen({
     );
   }
 
-  // 二次校验：当前状态是否适合吃这个药
   let blockReason: string | null = null;
   if (medicine.relievesMenstrual) {
     if (!isInPeriod) {
@@ -125,32 +123,32 @@ export function MedicineDetailScreen({
         useWuliliStore.getState().clearIllness();
       }
 
-      // 提取纯文本，触发台词弹窗
+      // 获取基础台词
       const line = speak({ action: 'medicine' });
-      const text = typeof line === 'string' ? line : (line as any)?.text || '感觉好多了...';
-      setDialogueText(text);
-
+      let text = typeof line === 'string' ? line : (line as any)?.text || '感觉好多了...';
+      
+      // 🔥 如果治愈了，把康复提示直接拼接到台词下方
       if (curesCurrent) {
-        setHealModal({
-          title: '康复了',
-          msg: `雾璃的${ILLNESS_LABELS[illness.type]}好多了，脸色恢复了红润。`,
-        });
+        text += `\n\n(雾璃的${ILLNESS_LABELS[illness.type]}好多了，脸色恢复了红润。)`;
+        setDialogIcon('heart');
       } else if (medicine.relievesMenstrual) {
-        setHealModal({
-          title: '好了点',
-          msg: '布洛芬生效了，12 小时内不适感都会减轻。',
-        });
+        text += '\n\n(布洛芬生效了，12 小时内不适感都会减轻。)';
+        setDialogIcon('water');
+      } else {
+        setDialogIcon('medkit');
       }
+
+      setDialogText(text);
+      setDialogVisible(true);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDialogueDismiss = () => {
-    setDialogueText(null);
-    if (!healModal) {
-      navigation.goBack();
-    }
+  // 🔥 关闭弹窗直接返回上一页
+  const handleCloseDialog = () => {
+    setDialogVisible(false);
+    navigation.goBack();
   };
 
   return (
@@ -295,49 +293,14 @@ export function MedicineDetailScreen({
         </View>
       </ScrollView>
 
-      {/* 吃药台词弹窗 */}
-      <Modal visible={dialogueText !== null} transparent animationType="fade">
-        <Pressable
-          onPress={handleDialogueDismiss}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
-        >
-          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                <Ionicons name="heart" size={32} color="#2563EB" />
-              </View>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>雾璃</Text>
-            </View>
-            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>
-              {dialogueText}
-            </Text>
-            <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击任意位置继续...</Text>
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* 治愈成功弹窗 */}
-      <Modal visible={healModal !== null && dialogueText === null} transparent animationType="fade">
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>{healModal?.title}</Text>
-            </View>
-            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 24 }}>
-              {healModal?.msg}
-            </Text>
-            <Pressable
-              onPress={() => {
-                setHealModal(null);
-                navigation.goBack();
-              }}
-              style={{ backgroundColor: '#2563EB', paddingVertical: 12, borderRadius: 12, alignItems: 'center' }}
-            >
-              <Text style={{ color: '#FFF', fontWeight: '600' }}>太好了</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      {/* 🔥 统一弹窗，替代原来的两个手写 Modal */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        title={dialogTitle}
+        iconName={dialogIcon}
+        onClose={handleCloseDialog}
+      />
     </ScreenContainer>
   );
 }
