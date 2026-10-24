@@ -48,9 +48,9 @@ const AVATAR_FILE_MAP: Record<Mood, string> = {
 };
 
 // ===== 人物立绘布局参数（只调这三个） =====
-const AVATAR_SCALE        = 1.70;
-const AVATAR_TOP_RATIO    = 0.10;
-const AVATAR_RIGHT_ANCHOR = 0.50;
+const AVATAR_SCALE        = 1.80;
+const AVATAR_TOP_RATIO    = 0.05;
+const AVATAR_RIGHT_ANCHOR = 0.70;
 
 export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   useBgm();
