@@ -1,3 +1,4 @@
+// src/types/navigation.ts
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type TabParamList = {
@@ -12,6 +13,7 @@ export type RootStackParamList = {
     foodId: string;
   };
   Entertain: undefined;
+  Album: undefined; // 🔥 新增：相册页面
   Stream: undefined;
   Exercise: undefined;
   Medicine: undefined;
