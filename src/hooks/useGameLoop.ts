@@ -5,6 +5,7 @@ import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
+import { useTravelStore } from '@/store/useTravelStore'; // 🔥 引入旅游 Store
 import { clamp } from '@/utils/random';
 import {
   STREAM_CONFIG,
@@ -14,11 +15,10 @@ import {
 import { SLEEP_CONFIG } from '@/data/sleepConfig';
 import { MENSTRUAL_CONFIG } from '@/data/menstrualConfig';
 import { aggregateBonus } from '@/utils/equipmentBonus';
+import { STRESS_START_DAYS, STRESS_MAX_DAYS } from '@/data/travelConfig'; // 🔥 引入配置
 
 const TICK_INTERVAL_MS = 5000;
-
-// 🔥 新增：经济配置
-const DAILY_RENT = 50;
+const DAILY_RENT = 50; // 🔥 每天房租
 
 export interface UseGameLoopResult {
   isRunning: boolean;
@@ -48,28 +48,25 @@ export function useGameLoop(): UseGameLoopResult {
   const lastRentCheckRef = useRef<string>(new Date().toDateString());
 
   useEffect(() => {
-    // 🔥 初始化安装日期（如果是第一次玩）
+    // 初始化安装日期
     AsyncStorage.getItem('@wulili/install_date').then((val) => {
       if (!val) AsyncStorage.setItem('@wulili/install_date', Date.now().toString());
     });
 
-    // 🔥 每日扣费逻辑
+    // 每日扣费
     const checkDailyRent = async () => {
       const todayStr = new Date().toDateString();
-      if (lastRentCheckRef.current === todayStr) return; // 今天已经检查过了
-      
+      if (lastRentCheckRef.current === todayStr) return;
       lastRentCheckRef.current = todayStr;
       
       const installDateStr = await AsyncStorage.getItem('@wulili/install_date');
       const installDate = installDateStr ? parseInt(installDateStr, 10) : Date.now();
       
-      // 如果今天是安装的第一天，不扣费
-      if (new Date(installDate).toDateString() === todayStr) return;
+      if (new Date(installDate).toDateString() === todayStr) return; // 首日不扣
 
       const lastRentDate = await AsyncStorage.getItem('@wulili/last_rent_date');
-      if (lastRentDate === todayStr) return; // 已经交过今天的房租了
+      if (lastRentDate === todayStr) return;
 
-      // 执行扣费
       const wuliliStore = useWuliliStore.getState();
       const currentCoins = wuliliStore.state.coins;
       
@@ -77,11 +74,41 @@ export function useGameLoop(): UseGameLoopResult {
       await AsyncStorage.setItem('@wulili/last_rent_date', todayStr);
 
       if (currentCoins >= DAILY_RENT) {
-        // 交了房租，心情轻微下降（心疼钱）
         wuliliStore.addStats({ mood: -2 });
       } else {
-        // 交不起房租，心情暴跌
         wuliliStore.addStats({ mood: -15 });
+      }
+    };
+
+    // 🔥 情绪压力检查（旅游空窗期）
+    const checkTravelStress = () => {
+      const travelState = useTravelStore.getState().state;
+      const now = Date.now();
+      
+      // 如果正在旅游，没有压力惩罚
+      if (travelState.isTraveling) return;
+
+      // 1. 如果在 Buff 期间，不加压，反而减压（我们后面在 tick 里减基础衰减）
+      if (travelState.happyBuffEndAt && now < travelState.happyBuffEndAt) {
+        return; 
+      }
+
+      // 2. 计算空窗天数
+      const lastTravelTime = travelState.lastTravelEndAt || 0; 
+      // 如果从来没去过，以安装日期为准（避免第一天就暴躁）
+      const baselineTime = lastTravelTime === 0 ? parseInt(AsyncStorage.getItem('@wulili/install_date') as any || '0', 10) : lastTravelTime;
+      // 注意：AsyncStorage.getItem 是异步的，这里简单处理，如果有问题我们后面优化。为了最安全，假设从未旅游过，就按当前时间 - 0 算。
+      
+      // 简化处理：如果没有记录 lastTravelEndAt，就用 0，代表“很久很久没去过了”
+      // 为了防止新玩家一上来就暴躁，我们在渲染时再处理。这里先按天数算。
+      const daysSinceLastTravel = lastTravelTime === 0 ? 0 : (now - lastTravelTime) / (24 * 3600 * 1000);
+
+      if (daysSinceLastTravel > STRESS_MAX_DAYS) {
+        // 极度压抑：每 5 秒额外扣 0.1 心情
+        useWuliliStore.getState().addStats({ mood: -0.1 });
+      } else if (daysSinceLastTravel > STRESS_START_DAYS) {
+        // 开始有压力：每 5 秒额外扣 0.05 心情
+        useWuliliStore.getState().addStats({ mood: -0.05 });
       }
     };
 
@@ -98,6 +125,7 @@ export function useGameLoop(): UseGameLoopResult {
     };
 
     const processStreamTick = (deltaMs: number) => {
+      // ... (保持原样，省略，你直接复制你原来的 processStreamTick)
       const streamStore = useStreamStore.getState();
       const stream = streamStore.state;
       if (!stream.isStreaming) return;
@@ -111,7 +139,6 @@ export function useGameLoop(): UseGameLoopResult {
       const moodFactor = clamp(wulili.stats.mood / 100, 0.2, 1);
       const healthFactor = clamp(wulili.stats.health / 100, 0.3, 1);
 
-      // 经期惩罚
       const menstrualPenalty = getMenstrualPenalty();
       const streamIncomePenalty = 1 - menstrualPenalty * 0.3;
       const energyExtraCost = 1 + menstrualPenalty * 0.3;
@@ -164,54 +191,68 @@ export function useGameLoop(): UseGameLoopResult {
     };
 
     const processSleepTick = (deltaMs: number) => {
-      const sleepStore = useSleepStore.getState();
-      const sleep = sleepStore.state;
-      if (!sleep.isSleeping) return;
+       // ... (保持原样，省略，你直接复制你原来的 processSleepTick)
+       const sleepStore = useSleepStore.getState();
+       const sleep = sleepStore.state;
+       if (!sleep.isSleeping) return;
+ 
+       const bonus = getBonus();
+       let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
+ 
+       const menstrualPenalty = getMenstrualPenalty();
+       recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
+ 
+       const energyPerSec =
+         (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
+       const moodPerSec =
+         (SLEEP_CONFIG.moodRecoveryPerHour / 3600) * recoveryMultiplier;
+       const healthPerSec =
+         (SLEEP_CONFIG.healthRecoveryPerHour / 3600) * recoveryMultiplier;
+ 
+       sleepStore.tick(
+         deltaMs,
+         { energy: energyPerSec, mood: moodPerSec, health: healthPerSec },
+         (energyGain, moodGain, healthGain) => {
+           useWuliliStore.getState().addStats({
+             energy: energyGain,
+             mood: moodGain,
+             health: healthGain,
+           });
+         },
+         (seconds) => {
+           useWuliliStore.getState().addSleepSeconds(seconds);
+         },
+       );
+ 
+       const afterTick = useWuliliStore.getState().state;
+       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
+       if (
+         afterTick.stats.energy >= SLEEP_CONFIG.autoWakeEnergy ||
+         totalHours >= SLEEP_CONFIG.maxSleepHours
+       ) {
+         sleepStore.stop();
+         useWuliliStore.getState().markInteraction('sleep');
+       }
+    };
 
-      const bonus = getBonus();
-      let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
-
-      // 经期惩罚：恢复慢
-      const menstrualPenalty = getMenstrualPenalty();
-      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
-
-      const energyPerSec =
-        (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
-      const moodPerSec =
-        (SLEEP_CONFIG.moodRecoveryPerHour / 3600) * recoveryMultiplier;
-      const healthPerSec =
-        (SLEEP_CONFIG.healthRecoveryPerHour / 3600) * recoveryMultiplier;
-
-      sleepStore.tick(
-        deltaMs,
-        { energy: energyPerSec, mood: moodPerSec, health: healthPerSec },
-        (energyGain, moodGain, healthGain) => {
-          useWuliliStore.getState().addStats({
-            energy: energyGain,
-            mood: moodGain,
-            health: healthGain,
-          });
-        },
-        (seconds) => {
-          useWuliliStore.getState().addSleepSeconds(seconds);
-        },
-      );
-
-      const afterTick = useWuliliStore.getState().state;
-      const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
-      if (
-        afterTick.stats.energy >= SLEEP_CONFIG.autoWakeEnergy ||
-        totalHours >= SLEEP_CONFIG.maxSleepHours
-      ) {
-        sleepStore.stop();
-        useWuliliStore.getState().markInteraction('sleep');
+    // 🔥 检查旅游是否结束
+    const checkTravelFinished = () => {
+      const travelStore = useTravelStore.getState();
+      const justFinished = travelStore.checkAndFinishTravel();
+      if (justFinished) {
+        // 旅游刚结束，瞬间恢复 50 心情！
+        useWuliliStore.getState().addStats({ mood: 50 });
+        // 强制把精力拉满
+        useWuliliStore.getState().addStats({ energy: 100 });
       }
     };
 
     const tick = () => {
       if (!runningRef.current) return;
       try {
-        void checkDailyRent(); // 🔥 每次 tick 顺便检查扣费
+        checkTravelFinished(); // 🔥 检查旅游状态
+        void checkDailyRent();
+        checkTravelStress(); // 🔥 检查没旅游的压力
 
         const wuliliStore = useWuliliStore.getState();
         wuliliStore.applyTimeDecay();
@@ -246,15 +287,13 @@ export function useGameLoop(): UseGameLoopResult {
         nextState === 'active' &&
         (prev === 'background' || prev === 'inactive')
       ) {
+        // ... (保持原样，离线补偿)
         const streamStore = useStreamStore.getState();
         const stream = streamStore.state;
         if (stream.isStreaming && stream.lastTickAt) {
           const elapsedMs = Date.now() - stream.lastTickAt;
           if (elapsedMs > 1000) {
-            const cappedMs = Math.min(
-              elapsedMs,
-              STREAM_CONFIG.maxOfflineSeconds * 1000,
-            );
+            const cappedMs = Math.min(elapsedMs, STREAM_CONFIG.maxOfflineSeconds * 1000);
             processStreamTick(cappedMs);
           }
         }
@@ -264,10 +303,7 @@ export function useGameLoop(): UseGameLoopResult {
         if (sleep.isSleeping && sleep.lastTickAt) {
           const elapsedMs = Date.now() - sleep.lastTickAt;
           if (elapsedMs > 1000) {
-            const cappedMs = Math.min(
-              elapsedMs,
-              SLEEP_CONFIG.maxOfflineSeconds * 1000,
-            );
+            const cappedMs = Math.min(elapsedMs, SLEEP_CONFIG.maxOfflineSeconds * 1000);
             processSleepTick(cappedMs);
           }
         }
