@@ -7,14 +7,13 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
-import DialogueBubble from '@/components/DialogueBubble';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入统一弹窗
 import EmptyView from '@/components/EmptyView';
 import MiniGameLoader from '@/components/MiniGameLoader';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { formatCoins } from '@/utils/format';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 import type { MinigameIndexEntry } from '@/types/config';
 
@@ -25,7 +24,11 @@ const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function EntertainScreen({}: Props): React.JSX.Element {
   const { speak } = useDialogue();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
+
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
+
   const [activeGame, setActiveGame] = useState<MinigameIndexEntry | null>(null);
 
   const rawMinigames = useAppConfigStore((s) => s.config.minigames);
@@ -54,8 +57,13 @@ export function EntertainScreen({}: Props): React.JSX.Element {
   };
 
   const handleExit = () => {
+    // 🔥 退出小游戏时，改用统一弹窗
     const line = speak({ action: 'entertain' });
-    if (line) setDialogue(line);
+    if (line) {
+      const text = typeof line === 'string' ? line : (line as any)?.text || '玩得很开心，谢谢你。';
+      setDialogText(text);
+      setDialogVisible(true);
+    }
     setActiveGame(null);
   };
 
@@ -144,15 +152,13 @@ export function EntertainScreen({}: Props): React.JSX.Element {
         />
       )}
 
-      <View className="px-4 pb-3">
-        {dialogue ? (
-          <DialogueBubble
-            dialogue={dialogue}
-            onDismiss={() => setDialogue(null)}
-            autoDismissMs={8000}
-          />
-        ) : null}
-      </View>
+      {/* 🔥 统一弹窗替代原本的 DialogueBubble */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        onClose={() => setDialogVisible(false)}
+        iconName="game-controller"
+      />
     </ScreenContainer>
   );
 }
