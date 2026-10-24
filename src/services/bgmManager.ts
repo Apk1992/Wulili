@@ -1,12 +1,14 @@
 import Sound from 'react-native-sound';
+import { Alert } from 'react-native';
 
 Sound.setCategory('Playback', true);
 
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 const MANIFEST_URL = `${R2_BASE}/manifest.json`;
-
-// 兜底：manifest 拉不到时用这个（注意是 .m4a，不是 .m4a.mp4）
 const FALLBACK_BGM = `${R2_BASE}/bgm/autumn_day.m4a`;
+
+// 🔥 调试开关：上线前改成 false
+const DEBUG_BGM = true;
 
 class BgmManager {
   private sound: Sound | null = null;
@@ -16,14 +18,10 @@ class BgmManager {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private externalHolders: Set<string> = new Set();
 
-  // manifest 缓存
   private manifestFiles: string[] | null = null;
   private manifestLoading: Promise<string[]> | null = null;
-
-  // 防止并发 init
   private initLock: boolean = false;
 
-  // ===== 外部占用 API =====
   public acquireExternal(holderId: string) {
     this.externalHolders.add(holderId);
     this.pause();
@@ -37,7 +35,6 @@ class BgmManager {
   public suspendForVideo() { this.acquireExternal('video'); }
   public resumeFromVideo() { this.releaseExternal('video'); }
 
-  // ===== manifest 加载 =====
   private async loadManifest(): Promise<string[]> {
     if (this.manifestFiles) return this.manifestFiles;
     if (this.manifestLoading) return this.manifestLoading;
@@ -53,10 +50,12 @@ class BgmManager {
               .filter((p: any): p is string => typeof p === 'string' && p.length > 0)
           : [];
         this.manifestFiles = files;
-        console.log('[BgmManager] manifest 已加载，共', files.length, '条');
+        if (DEBUG_BGM) {
+          Alert.alert('manifest 加载完成', `共 ${files.length} 条\nbgm 相关：\n${files.filter(p => p.startsWith('bgm/')).join('\n')}`);
+        }
         return files;
-      } catch (e) {
-        console.warn('[BgmManager] manifest 加载失败:', e);
+      } catch (e: any) {
+        if (DEBUG_BGM) Alert.alert('manifest 加载失败', String(e?.message ?? e));
         return [];
       } finally {
         this.manifestLoading = null;
@@ -66,36 +65,38 @@ class BgmManager {
     return this.manifestLoading;
   }
 
-  /** 从 manifest 找 bgm/<season>_<day|night>.* */
   private async resolveBgmPath(season: string, isNight: boolean): Promise<string | null> {
     const files = await this.loadManifest();
     const suffix = isNight ? 'night' : 'day';
     const prefix = `bgm/${season}_${suffix}`;
-
     const candidates = files.filter((p) => p.startsWith(prefix) && !p.endsWith('/'));
-    console.log('[BgmManager] resolveBgmPath:', { season, isNight, prefix, candidates });
+
+    if (DEBUG_BGM) {
+      Alert.alert(
+        'resolveBgmPath',
+        `season: ${season}\nisNight: ${isNight}\nprefix: ${prefix}\n\ncandidates:\n${candidates.join('\n') || '(空)'}`,
+      );
+    }
 
     if (candidates.length === 0) return null;
     return candidates[0];
   }
 
-  // ===== 播放控制 =====
-
-  /** 按季节 + 昼夜切 BGM */
   public async setScene(season: string, isNight: boolean): Promise<void> {
-    if (this.isExternallyHeld()) {
-      console.log('[BgmManager] setScene 跳过：外部占用中');
-      return;
+    if (DEBUG_BGM) {
+      Alert.alert('setScene 被调用', `season: ${season}\nisNight: ${isNight}\nheld: ${this.isExternallyHeld()}`);
     }
+
+    if (this.isExternallyHeld()) return;
 
     const path = await this.resolveBgmPath(season, isNight);
     const url = path ? `${R2_BASE}/${path}` : FALLBACK_BGM;
 
-    console.log('[BgmManager] setScene 最终 URL:', url);
+    if (DEBUG_BGM) {
+      Alert.alert('setScene 最终 URL', `${url}\n\ncurrentUrl: ${this.currentUrl}\n是否同一首: ${url === this.currentUrl}`);
+    }
 
-    // 已经是这首且在播，不重载
     if (url === this.currentUrl && this.sound && this.isPlaying) {
-      console.log('[BgmManager] 同一首 BGM 已在播放，跳过');
       return;
     }
 
@@ -105,10 +106,7 @@ class BgmManager {
 
   public init(audioUrl?: string) {
     if (this.isExternallyHeld()) return;
-    if (this.initLock) {
-      console.log('[BgmManager] init 已在进行中，跳过');
-      return;
-    }
+    if (this.initLock) return;
 
     if (audioUrl) this.currentUrl = audioUrl;
     const targetUrl = this.currentUrl;
@@ -117,7 +115,6 @@ class BgmManager {
 
     this.releaseSound();
     this.initLock = true;
-    console.log('[BgmManager] 加载 BGM:', targetUrl);
 
     setTimeout(() => {
       if (this.isExternallyHeld()) {
@@ -129,7 +126,7 @@ class BgmManager {
         this.initLock = false;
 
         if (error) {
-          console.warn('[BgmManager] BGM 加载失败:', error, '| URL:', targetUrl);
+          if (DEBUG_BGM) Alert.alert('BGM 加载失败', `${targetUrl}\n\n${String((error as any)?.message ?? error)}`);
           this.isPlaying = false;
           if (this.retryCount < 5) {
             this.retryCount++;
@@ -145,7 +142,6 @@ class BgmManager {
           return;
         }
 
-        console.log('[BgmManager] BGM 加载成功，开始播放');
         this.retryCount = 0;
         this.isPlaying = true;
         this.playLoop();
@@ -170,7 +166,6 @@ class BgmManager {
             this.init(this.currentUrl);
           }
         } else {
-          console.warn('[BgmManager] BGM 播放中断，1 秒后重试');
           if (this.restartTimer) clearTimeout(this.restartTimer);
           this.restartTimer = setTimeout(() => {
             if (this.isPlaying && !this.isExternallyHeld()) {
@@ -180,7 +175,6 @@ class BgmManager {
         }
       });
     } catch (e) {
-      console.warn('[BgmManager] play 异常:', e);
       this.init(this.currentUrl);
     }
   }
