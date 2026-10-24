@@ -7,7 +7,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
-import DialogueBubble from '@/components/DialogueBubble';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入统一的弹窗
 import EmptyView from '@/components/EmptyView';
 import { useDialogue } from '@/hooks/useDialogue';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
@@ -16,18 +16,18 @@ import { useAffinity } from '@/hooks/useAffinity';
 import { formatWeight } from '@/utils/format';
 import { chance, clamp } from '@/utils/random';
 import type { ExerciseOption } from '@/types/wulili';
-import type { Dialogue } from '@/types/dialogue';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Exercise'>;
 
-// 🔥 Cloudflare R2 基础公开域名（供运动资源或贴图预留使用）
-const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
-
 export function ExerciseScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
   const { gain } = useAffinity();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
+
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
+  const [dialogIcon, setDialogIcon] = useState('fitness');
 
   const exercises = useAppConfigStore((s) => s.config.exercises);
   const energy = useWuliliStore((s) => s.state.stats.energy);
@@ -49,15 +49,23 @@ export function ExerciseScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.getState().markInteraction('exercise');
     gain(1);
 
+    // 获取台词
     const line = speak({ action: 'exercise' });
-    if (line) setDialogue(line);
+    const text = typeof line === 'string' ? line : (line as any)?.text || '呼……运动完了。';
 
+    // 判断是否触发鼻炎
+    let finalText = text;
     if (chance(0.06) && health < 60) {
       useWuliliStore.getState().setIllness('rhinitis', 1);
-      setTimeout(() => {
-        Alert.alert('身体不适', '运动后雾璃的鼻炎好像犯了……给她吃点药吧。');
-      }, 800);
+      finalText += '\n\n(运动后雾璃的鼻炎好像犯了……给她吃点药吧。)';
+      setDialogIcon('medkit');
+    } else {
+      setDialogIcon('fitness');
     }
+
+    // 显示弹窗
+    setDialogText(finalText);
+    setDialogVisible(true);
   };
 
   return (
@@ -127,15 +135,13 @@ export function ExerciseScreen({ navigation }: Props): React.JSX.Element {
         />
       )}
 
-      <View className="px-4 pb-3">
-        {dialogue ? (
-          <DialogueBubble
-            dialogue={dialogue}
-            onDismiss={() => setDialogue(null)}
-            autoDismissMs={8000}
-          />
-        ) : null}
-      </View>
+      {/* 🔥 使用统一弹窗替代原本底部的 DialogueBubble */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        onClose={() => setDialogVisible(false)}
+        iconName={dialogIcon}
+      />
     </ScreenContainer>
   );
 }
