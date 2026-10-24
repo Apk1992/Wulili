@@ -1,134 +1,66 @@
 // src/screens/DeveloperConsoleScreen.tsx
 import React, { useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View, Modal, Pressable, TextInput, Clipboard } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
 import SettingRow from '@/components/SettingRow';
-import SyncButton from '@/components/editor/SyncButton';
-import { useDialogue } from '@/hooks/useDialogue';
 import { useDialogueStore } from '@/store/useDialogueStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
-import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { fetchRemoteDialogues, pushRemoteDialogues } from '@/api/githubDialogues';
-import { pushRemoteAppConfig } from '@/api/githubAppConfig';
-import { toGitHubApiError } from '@/api/githubClient';
-import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { formatRelativeTime } from '@/utils/time';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeveloperConsole'>;
 
-// 🔥 Cloudflare R2 基础公开域名提示
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element {
-  const { hasToken } = useGitHubToken();
-  const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
-  const [pulling, setPulling] = useState<boolean>(false);
-  const [pushingDialogues, setPushingDialogues] = useState<boolean>(false);
-  const [pushingConfig, setPushingConfig] = useState<boolean>(false);
+  // 导出弹窗状态
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportTitle, setExportTitle] = useState('');
+  const [exportJson, setExportJson] = useState('');
 
-  const configQuery = useGitHubAppConfig(false);
   const config = useAppConfigStore((s) => s.config);
   const syncMeta = useAppConfigStore((s) => s.syncMeta);
-  const setRemoteConfig = useAppConfigStore((s) => s.setRemoteConfig);
 
   const dialogues = useDialogueStore((s) => s.dialogues);
-  const setRemoteDialogues = useDialogueStore((s) => s.setRemoteDialogues);
-  const setUserDialogues = useDialogueStore((s) => s.setUserDialogues);
   const userDialogues = dialogues.filter((d) => d.source === 'user');
   const remoteDialogues = dialogues.filter((d) => d.source === 'remote');
   const defaultCount = dialogues.filter((d) => d.source === 'default').length;
 
-  const handlePullAll = async () => {
-    if (!hasToken) {
-      Alert.alert('未配置 Token', '请先在设置里配置 GitHub Token。');
-      return;
-    }
-    setPulling(true);
-    try {
-      if (useRemoteDialogues) {
-        const dialogueResult = await fetchRemoteDialogues();
-        setRemoteDialogues(dialogueResult.file.dialogues);
-      }
-      const configResult = await configQuery.refetch();
-      if (configResult.data) {
-        setRemoteConfig(configResult.data.config);
-      }
-      Alert.alert('拉取成功', '线上内容已同步到本机。');
-    } catch (error) {
-      const apiError = toGitHubApiError(error);
-      Alert.alert('拉取失败', apiError.message);
-    } finally {
-      setPulling(false);
-    }
-  };
-
-  const handlePushDialogues = async () => {
-    if (!hasToken) {
-      Alert.alert('未配置 Token', '请先在设置里配置 GitHub Token。');
-      return;
-    }
-    const allDialogues = [...remoteDialogues, ...userDialogues];
-    if (allDialogues.length === 0) {
-      Alert.alert('没有可推送的内容', '你还没有创建自定义台词。');
-      return;
-    }
-    setPushingDialogues(true);
-    try {
-      const result = await pushRemoteDialogues(
-        allDialogues,
-        `更新台词 ${new Date().toISOString()}`,
-      );
-      Alert.alert('推送成功', `已提交到 GitHub\n${result.commitUrl}`);
-    } catch (error) {
-      const apiError = toGitHubApiError(error);
-      Alert.alert('推送失败', apiError.message);
-    } finally {
-      setPushingDialogues(false);
-    }
-  };
-
-  const handlePushConfig = async () => {
-    if (!hasToken) {
-      Alert.alert('未配置 Token', '请先在设置里配置 GitHub Token。');
-      return;
-    }
-    setPushingConfig(true);
-    try {
-      const result = await pushRemoteAppConfig(
-        config,
-        `更新配置 ${new Date().toISOString()}`,
-      );
-      Alert.alert('推送成功', `已提交到 GitHub\n${result.commitUrl}`);
-    } catch (error) {
-      const apiError = toGitHubApiError(error);
-      Alert.alert('推送失败', apiError.message);
-    } finally {
-      setPushingConfig(false);
-    }
+  // ===== 导出逻辑 =====
+  const handleExportConfig = () => {
+    const json = JSON.stringify(config, null, 2);
+    setExportTitle('配置导出 (复制后替换 R2: data/config.json)');
+    setExportJson(json);
+    setExportModalVisible(true);
   };
 
   const handleExportDialogues = () => {
-    useDialogueStore.getState().setUserDialogues(userDialogues);
+    // 把远程和本地自定义的台词合并导出
+    const allDialogues = [...remoteDialogues, ...userDialogues];
     const json = JSON.stringify(
       {
         schemaVersion: 1,
         updatedAt: new Date().toISOString(),
-        dialogues: [...remoteDialogues, ...userDialogues],
+        dialogues: allDialogues,
       },
       null,
       2,
     );
-    Alert.alert(
-      '导出内容',
-      `${json.length} 个字符，请到开发者编辑页面复制内容。`,
-      [{ text: '好的' }],
-    );
+    setExportTitle('台词导出 (复制后替换 R2: dialogue/dialogues.json)');
+    setExportJson(json);
+    setExportModalVisible(true);
+  };
+
+  const copyToClipboard = () => {
+    Clipboard.setString(exportJson);
+    Alert.alert('已复制', '内容已复制到剪贴板，请去 R2 控制台替换对应文件。');
+    setExportModalVisible(false);
   };
 
   return (
@@ -162,47 +94,37 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
           </Card>
         </View>
 
-        <View className="px-4 mt-3">
-          <SyncButton
-            label="从 GitHub 拉取最新内容"
-            variant="pull"
-            loading={pulling}
-            onPress={() => void handlePullAll()}
-            lastSyncedAt={syncMeta.lastPulledAt}
-          />
-        </View>
-
-        <View className="px-4 mt-2">
-          <SyncButton
-            label="推送台词到 GitHub"
-            variant="push"
-            icon="chatbubbles"
-            loading={pushingDialogues}
-            onPress={() => void handlePushDialogues()}
-          />
-        </View>
-
-        <View className="px-4 mt-2">
-          <SyncButton
-            label="推送配置到 GitHub"
-            variant="push"
-            icon="settings"
-            loading={pushingConfig}
-            onPress={() => void handlePushConfig()}
-          />
+        <View className="px-4 mt-4 mb-2">
+          <Text className="text-xs font-bold text-muted dark:text-dark-muted">
+            R2 数据同步 (导出后手动上传)
+          </Text>
         </View>
 
         <View className="px-4 mt-2">
           <Button
-            label="导出为 JSON"
-            variant="ghost"
-            size="sm"
+            label="导出【台词配置】"
+            variant="primary"
             icon="download"
             onPress={handleExportDialogues}
           />
         </View>
 
-        <Text className="px-4 pt-5 pb-2 text-xs text-muted dark:text-dark-muted">
+        <View className="px-4 mt-2">
+          <Button
+            label="导出【物品/系统配置】"
+            variant="primary"
+            icon="download"
+            onPress={handleExportConfig}
+          />
+        </View>
+
+        <View className="px-4 mt-3">
+          <Text className="text-[10px] text-muted dark:text-dark-muted leading-4">
+            提示：点击导出后，复制 JSON 字符串，前往 Cloudflare R2 控制台，覆盖对应的 `dialogues.json` 或 `config.json`。App 重启后会自动读取最新内容。
+          </Text>
+        </View>
+
+        <Text className="px-4 pt-6 pb-2 text-xs text-muted dark:text-dark-muted">
           编辑内容
         </Text>
         <SettingRow
@@ -248,7 +170,7 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
           onPress={() => navigation.navigate('MemoryManager')}
         />
 
-        <View className="px-4 mt-4">
+        <View className="px-4 mt-6">
           <Button
             label="返回设置"
             variant="ghost"
@@ -256,6 +178,31 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
           />
         </View>
       </ScrollView>
+
+      {/* 导出 JSON 弹窗 */}
+      <Modal visible={exportModalVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '90%', height: '70%', backgroundColor: '#1E293B', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#334155' }}>
+            <View className="flex-row justify-between items-center mb-3">
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' }}>{exportTitle}</Text>
+              <Pressable onPress={() => setExportModalVisible(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </Pressable>
+            </View>
+            
+            <View style={{ flex: 1, backgroundColor: '#0F172A', borderRadius: 8, marginBottom: 12 }}>
+              <TextInput
+                multiline
+                editable={false}
+                value={exportJson}
+                style={{ color: '#CBD5E1', fontSize: 12, padding: 10, flex: 1, textAlignVertical: 'top' }}
+              />
+            </View>
+
+            <Button label="复制到剪贴板" variant="primary" onPress={copyToClipboard} />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -270,7 +217,5 @@ function StatLine({ label, value }: { label: string; value: number }): React.JSX
     </View>
   );
 }
-
-void useDialogue;
 
 export default DeveloperConsoleScreen;
