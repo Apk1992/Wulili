@@ -46,14 +46,16 @@ export function useBgm() {
     return () => sub.remove();
   }, [bgmEnabled]);
 
-  // 4. 兜底：BGM 没播起来时每 3 秒重试
+  // 4. 兜底：BGM 没播起来时每 3 秒重试（走 setScene，确保 URL 正确）
   useEffect(() => {
     if (!bgmEnabled) return;
     const timer = setInterval(() => {
       if (!bgmManager.getIsPlaying() && !bgmManager.isExternallyHeld()) {
-        bgmManager.resume();
+        const h = new Date().getHours();
+        const isNight = h >= 18 || h < 6;
+        void bgmManager.setScene(season ?? 'autumn', isNight);
       }
     }, 3000);
     return () => clearInterval(timer);
-  }, [bgmEnabled]);
+  }, [bgmEnabled, season]);
 }
