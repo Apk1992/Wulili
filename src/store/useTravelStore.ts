@@ -17,7 +17,7 @@ interface TravelState {
 interface TravelStore {
   state: TravelState;
   startTravel: (dest: TravelDestination) => void;
-  finishTravel: () => void;
+  finishTravel: () => { newSpotId: string | null };
   isSpotUnlocked: (spotId: string) => boolean;
   checkAndFinishTravel: () => boolean;
 }
@@ -48,15 +48,24 @@ export const useTravelStore = create<TravelStore>()(
       },
       finishTravel: () => {
         const { destinationId, unlockedSpots } = get().state;
-        if (!destinationId) return;
+        if (!destinationId) return { newSpotId: null };
         
         const dest = TRAVEL_DESTINATIONS.find((d) => d.id === destinationId);
-        const newSpots = dest ? dest.spots.map(s => s.id) : [];
-        const now = Date.now();
+        if (!dest) return { newSpotId: null };
+
+        // 🔥 找出所有还没收集的照片
+        const uncollectedSpots = dest.spots.filter(s => !unlockedSpots.includes(s.id));
         
-        // 🔥 根据旅游类型决定 Buff 持续天数
-        const buffConfig = dest ? TRAVEL_BUFF_CONFIG[dest.type] : { buffDays: 1 };
-        const buffDays = buffConfig.buffDays;
+        let newSpotId: string | null = null;
+        
+        // 🔥 如果有未收集的照片，随机抽一张
+        if (uncollectedSpots.length > 0) {
+          const randomIndex = Math.floor(Math.random() * uncollectedSpots.length);
+          newSpotId = uncollectedSpots[randomIndex].id;
+        }
+        
+        const now = Date.now();
+        const buffConfig = TRAVEL_BUFF_CONFIG[dest.type] || { buffDays: 1 };
 
         set({
           state: {
@@ -65,11 +74,16 @@ export const useTravelStore = create<TravelStore>()(
             destinationId: null,
             startedAt: null,
             endAt: null,
-            unlockedSpots: Array.from(new Set([...unlockedSpots, ...newSpots])),
-            happyBuffEndAt: now + buffDays * 24 * 3600 * 1000,
+            // 🔥 只添加新抽到的那一张
+            unlockedSpots: newSpotId 
+              ? Array.from(new Set([...unlockedSpots, newSpotId])) 
+              : unlockedSpots,
+            happyBuffEndAt: now + buffConfig.buffDays * 24 * 3600 * 1000,
             lastTravelEndAt: now,
           },
         });
+
+        return { newSpotId };
       },
       isSpotUnlocked: (spotId) => get().state.unlockedSpots.includes(spotId),
       checkAndFinishTravel: () => {
@@ -77,7 +91,16 @@ export const useTravelStore = create<TravelStore>()(
         if (!s.isTraveling || !s.endAt) return false;
         
         if (Date.now() >= s.endAt) {
-          get().finishTravel();
+          const result = get().finishTravel();
+          // 这里我们可以暂时存一个全局变量，或者发个事件，告诉 UI 抽到了什么
+          // 最简单的做法：存在 state 里一个 `lastTravelResult`，供 UI 读取
+          set((prev) => ({
+             state: {
+               ...prev.state,
+               // @ts-ignore 临时加个字段供 UI 弹窗使用
+               lastTravelResult: result.newSpotId
+             }
+          }))
           return true;
         }
         return false;
