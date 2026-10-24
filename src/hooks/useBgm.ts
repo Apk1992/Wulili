@@ -7,14 +7,13 @@ import { useSeason } from '@/hooks/useSeason';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
 /**
- * 固定按 UTC+8（北京时间）判断昼夜，避免手机时区不对导致误判
+ * 固定按 UTC+8（北京时间）判断昼夜
  * 18:00 - 05:59 → 夜晚
  */
 function getIsNight(): boolean {
   const now = new Date();
-  // 转成 UTC 毫秒，再加 8 小时
-  const utc8Ms = now.getTime() + now.getTimezoneOffset() * 60_000 + 8 * 3600_000;
-  const utc8Hour = new Date(utc8Ms).getUTCHours();
+  // 获取当前 UTC 小时，加 8 小时（取余 24 防止超过 24），这就是北京时间的小时
+  const utc8Hour = (now.getUTCHours() + 8) % 24;
   return utc8Hour >= 18 || utc8Hour < 6;
 }
 
