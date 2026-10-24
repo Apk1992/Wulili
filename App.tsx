@@ -1,3 +1,4 @@
+// App.tsx (只贴有改动的部分)
 import React, { useEffect, useState } from 'react';
 import { StatusBar, View, Text, ScrollView } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -21,12 +22,7 @@ import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
-import { useGitHubToken } from '@/hooks/useGitHubToken';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
-import { useGitHubAppConfig } from '@/hooks/useGitHubAppConfig';
-import { fetchRemoteDialogues } from '@/api/githubDialogues';
-import { toGitHubApiError, setGitHubToken } from '@/api/githubClient';
-import { EMBEDDED_GH_TOKEN } from '@/config/embedded';
 import { storageGet, storageSet } from '@/utils/storage';
 import { APP_KILLED_BEHAVIOR } from '@/services/playbackService';
 
@@ -34,10 +30,10 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 60 * 1000 } },
 });
 
-const PLACEHOLDER = '__WULILI_GH_TOKEN__';
 const PERMISSIONS_ASKED_KEY = '@wulili/permissions-asked';
+const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-// 🔥 修复：直接 setupPlayer，避免因为版本不支持某些方法导致整个初始化中断
+// 初始化 TrackPlayer
 void (async () => {
   try {
     await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
@@ -55,7 +51,6 @@ function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
   const [ready, setReady] = useState<boolean>(false);
   const [bootError, setBootError] = useState<string | null>(null);
-  const [hasToken, setHasToken] = useState<boolean>(false);
   const [showPermissionGate, setShowPermissionGate] = useState<boolean>(false);
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
@@ -72,14 +67,13 @@ function AppInner(): React.JSX.Element {
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
   const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
 
-  const { loadToken } = useGitHubToken();
-  const configQuery = useGitHubAppConfig(false);
   const setRemoteConfig = useAppConfigStore((s) => s.setRemoteConfig);
   const setRemoteDialogues = useDialogueStore((s) => s.setRemoteDialogues);
   const { promptIfAvailable } = useAppUpdate();
 
   useGameLoop();
 
+  // 1. 基础数据水合
   useEffect(() => {
     let mounted = true;
     void (async () => {
@@ -99,28 +93,13 @@ function AppInner(): React.JSX.Element {
       await run('stream', hydrateStream);
       await run('sleep', hydrateSleep);
 
-      const embedded = typeof EMBEDDED_GH_TOKEN === 'string' ? EMBEDDED_GH_TOKEN.trim() : '';
-      const embeddedValid = embedded.length > 0 && embedded !== PLACEHOLDER;
-
-      if (embeddedValid) {
-        setGitHubToken(embedded);
-        if (mounted) setHasToken(true);
-      } else {
-        try {
-          const fromKeychain = await loadToken();
-          if (fromKeychain && fromKeychain.length > 0) {
-            setGitHubToken(fromKeychain);
-            if (mounted) setHasToken(true);
-          }
-        } catch {}
-      }
-
       if (fails.length > 0) setBootError(fails.join('\n'));
       if (mounted) setReady(true);
     })();
     return () => { mounted = false; };
   }, []);
 
+  // 2. 权限弹窗检查
   useEffect(() => {
     if (!ready) return;
     void (async () => {
@@ -129,29 +108,45 @@ function AppInner(): React.JSX.Element {
     })();
   }, [ready]);
 
+  // 🔥 3. R2 内容同步（替换掉原来的 GitHub 逻辑）
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
+    
     void (async () => {
       try {
+        // 拉取 R2 的配置
         if (useRemoteConfig) {
-          const result = await configQuery.refetch();
-          if (!cancelled && result.data) setRemoteConfig(result.data.config);
+          const res = await fetch(`${R2_BASE}/data/config.json?t=${Date.now()}`);
+          if (res.ok) {
+            const configData = await res.json();
+            if (!cancelled) setRemoteConfig(configData);
+          }
         }
+        
+        // 拉取 R2 的台词
         if (useRemoteDialogues) {
-          const dialogueResult = await fetchRemoteDialogues();
-          if (!cancelled) setRemoteDialogues(dialogueResult.file.dialogues);
+          const res = await fetch(`${R2_BASE}/dialogue/dialogues.json?t=${Date.now()}`);
+          if (res.ok) {
+            const dialogueData = await res.json();
+            // 注意这里要取 .dialogues，因为你的导出格式是 { schemaVersion, updatedAt, dialogues: [...] }
+            if (!cancelled && dialogueData.dialogues) {
+              setRemoteDialogues(dialogueData.dialogues);
+            }
+          }
         }
       } catch (error) {
-        const apiError = toGitHubApiError(error);
-        if (!cancelled && apiError.status !== 404) {
-          Toast.show({ type: 'error', text1: '无法同步线上内容', text2: apiError.message });
+        console.warn('[App] R2 内容同步失败:', error);
+        if (!cancelled) {
+          Toast.show({ type: 'error', text1: '无法同步云端内容', text2: '请检查网络或 R2 配置' });
         }
       }
     })();
+    
     return () => { cancelled = true; };
-  }, [ready, useRemoteConfig, useRemoteDialogues]);
+  }, [ready, useRemoteConfig, useRemoteDialogues, setRemoteConfig, setRemoteDialogues]);
 
+  // 4. 检查更新
   useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(() => { void promptIfAvailable(); }, 2500);
@@ -183,11 +178,6 @@ function AppInner(): React.JSX.Element {
       <RootNavigator />
       <Toast />
       <PermissionGateModal visible={showPermissionGate} onComplete={handlePermissionComplete} />
-      {!hasToken ? (
-        <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 8, backgroundColor: '#EF4444' }}>
-          <Text style={{ color: 'white', fontSize: 11, textAlign: 'center' }}>未检测到 GitHub Token · App 将无法读取私有仓库</Text>
-        </View>
-      ) : null}
     </NavigationContainer>
   );
 }
