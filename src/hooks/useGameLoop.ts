@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
@@ -15,6 +16,9 @@ import { MENSTRUAL_CONFIG } from '@/data/menstrualConfig';
 import { aggregateBonus } from '@/utils/equipmentBonus';
 
 const TICK_INTERVAL_MS = 5000;
+
+// 🔥 新增：经济配置
+const DAILY_RENT = 50;
 
 export interface UseGameLoopResult {
   isRunning: boolean;
@@ -41,8 +45,46 @@ export function useGameLoop(): UseGameLoopResult {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runningRef = useRef<boolean>(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const lastRentCheckRef = useRef<string>(new Date().toDateString());
 
   useEffect(() => {
+    // 🔥 初始化安装日期（如果是第一次玩）
+    AsyncStorage.getItem('@wulili/install_date').then((val) => {
+      if (!val) AsyncStorage.setItem('@wulili/install_date', Date.now().toString());
+    });
+
+    // 🔥 每日扣费逻辑
+    const checkDailyRent = async () => {
+      const todayStr = new Date().toDateString();
+      if (lastRentCheckRef.current === todayStr) return; // 今天已经检查过了
+      
+      lastRentCheckRef.current = todayStr;
+      
+      const installDateStr = await AsyncStorage.getItem('@wulili/install_date');
+      const installDate = installDateStr ? parseInt(installDateStr, 10) : Date.now();
+      
+      // 如果今天是安装的第一天，不扣费
+      if (new Date(installDate).toDateString() === todayStr) return;
+
+      const lastRentDate = await AsyncStorage.getItem('@wulili/last_rent_date');
+      if (lastRentDate === todayStr) return; // 已经交过今天的房租了
+
+      // 执行扣费
+      const wuliliStore = useWuliliStore.getState();
+      const currentCoins = wuliliStore.state.coins;
+      
+      wuliliStore.addCoins(-DAILY_RENT);
+      await AsyncStorage.setItem('@wulili/last_rent_date', todayStr);
+
+      if (currentCoins >= DAILY_RENT) {
+        // 交了房租，心情轻微下降（心疼钱）
+        wuliliStore.addStats({ mood: -2 });
+      } else {
+        // 交不起房租，心情暴跌
+        wuliliStore.addStats({ mood: -15 });
+      }
+    };
+
     const getBonus = () => {
       const wulili = useWuliliStore.getState().state;
       const cfg = useAppConfigStore.getState();
@@ -71,8 +113,8 @@ export function useGameLoop(): UseGameLoopResult {
 
       // 经期惩罚
       const menstrualPenalty = getMenstrualPenalty();
-      const streamIncomePenalty = 1 - menstrualPenalty * 0.3;   // 最多 -30%
-      const energyExtraCost = 1 + menstrualPenalty * 0.3;        // 最多 +30%
+      const streamIncomePenalty = 1 - menstrualPenalty * 0.3;
+      const energyExtraCost = 1 + menstrualPenalty * 0.3;
 
       const earningsPerSecond =
         STREAM_CONFIG.baseEarningPerSecond *
@@ -131,7 +173,7 @@ export function useGameLoop(): UseGameLoopResult {
 
       // 经期惩罚：恢复慢
       const menstrualPenalty = getMenstrualPenalty();
-      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;   // 最多 -40%
+      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
 
       const energyPerSec =
         (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
@@ -169,6 +211,8 @@ export function useGameLoop(): UseGameLoopResult {
     const tick = () => {
       if (!runningRef.current) return;
       try {
+        void checkDailyRent(); // 🔥 每次 tick 顺便检查扣费
+
         const wuliliStore = useWuliliStore.getState();
         wuliliStore.applyTimeDecay();
         processStreamTick(TICK_INTERVAL_MS);
