@@ -4,25 +4,54 @@ export interface TravelSpot {
   id: string;
   name: string;
   description: string;
-  image: string; // 景点照片文件名（放 R2 images/travel/）
+  image: string; 
 }
 
 export interface TravelDestination {
   id: string;
+  type: 'nearby' | 'domestic' | 'international'; // 🔥 旅游类型
   country: string;
   city: string;
-  price: number; // 🔥 价格提高到了 1000 - 5000
-  durationHours: number; // 旅游时长（比如 12 或 24 小时）
-  description: string; // 旅游特色介绍
-  spots: TravelSpot[]; // 包含的景点/纪念照
+  price: number; 
+  durationHours: number; 
+  description: string; 
+  spots: TravelSpot[]; 
 }
 
 export const TRAVEL_DESTINATIONS: TravelDestination[] = [
+  // ============ 周边散心 ============
+  {
+    id: 'nearby_park',
+    type: 'nearby',
+    country: '中国',
+    city: '附近',
+    price: 0, // 免费
+    durationHours: 3, // 去半天
+    description: '去楼下的公园散步，看看花草，吹吹风。',
+    spots: [
+      { id: 'park_1', name: '公园长椅', description: '她安静地坐在长椅上发呆。', image: 'images/travel/park_bench.png' },
+    ],
+  },
+  {
+    id: 'nearby_riverside',
+    type: 'nearby',
+    country: '中国',
+    city: '附近',
+    price: 50, 
+    durationHours: 5, 
+    description: '买杯奶茶，去江边看日落。',
+    spots: [
+      { id: 'river_1', name: '江边日落', description: '晚霞把她的脸映得红红的。', image: 'images/travel/riverside_sunset.png' },
+    ],
+  },
+  
+  // ============ 国内短途 ============
   {
     id: 'china_beijing',
+    type: 'domestic',
     country: '中国',
     city: '北京',
-    price: 1000,
+    price: 800,
     durationHours: 12,
     description: '去故宫看雪，去胡同里吃冰糖葫芦。',
     spots: [
@@ -32,6 +61,7 @@ export const TRAVEL_DESTINATIONS: TravelDestination[] = [
   },
   {
     id: 'japan_kyoto',
+    type: 'domestic',
     country: '日本',
     city: '京都',
     price: 2000,
@@ -42,11 +72,14 @@ export const TRAVEL_DESTINATIONS: TravelDestination[] = [
       { id: 'kyoto_2', name: '伏见稻荷大社', description: '千本鸟居，像走进了一个红色的梦。', image: 'images/travel/kyoto_shrine.png' },
     ],
   },
+
+  // ============ 国际长途 ============
   {
     id: 'france_paris',
+    type: 'international',
     country: '法国',
     city: '巴黎',
-    price: 3500,
+    price: 5000,
     durationHours: 24,
     description: '浪漫的代名词，适合发呆和拍好看的照片。',
     spots: [
@@ -56,9 +89,10 @@ export const TRAVEL_DESTINATIONS: TravelDestination[] = [
   },
   {
     id: 'iceland_reykjavik',
+    type: 'international',
     country: '冰岛',
     city: '雷克雅未克',
-    price: 5000,
+    price: 12000,
     durationHours: 36,
     description: '去世界的尽头，看极光和冰川。',
     spots: [
@@ -67,3 +101,15 @@ export const TRAVEL_DESTINATIONS: TravelDestination[] = [
     ],
   },
 ];
+
+// 🔥 情绪与时间配置
+export const HAPPY_BUFF_DAYS = 3; // 旅游回来后，极好心情持续 3 天
+export const STRESS_START_DAYS = 30; // 30 天没旅游，开始有压力
+export const STRESS_MAX_DAYS = 90; // 90 天没旅游，极度压抑
+
+// 🔥 不同类型旅游带来的压力缓解时间不同
+export const TRAVEL_BUFF_CONFIG = {
+  nearby: { buffDays: 1 }, // 散步缓解 1 天
+  domestic: { buffDays: 3 }, // 国内缓解 3 天
+  international: { buffDays: 7 }, // 出国缓解 7 天
+};
