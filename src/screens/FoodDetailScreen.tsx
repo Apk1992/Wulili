@@ -6,8 +6,6 @@ import {
   Text,
   View,
   useWindowDimensions,
-  Modal,
-  Pressable,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -15,6 +13,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入统一弹窗
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogue } from '@/hooks/useDialogue';
@@ -25,7 +24,6 @@ import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'FoodDetail'>;
 
-// 🔥 Cloudflare R2 专属公开存储桶地址
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Element {
@@ -45,11 +43,12 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
   const { speak } = useDialogue();
   const { gain } = useAffinity();
   
-  // 🔥 只存纯文本，彻底避免对象引发报错
-  const [dialogueText, setDialogueText] = useState<string | null>(null);
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
+  const [dialogIcon, setDialogIcon] = useState('restaurant');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
-  // 🔥 自动拼装食物图片指向 Cloudflare R2 节点
   const imageUrl = useMemo(() => {
     if (!food || !food.image) return null;
     if (food.image.startsWith('http://') || food.image.startsWith('https://')) {
@@ -107,24 +106,31 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
       if (isDessert) recordDessert();
       gain(food.category === 'healthy' ? 1 : 0.5);
 
-      // 🔥 安全提取字符串，避免对象解析
+      // 获取基础台词
       const line = speak({ action: 'feed', foodCategory: food.category });
-      const text = typeof line === 'string' ? line : (line as any)?.text || '谢谢你的投喂...';
-      setDialogueText(text);
+      let text = typeof line === 'string' ? line : (line as any)?.text || '谢谢你的投喂...';
+      let icon = isHealthy ? 'leaf' : 'fast-food';
 
+      // 🔥 检查是否因为吃了垃圾食品引发鼻炎，合并到弹窗中
       if (food.effect.health < 0) {
         if (Math.random() < Math.abs(food.effect.health) * 0.02) {
           useWuliliStore.getState().setIllness('rhinitis', 1);
-          setTimeout(() => Alert.alert('注意', '雾璃的鼻炎好像又犯了……'), 800);
+          text += '\n\n(雾璃吃完后打了个喷嚏，她的鼻炎好像又犯了……)';
+          icon = 'medkit'; // 图标切换为医疗
         }
       }
+
+      setDialogText(text);
+      setDialogIcon(icon);
+      setDialogVisible(true);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleCloseModal = () => {
-    setDialogueText(null);
+  // 🔥 关闭弹窗直接返回上一页
+  const handleCloseDialog = () => {
+    setDialogVisible(false);
     navigation.goBack();
   };
 
@@ -234,26 +240,13 @@ export function FoodDetailScreen({ route, navigation }: Props): React.JSX.Elemen
         </View>
       </ScrollView>
 
-      {/* 纯原生防崩弹窗 */}
-      <Modal visible={dialogueText !== null} transparent animationType="fade">
-        <Pressable
-          onPress={handleCloseModal}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
-        >
-          <View style={{ width: '85%', backgroundColor: '#1E293B', borderRadius: 24, padding: 24, borderWidth: 1, borderColor: '#334155' }}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                <Ionicons name="heart" size={32} color="#2563EB" />
-              </View>
-              <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' }}>雾璃</Text>
-            </View>
-            <Text style={{ fontSize: 16, textAlign: 'center', color: '#CBD5E1', lineHeight: 24, marginBottom: 16 }}>
-              {dialogueText}
-            </Text>
-            <Text style={{ fontSize: 12, textAlign: 'center', color: '#64748B' }}>点击任意位置继续...</Text>
-          </View>
-        </Pressable>
-      </Modal>
+      {/* 🔥 统一弹窗替代了纯原生防崩弹窗 */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        iconName={dialogIcon}
+        onClose={handleCloseDialog}
+      />
     </ScreenContainer>
   );
 }
