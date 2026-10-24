@@ -7,8 +7,7 @@ const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 const MANIFEST_URL = `${R2_BASE}/manifest.json`;
 const FALLBACK_BGM = `${R2_BASE}/bgm/autumn_day.m4a`;
 
-// 🔥 调试开关：上线前改成 false
-const DEBUG_BGM = true;
+const DEBUG_BGM = false;
 
 class BgmManager {
   private sound: Sound | null = null;
@@ -100,6 +99,10 @@ class BgmManager {
       return;
     }
 
+    // 🔥 如果此时正在播放不同的歌，强制停掉它，清空实例
+    this.isPlaying = false;
+    this.releaseSound();
+
     this.currentUrl = url;
     this.init(url);
   }
@@ -111,8 +114,7 @@ class BgmManager {
     if (audioUrl) this.currentUrl = audioUrl;
     const targetUrl = this.currentUrl;
 
-    if (this.sound && this.isPlaying) return;
-
+    // 取消了这里的 return，让新歌可以顺畅加载
     this.releaseSound();
     this.initLock = true;
 
