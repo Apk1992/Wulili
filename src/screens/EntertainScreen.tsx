@@ -15,15 +15,16 @@ import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useTravelStore } from '@/store/useTravelStore';
 import { TRAVEL_DESTINATIONS, TravelDestination } from '@/data/travelConfig';
-import { formatCoins, formatDuration } from '@/utils/format';
+import { formatCoins } from '@/utils/format';
 import type { RootStackParamList } from '@/types/navigation';
 import type { MinigameIndexEntry } from '@/types/config';
 
+// 🔥 注意这里要接收 navigation
 type Props = NativeStackScreenProps<RootStackParamList, 'Entertain'>;
 
 const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-export function EntertainScreen({}: Props): React.JSX.Element {
+export function EntertainScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
   
   // Tab 状态
@@ -52,7 +53,7 @@ export function EntertainScreen({}: Props): React.JSX.Element {
     });
   }, [rawMinigames]);
 
-  // 小游戏逻辑
+  // ===== 小游戏逻辑 =====
   const handleEnterGame = (entry: MinigameIndexEntry) => {
     if (energy < entry.energyCost) {
       Alert.alert('精力不足', '雾璃现在太累了，先让她休息一会儿吧。');
@@ -71,7 +72,7 @@ export function EntertainScreen({}: Props): React.JSX.Element {
     setActiveGame(null);
   };
 
-  // 旅游逻辑
+  // ===== 旅游逻辑 =====
   const handleStartTravel = (dest: TravelDestination) => {
     if (coins < dest.price) {
       Alert.alert('金币不足', '攒够了钱再带她去这里吧。');
@@ -86,12 +87,10 @@ export function EntertainScreen({}: Props): React.JSX.Element {
         {
           text: '出发',
           onPress: () => {
-            // 扣除金币
             useWuliliStore.getState().addCoins(-dest.price);
-            // 开启旅游
             startTravel(dest);
             Alert.alert('出发', `雾璃已经出发去${dest.city}了，记得等她回来哦！`, [
-              { text: '好', onPress: () => {} }
+              { text: '好' }
             ]);
           },
         },
@@ -99,7 +98,7 @@ export function EntertainScreen({}: Props): React.JSX.Element {
     );
   };
 
-  // 如果进入了小游戏界面，直接渲染小游戏
+  // 进入小游戏全屏模式
   if (activeGame) {
     return (
       <ScreenContainer edges={['bottom']}>
@@ -108,7 +107,6 @@ export function EntertainScreen({}: Props): React.JSX.Element {
     );
   }
 
-  // 如果正在旅游中，不允许再次出发
   const isTraveling = travelState.isTraveling;
 
   return (
@@ -196,8 +194,19 @@ export function EntertainScreen({}: Props): React.JSX.Element {
       {tab === 'travel' && (
         <View className="flex-1">
           <View className="px-4 pb-2 flex-row items-center justify-between">
-            <Text className="text-sm text-muted dark:text-dark-muted">当前金币</Text>
-            <Text className="text-base font-bold text-primary">{formatCoins(coins)}</Text>
+            <View className="flex-row items-center">
+              <Text className="text-sm text-muted dark:text-dark-muted mr-2">当前金币</Text>
+              <Text className="text-base font-bold text-primary">{formatCoins(coins)}</Text>
+            </View>
+            
+            {/* 🔥 相册入口按钮 */}
+            <Pressable 
+              onPress={() => navigation.navigate('Album')}
+              className="flex-row items-center bg-secondary/15 px-3 py-1.5 rounded-full"
+            >
+              <Ionicons name="images" size={14} color="#8B5CF6" />
+              <Text className="ml-1.5 text-xs font-bold text-secondary">旅行相册</Text>
+            </Pressable>
           </View>
 
           {isTraveling ? (
