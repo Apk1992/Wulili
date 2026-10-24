@@ -2,17 +2,16 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TRAVEL_DESTINATIONS, TravelDestination } from '@/data/travelConfig';
-
-export const TRAVEL_HAPPY_BUFF_HOURS = 48; // 旅游回来后，48 小时内心情极好
+import { TRAVEL_DESTINATIONS, TravelDestination, TRAVEL_BUFF_CONFIG } from '@/data/travelConfig';
 
 interface TravelState {
   isTraveling: boolean;
   destinationId: string | null;
   startedAt: number | null;
   endAt: number | null;
-  unlockedSpots: string[];
-  happyBuffEndAt: number | null; // 🔥 好心情 Buff 截止时间
+  unlockedSpots: string[]; 
+  happyBuffEndAt: number | null; 
+  lastTravelEndAt: number | null; 
 }
 
 interface TravelStore {
@@ -20,7 +19,7 @@ interface TravelStore {
   startTravel: (dest: TravelDestination) => void;
   finishTravel: () => void;
   isSpotUnlocked: (spotId: string) => boolean;
-  checkAndFinishTravel: () => boolean; // 检查是否该结束旅游了
+  checkAndFinishTravel: () => boolean;
 }
 
 export const useTravelStore = create<TravelStore>()(
@@ -33,6 +32,7 @@ export const useTravelStore = create<TravelStore>()(
         endAt: null,
         unlockedSpots: [],
         happyBuffEndAt: null,
+        lastTravelEndAt: null,
       },
       startTravel: (dest) => {
         const now = Date.now();
@@ -52,7 +52,12 @@ export const useTravelStore = create<TravelStore>()(
         
         const dest = TRAVEL_DESTINATIONS.find((d) => d.id === destinationId);
         const newSpots = dest ? dest.spots.map(s => s.id) : [];
+        const now = Date.now();
         
+        // 🔥 根据旅游类型决定 Buff 持续天数
+        const buffConfig = dest ? TRAVEL_BUFF_CONFIG[dest.type] : { buffDays: 1 };
+        const buffDays = buffConfig.buffDays;
+
         set({
           state: {
             ...get().state,
@@ -61,7 +66,8 @@ export const useTravelStore = create<TravelStore>()(
             startedAt: null,
             endAt: null,
             unlockedSpots: Array.from(new Set([...unlockedSpots, ...newSpots])),
-            happyBuffEndAt: Date.now() + TRAVEL_HAPPY_BUFF_HOURS * 3600 * 1000, // 🔥 开始 Buff
+            happyBuffEndAt: now + buffDays * 24 * 3600 * 1000,
+            lastTravelEndAt: now,
           },
         });
       },
@@ -70,10 +76,9 @@ export const useTravelStore = create<TravelStore>()(
         const s = get().state;
         if (!s.isTraveling || !s.endAt) return false;
         
-        // 如果时间到了
         if (Date.now() >= s.endAt) {
           get().finishTravel();
-          return true; // 告诉调用者：刚刚旅游结束了
+          return true;
         }
         return false;
       }
