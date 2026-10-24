@@ -13,7 +13,7 @@ export type RootStackParamList = {
     foodId: string;
   };
   Entertain: undefined;
-  Album: undefined; // 🔥 新增：相册页面
+  Album: undefined;
   Stream: undefined;
   Exercise: undefined;
   Medicine: undefined;
@@ -44,6 +44,7 @@ export type RootStackParamList = {
   AccessoryEditor: undefined;
   MinigameEditor: undefined;
   MemoryManager: undefined;
+  R2Config: undefined; // 🔥 新增 R2 配置页面
 };
 
 declare global {
