@@ -13,7 +13,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import ScreenContainer from '@/components/ScreenContainer';
 import RemoteImage from '@/components/RemoteImage';
 import Button from '@/components/Button';
-import DialogueBubble from '@/components/DialogueBubble';
+import { ActionDialogueModal } from '@/components/ActionDialogueModal'; // 🔥 引入统一的弹窗
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useShopStore } from '@/store/useShopStore';
@@ -21,7 +21,6 @@ import { useDialogue } from '@/hooks/useDialogue';
 import { useAffinity } from '@/hooks/useAffinity';
 import { describeBonus } from '@/utils/equipmentBonus';
 import { formatCoins } from '@/utils/format';
-import type { Dialogue } from '@/types/dialogue';
 import type { Accessory, Outfit } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
 
@@ -57,8 +56,13 @@ export function ItemDetailScreen({
 
   const { speak } = useDialogue();
   const { gain } = useAffinity();
-  const [dialogue, setDialogue] = useState<Dialogue | null>(null);
+  
+  // 🔥 弹窗状态
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  // 🔥 用来记录点击弹窗关闭后，是否要返回上一页
+  const [shouldGoBack, setShouldGoBack] = useState(false);
 
   // 🔥 自动补全远端图片 URL 链接至 Cloudflare R2 CDN
   const imageUrl = useMemo(() => {
@@ -126,9 +130,13 @@ export function ItemDetailScreen({
             }
             addStats({ mood: item.moodBonus });
             gain(item.affinityBonus);
+            
+            // 🔥 获取台词并显示弹窗
             const line = speak({ forceCategory: 'shop' });
-            if (line) setDialogue(line);
-            setTimeout(() => navigation.goBack(), 600);
+            const text = typeof line === 'string' ? line : (line as any)?.text || '谢谢你给我买这个。';
+            setDialogText(text);
+            setShouldGoBack(true); // 记录购买后需要返回
+            setDialogVisible(true);
           },
         },
       ],
@@ -155,11 +163,23 @@ export function ItemDetailScreen({
           gain(item.affinityBonus);
         }
       }
+      
+      // 🔥 获取台词并显示弹窗
       const line = speak({ forceCategory: 'shop' });
-      if (line) setDialogue(line);
-      setTimeout(() => navigation.goBack(), 600);
+      const text = typeof line === 'string' ? line : (line as any)?.text || (equipped ? '那我就先脱下来啦。' : '好看吗？');
+      setDialogText(text);
+      setShouldGoBack(true); // 记录穿戴后需要返回
+      setDialogVisible(true);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 🔥 弹窗关闭处理：如果之前标记了要返回，这里就执行返回
+  const handleCloseDialog = () => {
+    setDialogVisible(false);
+    if (shouldGoBack) {
+      navigation.goBack();
     }
   };
 
@@ -289,16 +309,6 @@ export function ItemDetailScreen({
         </View>
 
         <View className="px-4 mt-5">
-          {dialogue ? (
-            <View className="mb-3">
-              <DialogueBubble
-                dialogue={dialogue}
-                onDismiss={() => setDialogue(null)}
-                autoDismissMs={10000}
-              />
-            </View>
-          ) : null}
-
           <Button
             label={submitting ? '处理中…' : buttonLabel}
             icon={
@@ -324,6 +334,14 @@ export function ItemDetailScreen({
           </View>
         </View>
       </ScrollView>
+
+      {/* 🔥 统一弹窗 */}
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        onClose={handleCloseDialog}
+        iconName={kind === 'outfit' ? 'shirt' : 'glasses'}
+      />
     </ScreenContainer>
   );
 }
