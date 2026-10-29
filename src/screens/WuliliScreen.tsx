@@ -19,7 +19,7 @@ import { getTimeOfDayLabel, getTimeOfDay, formatDuration } from '@/utils/time';
 import { formatNumber } from '@/utils/format';
 import { canStartSleep, formatSleepDuration } from '@/data/sleepConfig';
 import { TRAVEL_DESTINATIONS } from '@/data/travelConfig';
-import { HOUSES } from '@/data/houseConfig'; // 🔥 引入房屋
+import { HOUSES } from '@/data/houseConfig';
 import { ActionDialogueModal } from '@/components/ActionDialogueModal';
 import type { Mood, Season } from '@/types/wulili';
 import type { RootStackParamList } from '@/types/navigation';
@@ -59,7 +59,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const illness = useWuliliStore((s) => s.state?.illness);
   const affinity = useWuliliStore((s) => s.affinity) ?? 0;
   
-  // 🔥 获取当前房子
   const currentHouseId = useWuliliStore((s) => s.state.currentHouseId) || 'default_room';
 
   const isStreaming = useStreamStore((s) => s.state?.isStreaming) ?? false;
@@ -100,21 +99,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => { if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current); };
   }, []);
 
-  // ===== 动态背景加载 =====
+  // ===== 🔥 动态背景加载（支持房屋季节图） =====
   const awakeSceneUri = useMemo(() => {
     const currentHouse = HOUSES.find((h) => h.id === currentHouseId) || HOUSES[0];
-    
-    // 如果这个房子有专门的背景图，就用房子的背景
-    if (currentHouse && currentHouse.image) {
-      // 如果文件名包含 _night 的逻辑，这里为了简单就直接用房子图
-      return `${R2_BASE}/${currentHouse.image}`;
-    }
-    
-    // 否则，默认房子用季节 + 昼夜切换
     const seasonStr = season ?? 'autumn';
     const h = new Date().getHours();
     const isNight = h >= 18 || h < 6;
-    return `${R2_BASE}/images/scenes/living_${seasonStr}${isNight ? '_night' : ''}.png`;
+    const nightSuffix = isNight ? '_night' : '';
+
+    // 如果是最普通的房子（使用默认季节图）
+    if (currentHouseId === 'default_room' || !currentHouse) {
+      return `${R2_BASE}/images/scenes/living_${seasonStr}${nightSuffix}.png`;
+    }
+
+    // 如果是高级房子，优先找带季节的图，找不到就 fallback 到基础 house 图
+    // 比如：images/scenes/house_sea_autumn_night.png
+    const baseName = currentHouse.image.replace(/\.(png|jpg|jpeg|webp)$/i, '');
+    return `${R2_BASE}/${baseName}_${seasonStr}${nightSuffix}.png`;
   }, [season, currentHouseId]);
 
   const sleepSceneUri = `${R2_BASE}/images/scenes/bedroom_sleep.png`;
