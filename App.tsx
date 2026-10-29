@@ -7,8 +7,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
-// 只引入这一页来测试
-import RootNavigator from '@/navigation/RootNavigator'; 
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
@@ -26,57 +24,66 @@ const queryClient = new QueryClient();
 
 function AppInner() {
   const { isDark } = useTheme();
+  const [logs, setLogs] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
 
-  const hydrateSettings = useSettingsStore((s) => s.hydrate);
-  const hydrateWulili = useWuliliStore((s) => s.hydrate);
-  const hydrateDialogues = useDialogueStore((s) => s.hydrate);
-  const hydrateConfig = useAppConfigStore((s) => s.hydrate);
-  const hydrateInventory = useInventoryStore((s) => s.hydrate);
-  const hydrateShop = useShopStore((s) => s.hydrate);
-  const hydrateMinigame = useMinigameStore((s) => s.hydrate);
-  const hydrateUpdate = useUpdateStore((s) => s.hydrate);
-  const hydrateStream = useStreamStore((s) => s.hydrate);
-  const hydrateSleep = useSleepStore((s) => s.hydrate);
-  const hydrateTravel = useTravelStore((s) => s.hydrate);
-
   useEffect(() => {
+    let mounted = true;
+    const run = async (name: string, fn: () => Promise<unknown>) => {
+      try {
+        if (mounted) setLogs((prev) => [...prev, `准备: ${name}`]);
+        await fn();
+        if (mounted) setLogs((prev) => [...prev, `✅ 成功: ${name}`]);
+      } catch (e: any) {
+        if (mounted) setLogs((prev) => [...prev, `❌ 失败: ${name} - ${e?.message || '未知错误'}`]);
+      }
+    };
+
     void (async () => {
-      await hydrateSettings();
-      await hydrateWulili();
-      await hydrateDialogues();
-      await hydrateConfig();
-      await hydrateInventory();
-      await hydrateShop();
-      await hydrateMinigame();
-      await hydrateUpdate();
-      await hydrateStream();
-      await hydrateSleep();
-      await hydrateTravel();
-      setReady(true);
+      await run('settings', useSettingsStore.getState().hydrate);
+      await run('wulili', useWuliliStore.getState().hydrate);
+      await run('dialogues', useDialogueStore.getState().hydrate);
+      await run('config', useAppConfigStore.getState().hydrate);
+      await run('inventory', useInventoryStore.getState().hydrate);
+      await run('shop', useShopStore.getState().hydrate);
+      await run('minigame', useMinigameStore.getState().hydrate);
+      await run('update', useUpdateStore.getState().hydrate);
+      await run('stream', useStreamStore.getState().hydrate);
+      await run('sleep', useSleepStore.getState().hydrate);
+      await run('travel', useTravelStore.getState().hydrate);
+
+      if (mounted) {
+        setLogs((prev) => [...prev, '🎉 全部加载完成！进入主界面']);
+        setReady(true);
+      }
     })();
+
+    return () => { mounted = false; };
   }, []);
 
   if (!ready) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={{ color: '#FFF' }}>加载中...</Text>
+      <View style={{ flex: 1, backgroundColor: '#1E293B', padding: 20, paddingTop: 60 }}>
+        <Text style={{ color: '#FFF', fontSize: 20, fontWeight: 'bold', marginBottom: 20 }}>初始化进度追踪</Text>
+        <ScrollView>
+          {logs.map((log, i) => (
+            <Text key={i} style={{ color: log.includes('❌') ? '#EF4444' : '#10B981', fontSize: 14, marginBottom: 8 }}>
+              {log}
+            </Text>
+          ))}
+        </ScrollView>
       </View>
     );
   }
 
-  // 🔥 核心替换：把 RootNavigator 暂时替换成纯色，测试是不是路由内部页面白屏
   return (
     <NavigationContainer>
       <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-      
-      {/* 把 RootNavigator 换成了下面这个安全的纯色 View */}
       <View style={{ flex: 1, backgroundColor: 'cyan', alignItems: 'center', justifyContent: 'center' }}>
         <Ionicons name="game-controller" size={60} color="white" />
         <Text style={{ color: 'white', fontSize: 24, marginTop: 20 }}>主页面框架</Text>
         <Text style={{ color: 'white', fontSize: 16 }}>如果你看到这个，说明页面组件本身没坏</Text>
       </View>
-
       <Toast />
     </NavigationContainer>
   );
