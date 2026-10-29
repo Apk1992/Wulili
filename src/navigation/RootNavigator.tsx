@@ -31,7 +31,6 @@ import OutfitEditorScreen from '@/screens/OutfitEditorScreen';
 import AccessoryEditorScreen from '@/screens/AccessoryEditorScreen';
 import MinigameEditorScreen from '@/screens/MinigameEditorScreen';
 import MemoryManagerScreen from '@/screens/MemoryManagerScreen';
-import R2ConfigScreen from '@/screens/R2ConfigScreen';
 import { useTheme } from '@/hooks/useTheme';
 import type { RootStackParamList } from '@/types/navigation';
 
@@ -90,7 +89,6 @@ export function RootNavigator(): React.JSX.Element {
       <Stack.Screen name="GitHubToken" component={GitHubTokenScreen} options={{ title: 'GitHub Token' }} />
       <Stack.Screen name="About" component={AboutScreen} options={{ title: '关于' }} />
       <Stack.Screen name="DeveloperConsole" component={DeveloperConsoleScreen} options={{ title: '开发者控制台' }} />
-      <Stack.Screen name="R2Config" component={R2ConfigScreen} options={{ title: 'R2 密钥设置' }} />
       <Stack.Screen name="DialogueEditor" component={DialogueEditorScreen} options={{ title: '台词编辑器' }} />
       <Stack.Screen name="FoodEditor" component={FoodEditorScreen} options={{ title: '食物编辑器' }} />
       <Stack.Screen name="MedicineEditor" component={MedicineEditorScreen} options={{ title: '药品编辑器' }} />
