@@ -21,7 +21,6 @@ import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useTravelStore } from '@/store/useTravelStore'; // 🔥 引入旅游 Store
-import { useR2Store } from '@/store/useR2Store'; // 🔥 引入 R2 配置 Store
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
