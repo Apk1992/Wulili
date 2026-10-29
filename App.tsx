@@ -110,7 +110,9 @@ function AppInner() {
     <NavigationContainer>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0F172A' : '#F8FAFC'} />
       {/* 如果你去掉 RootNavigator 换成一个简单的 Text 能看到字，说明是页面组件的问题 */}
-      <RootNavigator />
+      <View style={{ flex: 1, backgroundColor: 'green', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 24 }}>导航框架已加载！</Text>
+      </View>
       <Toast />
       <PermissionGateModal visible={showPermissionGate} onComplete={handlePermissionComplete} />
     </NavigationContainer>
