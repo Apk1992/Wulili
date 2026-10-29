@@ -1,28 +1,15 @@
 import { create } from 'zustand';
-import type {
-  ActionFeedback,
-  ActionType,
-  IllnessType,
-  WuliliState,
-  WuliliStats,
-} from '@/types/wulili';
+import type { ActionFeedback, ActionType, IllnessType, WuliliState, WuliliStats } from '@/types/wulili';
 import { INITIAL_WULILI_STATE, STAT_LIMITS } from '@/types/wulili';
 import { STORAGE_KEYS, storageGet, storageSet } from '@/utils/storage';
 import { clamp, chance, randomFloat } from '@/utils/random';
 import { getDateKey, HOUR_MS } from '@/utils/time';
 import { aggregateBonus, type AggregatedBonus } from '@/utils/equipmentBonus';
-import {
-  computeSleepDeprivation,
-  SLEEP_CONFIG,
-} from '@/data/sleepConfig';
-import {
-  MENSTRUAL_CONFIG,
-  randomCycleLength,
-  getMedicineExpireAt,
-} from '@/data/menstrualConfig';
+import { computeSleepDeprivation, SLEEP_CONFIG } from '@/data/sleepConfig';
+import { MENSTRUAL_CONFIG, randomCycleLength, getMedicineExpireAt } from '@/data/menstrualConfig';
 
 interface WuliliStore {
-  state: WuliliState;
+  state: WuliliState & { currentHouseId: string }; // 🔥 加入房屋 ID
   hydrated: boolean;
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -30,6 +17,7 @@ interface WuliliStore {
   setStat: (key: keyof WuliliStats, value: number) => void;
   addStats: (delta: Partial<WuliliStats>) => void;
   addCoins: (amount: number) => void;
+  buyHouse: (houseId: string, price: number) => boolean;
   addStreamSeconds: (seconds: number) => void;
   addSleepSeconds: (seconds: number) => void;
   setAffinity: (value: number) => void;
@@ -56,50 +44,26 @@ function clampStat(key: keyof WuliliStats, value: number): number {
 }
 
 function isStreamingNow(): boolean {
-  try {
-    const { useStreamStore } = require('@/store/useStreamStore');
-    return useStreamStore.getState().state.isStreaming === true;
-  } catch {
-    return false;
-  }
+  try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
 function isSleepingNow(): boolean {
-  try {
-    const { useSleepStore } = require('@/store/useSleepStore');
-    return useSleepStore.getState().state.isSleeping === true;
-  } catch {
-    return false;
-  }
+  try { const { useSleepStore } = require('@/store/useSleepStore'); return useSleepStore.getState().state.isSleeping === true; } catch { return false; }
 }
 
 function getBonus(): AggregatedBonus {
   try {
     const { useAppConfigStore } = require('@/store/useAppConfigStore');
     const cfg = useAppConfigStore.getState();
-    const outfit = cfg.getOutfitById
-      ? cfg.getOutfitById(useWuliliStore.getState().state.currentOutfit)
-      : null;
-    const accessory = cfg.getAccessoryById
-      ? cfg.getAccessoryById(useWuliliStore.getState().state.currentAccessory)
-      : null;
+    const outfit = cfg.getOutfitById ? cfg.getOutfitById(useWuliliStore.getState().state.currentOutfit) : null;
+    const accessory = cfg.getAccessoryById ? cfg.getAccessoryById(useWuliliStore.getState().state.currentAccessory) : null;
     return aggregateBonus(outfit, accessory);
   } catch {
-    return {
-      moodDecayRate: 1,
-      energyCostRate: 1,
-      affinityGain: 0,
-      streamIncomeRate: 1,
-      moodRecoveryRate: 1,
-      illnessResistance: 0,
-      sleepRecoveryRate: 1,
-    };
+    return { moodDecayRate: 1, energyCostRate: 1, affinityGain: 0, streamIncomeRate: 1, moodRecoveryRate: 1, illnessResistance: 0, sleepRecoveryRate: 1 };
   }
 }
 
-function pickRandomSleepIllness(): IllnessType {
-  return chance(0.6) ? 'cold' : 'fever';
-}
+function pickRandomSleepIllness(): IllnessType { return chance(0.6) ? 'cold' : 'fever'; }
 
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
@@ -108,37 +72,18 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const streaming = isStreamingNow();
   const sleeping = isSleepingNow();
   const bonus = getBonus();
-  const sleepDeprivation = computeSleepDeprivation(
-    state.lastSleptAt,
-    state.createdAt,
-  );
+  const sleepDeprivation = computeSleepDeprivation(state.lastSleptAt, state.createdAt);
 
-  // 月经影响
   const menstrual = state.menstrual;
   const now = Date.now();
-  const dayInCycle =
-    menstrual.cycleStartAt !== null
-      ? Math.floor((now - menstrual.cycleStartAt) / (24 * 60 * 60 * 1000)) + 1
-      : 0;
-  const inPeriod =
-    dayInCycle >= 1 && dayInCycle <= MENSTRUAL_CONFIG.periodDays;
-  const medicineActive =
-    menstrual.medicineExpireAt !== null && now < menstrual.medicineExpireAt;
+  const dayInCycle = menstrual.cycleStartAt !== null ? Math.floor((now - menstrual.cycleStartAt) / (24 * 60 * 60 * 1000)) + 1 : 0;
+  const inPeriod = dayInCycle >= 1 && dayInCycle <= MENSTRUAL_CONFIG.periodDays;
+  const medicineActive = menstrual.medicineExpireAt !== null && now < menstrual.medicineExpireAt;
   const menstrualPenalty = inPeriod ? (medicineActive ? 0.3 : 1.0) : 0;
 
   const hungerDecay = 3.2 * hours;
-  const energyDecay =
-    streaming || sleeping
-      ? 0
-      : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
-  const moodDecayBase =
-    streaming || sleeping
-      ? 0
-      : 1.6 *
-        hours *
-        bonus.moodDecayRate *
-        sleepDeprivation.moodDecayMultiplier *
-        (1 + menstrualPenalty * 1.0);
+  const energyDecay = (streaming || sleeping) ? 0 : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
+  const moodDecayBase = (streaming || sleeping) ? 0 : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier * (1 + menstrualPenalty * 1.0);
 
   let moodDecay = moodDecayBase;
   if (!streaming && !sleeping) {
@@ -149,12 +94,8 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let healthDecay = 0.5 * hours;
   if (state.stats.hunger < 20) healthDecay += 1.6 * hours;
-  if (state.stats.energy < 15 && !streaming && !sleeping) {
-    healthDecay += 1.2 * hours;
-  }
-  if (inPeriod) {
-    healthDecay += 0.5 * hours * (medicineActive ? 0.3 : 1.0);
-  }
+  if (state.stats.energy < 15 && !streaming && !sleeping) healthDecay += 1.2 * hours;
+  if (inPeriod) healthDecay += 0.5 * hours * (medicineActive ? 0.3 : 1.0);
 
   const newStats: WuliliStats = {
     hunger: clampStat('hunger', state.stats.hunger - hungerDecay),
@@ -166,20 +107,10 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let illness = state.illness;
   if (illness.type === 'none') {
-    const rhinitisRisk =
-      computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
-    const sleepIllnessRisk = sleeping
-      ? 0
-      : sleepDeprivation.illnessRiskPerHour *
-        hours *
-        (1 - bonus.illnessResistance);
-
+    const rhinitisRisk = computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
+    const sleepIllnessRisk = sleeping ? 0 : sleepDeprivation.illnessRiskPerHour * hours * (1 - bonus.illnessResistance);
     if (chance(sleepIllnessRisk)) {
-      illness = {
-        type: pickRandomSleepIllness(),
-        since: Date.now(),
-        severity: 1.2,
-      };
+      illness = { type: pickRandomSleepIllness(), since: Date.now(), severity: 1.2 };
     } else if (chance(rhinitisRisk)) {
       illness = { type: 'rhinitis', since: Date.now(), severity: 1 };
     }
@@ -188,19 +119,11 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
     if (chance(recoveryChance)) {
       illness = { type: 'none', since: null, severity: 0 };
     } else {
-      illness = {
-        ...illness,
-        severity: clamp(illness.severity + 0.02 * hours, 0, 5),
-      };
+      illness = { ...illness, severity: clamp(illness.severity + 0.02 * hours, 0, 5) };
     }
   }
 
-  return {
-    ...state,
-    stats: newStats,
-    illness,
-    lastTickAt: Date.now(),
-  };
+  return { ...state, stats: newStats, illness, lastTickAt: Date.now() };
 }
 
 function computeRhinitisRisk(stats: WuliliStats, hours: number): number {
@@ -212,52 +135,36 @@ function computeRhinitisRisk(stats: WuliliStats, hours: number): number {
   return clamp(risk, 0, 0.35);
 }
 
-function migrateState(stored: Partial<WuliliState>): WuliliState {
+function migrateState(stored: Partial<WuliliState> & { currentHouseId?: string }): WuliliState & { currentHouseId: string } {
   const menstrual = stored.menstrual ?? INITIAL_WULILI_STATE.menstrual;
   return {
     ...INITIAL_WULILI_STATE,
     ...stored,
+    currentHouseId: stored.currentHouseId ?? 'default_room', // 🔥 默认最普通的房子
     stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
     illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
     menstrual: {
       cycleStartAt: menstrual.cycleStartAt ?? null,
-      cycleLengthDays:
-        typeof menstrual.cycleLengthDays === 'number'
-          ? menstrual.cycleLengthDays
-          : MENSTRUAL_CONFIG.baseCycleDays,
+      cycleLengthDays: typeof menstrual.cycleLengthDays === 'number' ? menstrual.cycleLengthDays : MENSTRUAL_CONFIG.baseCycleDays,
       medicineExpireAt: menstrual.medicineExpireAt ?? null,
     },
-    totalStreamSeconds:
-      typeof stored.totalStreamSeconds === 'number'
-        ? stored.totalStreamSeconds
-        : 0,
-    totalSleepSeconds:
-      typeof stored.totalSleepSeconds === 'number'
-        ? stored.totalSleepSeconds
-        : 0,
-    consecutiveDessert:
-      typeof stored.consecutiveDessert === 'number'
-        ? stored.consecutiveDessert
-        : 0,
-    lastSleptAt:
-      typeof stored.lastSleptAt === 'number' ? stored.lastSleptAt : null,
+    totalStreamSeconds: typeof stored.totalStreamSeconds === 'number' ? stored.totalStreamSeconds : 0,
+    totalSleepSeconds: typeof stored.totalSleepSeconds === 'number' ? stored.totalSleepSeconds : 0,
+    consecutiveDessert: typeof stored.consecutiveDessert === 'number' ? stored.consecutiveDessert : 0,
+    lastSleptAt: typeof stored.lastSleptAt === 'number' ? stored.lastSleptAt : null,
   };
 }
 
 export const useWuliliStore = create<WuliliStore>((set, get) => ({
-  state: INITIAL_WULILI_STATE,
+  state: { ...INITIAL_WULILI_STATE, currentHouseId: 'default_room' },
   hydrated: false,
 
   hydrate: async () => {
-    const stored = await storageGet<Partial<WuliliState>>(STORAGE_KEYS.wuliliState);
+    const stored = await storageGet<Partial<WuliliState> & { currentHouseId?: string }>(STORAGE_KEYS.wuliliState);
     if (stored && typeof stored === 'object') {
       const merged = migrateState(stored);
       if (merged.menstrual.cycleStartAt === null) {
-        merged.menstrual = {
-          cycleStartAt: Date.now(),
-          cycleLengthDays: randomCycleLength(),
-          medicineExpireAt: null,
-        };
+        merged.menstrual = { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null };
       }
       const nextState = rollCycleIfNeeded(merged);
       const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
@@ -266,31 +173,23 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
       return;
     }
-    const fresh: WuliliState = {
+    const fresh = {
       ...INITIAL_WULILI_STATE,
-      menstrual: {
-        cycleStartAt: Date.now(),
-        cycleLengthDays: randomCycleLength(),
-        medicineExpireAt: null,
-      },
+      currentHouseId: 'default_room',
+      menstrual: { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null },
     };
     set({ state: fresh, hydrated: true });
     await storageSet(STORAGE_KEYS.wuliliState, fresh);
   },
 
-  persist: async () => {
-    await storageSet(STORAGE_KEYS.wuliliState, get().state);
-  },
+  persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
     const current = get().state;
     const rolled = rollCycleIfNeeded(current);
     const elapsed = (Date.now() - rolled.lastTickAt) / HOUR_MS;
     if (elapsed < 0.0005) {
-      if (rolled !== current) {
-        set({ state: rolled });
-        void storageSet(STORAGE_KEYS.wuliliState, rolled);
-      }
+      if (rolled !== current) { set({ state: rolled }); void storageSet(STORAGE_KEYS.wuliliState, rolled); }
       return;
     }
     const next = applyDecayToStats(rolled, elapsed);
@@ -299,14 +198,12 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   },
 
   setStat: (key, value) => {
-    const next = {
-      ...get().state,
-      stats: { ...get().state.stats, [key]: clampStat(key, value) },
-    };
+    const next = { ...get().state, stats: { ...get().state.stats, [key]: clampStat(key, value) } };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
 
+  // 🔥 修复了恢复和消耗逻辑
   addStats: (delta) => {
     const current = get().state;
     const bonus = getBonus();
@@ -318,6 +215,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
         if (key === 'mood') d = d * bonus.moodDecayRate;
         if (key === 'energy') d = d * bonus.energyCostRate;
       } else {
+        // 只有正收益才受加成
         if (key === 'mood') d = d * bonus.moodRecoveryRate;
       }
       newStats[key] = clampStat(key, newStats[key] + d);
@@ -334,13 +232,25 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
 
+  buyHouse: (houseId, price) => {
+    const current = get().state;
+    if (current.coins < price) return false; // 钱不够
+    
+    // 扣钱并更新房子
+    const next = { 
+      ...current, 
+      coins: current.coins - price,
+      currentHouseId: houseId 
+    };
+    set({ state: next });
+    void storageSet(STORAGE_KEYS.wuliliState, next);
+    return true;
+  },
+
   addStreamSeconds: (seconds) => {
     if (seconds <= 0) return;
     const current = get().state;
-    const next = {
-      ...current,
-      totalStreamSeconds: current.totalStreamSeconds + seconds,
-    };
+    const next = { ...current, totalStreamSeconds: current.totalStreamSeconds + seconds };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -348,10 +258,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   addSleepSeconds: (seconds) => {
     if (seconds <= 0) return;
     const current = get().state;
-    const next = {
-      ...current,
-      totalSleepSeconds: current.totalSleepSeconds + seconds,
-    };
+    const next = { ...current, totalSleepSeconds: current.totalSleepSeconds + seconds };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -365,14 +272,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   setIllness: (type, severity) => {
     const current = get().state;
-    const next = {
-      ...current,
-      illness: {
-        type,
-        since: type === 'none' ? null : Date.now(),
-        severity: clamp(severity, 0, 5),
-      },
-    };
+    const next = { ...current, illness: { type, since: type === 'none' ? null : Date.now(), severity: clamp(severity, 0, 5) } };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -386,13 +286,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   takeMenstrualMedicine: () => {
     const current = get().state;
-    const next = {
-      ...current,
-      menstrual: {
-        ...current.menstrual,
-        medicineExpireAt: getMedicineExpireAt(),
-      },
-    };
+    const next = { ...current, menstrual: { ...current.menstrual, medicineExpireAt: getMedicineExpireAt() } };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -400,19 +294,13 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   checkAndRollCycle: () => {
     const current = get().state;
     const next = rollCycleIfNeeded(current);
-    if (next !== current) {
-      set({ state: next });
-      void storageSet(STORAGE_KEYS.wuliliState, next);
-    }
+    if (next !== current) { set({ state: next }); void storageSet(STORAGE_KEYS.wuliliState, next); }
   },
 
   markInteraction: (action) => {
     const now = Date.now();
     const current = get().state;
-    const next: WuliliState = {
-      ...current,
-      lastInteractionAt: now,
-    };
+    const next: WuliliState & { currentHouseId: string } = { ...current, lastInteractionAt: now };
     if (action === 'feed') next.lastFedAt = now;
     if (action === 'entertain') next.lastEntertainedAt = now;
     if (action === 'stream') next.lastStreamedAt = now;
@@ -425,13 +313,10 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   recordFoodCategory: (category) => {
     const current = get().state;
-    const next: WuliliState = {
+    const next = {
       ...current,
-      consecutiveHealthyFood:
-        category === 'healthy' ? current.consecutiveHealthyFood + 1 : 0,
-      consecutiveJunkFood:
-        category === 'junk' ? current.consecutiveJunkFood + 1 : 0,
-      // 吃正餐 → 重置甜点连续计数
+      consecutiveHealthyFood: category === 'healthy' ? current.consecutiveHealthyFood + 1 : 0,
+      consecutiveJunkFood: category === 'junk' ? current.consecutiveJunkFood + 1 : 0,
       consecutiveDessert: 0,
     };
     set({ state: next });
@@ -440,10 +325,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   recordDessert: () => {
     const current = get().state;
-    const next: WuliliState = {
-      ...current,
-      consecutiveDessert: current.consecutiveDessert + 1,
-    };
+    const next = { ...current, consecutiveDessert: current.consecutiveDessert + 1 };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -482,22 +364,17 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   applyActionFeedback: (feedback) => {
     const current = get().state;
-    const newStats: WuliliStats = { ...current.stats };
+    const newStats = { ...current.stats };
     (Object.keys(feedback.deltaStats) as Array<keyof WuliliStats>).forEach((key) => {
       const d = feedback.deltaStats[key];
-      if (typeof d === 'number') {
-        newStats[key] = clampStat(key, newStats[key] + d);
-      }
+      if (typeof d === 'number') newStats[key] = clampStat(key, newStats[key] + d);
     });
-    const next: WuliliState = {
+    const next = {
       ...current,
       stats: newStats,
       coins: Math.max(0, current.coins + feedback.deltaCoins),
       affinity: clamp(current.affinity + feedback.deltaAffinity, 0, 100),
-      illness:
-        feedback.triggeredIllness && feedback.triggeredIllness !== 'none'
-          ? { type: feedback.triggeredIllness, since: Date.now(), severity: 1 }
-          : current.illness,
+      illness: feedback.triggeredIllness && feedback.triggeredIllness !== 'none' ? { type: feedback.triggeredIllness, since: Date.now(), severity: 1 } : current.illness,
     };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
@@ -508,15 +385,9 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     const today = getDateKey();
     if (current.lastLoginDate === today) return;
     const yesterday = getDateKey(new Date(Date.now() - 24 * HOUR_MS));
-    const streak =
-      current.lastLoginDate === yesterday ? current.consecutiveDaysLoggedIn + 1 : 1;
+    const streak = current.lastLoginDate === yesterday ? current.consecutiveDaysLoggedIn + 1 : 1;
     const bonusCoins = streak >= 7 ? 30 : streak >= 3 ? 15 : 5;
-    const next: WuliliState = {
-      ...current,
-      lastLoginDate: today,
-      consecutiveDaysLoggedIn: streak,
-      coins: current.coins + bonusCoins,
-    };
+    const next = { ...current, lastLoginDate: today, consecutiveDaysLoggedIn: streak, coins: current.coins + bonusCoins };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -524,35 +395,25 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   getEquipmentBonus: () => getBonus(),
 
   reset: () => {
-    const fresh: WuliliState = {
+    const fresh = {
       ...INITIAL_WULILI_STATE,
+      currentHouseId: 'default_room',
       createdAt: Date.now(),
       lastTickAt: Date.now(),
-      menstrual: {
-        cycleStartAt: Date.now(),
-        cycleLengthDays: randomCycleLength(),
-        medicineExpireAt: null,
-      },
+      menstrual: { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null },
     };
     set({ state: fresh });
     void storageSet(STORAGE_KEYS.wuliliState, fresh);
   },
 }));
 
-function rollCycleIfNeeded(state: WuliliState): WuliliState {
+function rollCycleIfNeeded(state: WuliliState & { currentHouseId: string }): WuliliState & { currentHouseId: string } {
   const m = state.menstrual;
   if (!m.cycleStartAt) return state;
   const cycleMs = m.cycleLengthDays * 24 * 60 * 60 * 1000;
   const now = Date.now();
   if (now - m.cycleStartAt >= cycleMs) {
-    return {
-      ...state,
-      menstrual: {
-        cycleStartAt: now,
-        cycleLengthDays: randomCycleLength(),
-        medicineExpireAt: null,
-      },
-    };
+    return { ...state, menstrual: { cycleStartAt: now, cycleLengthDays: randomCycleLength(), medicineExpireAt: null } };
   }
   return state;
 }

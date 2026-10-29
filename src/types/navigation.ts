@@ -1,4 +1,3 @@
-// src/types/navigation.ts
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type TabParamList = {
@@ -9,30 +8,20 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   Feed: undefined;
-  FoodDetail: {
-    foodId: string;
-  };
+  FoodDetail: { foodId: string };
   Entertain: undefined;
   Album: undefined;
+  House: undefined; // 🔥 加上这个
   Stream: undefined;
   Exercise: undefined;
   Medicine: undefined;
-  MedicineDetail: {
-    medicineId: string;
-  };
+  MedicineDetail: { medicineId: string };
   Shop: undefined;
-  ItemDetail: {
-    itemId: string;
-    kind: 'outfit' | 'accessory';
-  };
+  ItemDetail: { itemId: string; kind: 'outfit' | 'accessory' };
   Status: undefined;
   MusicPlayer: { initialPath?: string } | undefined;
   VideoPlayer: { initialPath?: string } | undefined;
-  NoteReader: {
-    path: string;
-    sha: string;
-    displayName: string;
-  };
+  NoteReader: { path: string; sha: string; displayName: string };
   Settings: undefined;
   GitHubToken: undefined;
   About: undefined;
@@ -44,7 +33,6 @@ export type RootStackParamList = {
   AccessoryEditor: undefined;
   MinigameEditor: undefined;
   MemoryManager: undefined;
-  R2Config: undefined; // 🔥 新增 R2 配置页面
 };
 
 declare global {

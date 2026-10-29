@@ -20,13 +20,11 @@ import { useMinigameStore } from '@/store/useMinigameStore';
 import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
-import { useTravelStore } from '@/store/useTravelStore'; // 🔥 引入旅游 Store
-import { useR2Store } from '@/store/useR2Store'; // 🔥 引入 R2 配置 Store
+import { useTravelStore } from '@/store/useTravelStore';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
 import { storageGet, storageSet } from '@/utils/storage';
-import { APP_KILLED_BEHAVIOR } from '@/services/playbackService';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 60 * 1000 } },
@@ -35,19 +33,22 @@ const queryClient = new QueryClient({
 const PERMISSIONS_ASKED_KEY = '@wulili/permissions-asked';
 const R2_BASE = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
-// 初始化 TrackPlayer
-void (async () => {
-  try {
-    await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
-    await TrackPlayer.updateOptions({
-      android: { appKilledPlaybackBehavior: APP_KILLED_BEHAVIOR },
-      capabilities: [Capability.Play, Capability.Pause, Capability.Stop, Capability.SkipToNext, Capability.SkipToPrevious, Capability.SeekTo],
-      compactCapabilities: [Capability.Play, Capability.Pause, Capability.SkipToNext],
-    });
-  } catch (error) {
-    console.warn('[App] TrackPlayer setup failed (可能已初始化):', error);
-  }
-})();
+// 🔥 增加绝对安全的异步初始化，即使原生模块没准备好，也不会崩
+try {
+  void (async () => {
+    try {
+      await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
+      await TrackPlayer.updateOptions({
+        android: { appKilledPlaybackBehavior: 'continuePlayback' as any },
+        capabilities: [Capability.Play, Capability.Pause, Capability.Stop],
+      });
+    } catch (e) {
+      console.warn('TrackPlayer 初始化跳过:', e);
+    }
+  })();
+} catch (e) {
+  console.warn('TrackPlayer 同步抛错:', e);
+}
 
 function AppInner(): React.JSX.Element {
   const { isDark } = useTheme();
@@ -55,7 +56,6 @@ function AppInner(): React.JSX.Element {
   const [bootError, setBootError] = useState<string | null>(null);
   const [showPermissionGate, setShowPermissionGate] = useState<boolean>(false);
 
-  // Store 水合函数
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
   const hydrateDialogues = useDialogueStore((s) => s.hydrate);
@@ -66,8 +66,7 @@ function AppInner(): React.JSX.Element {
   const hydrateUpdate = useUpdateStore((s) => s.hydrate);
   const hydrateStream = useStreamStore((s) => s.hydrate);
   const hydrateSleep = useSleepStore((s) => s.hydrate);
-  const hydrateTravel = useTravelStore((s) => s.hydrate); // 🔥 旅游 Store 水合
-  const hydrateR2 = useR2Store((s) => s.hydrate); // 🔥 R2 密钥水合
+  const hydrateTravel = useTravelStore((s) => s.hydrate);
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
   const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
@@ -78,7 +77,7 @@ function AppInner(): React.JSX.Element {
 
   useGameLoop();
 
-  // 1. 基础数据水合
+  // 1. 基础数据水合 (加入错误捕获)
   useEffect(() => {
     let mounted = true;
     void (async () => {
@@ -97,8 +96,7 @@ function AppInner(): React.JSX.Element {
       await run('update', hydrateUpdate);
       await run('stream', hydrateStream);
       await run('sleep', hydrateSleep);
-      await run('travel', hydrateTravel); // 🔥 水合旅游
-      await run('r2', hydrateR2); // 🔥 水合 R2 密钥
+      await run('travel', hydrateTravel);
 
       if (fails.length > 0) setBootError(fails.join('\n'));
       if (mounted) setReady(true);
@@ -122,7 +120,6 @@ function AppInner(): React.JSX.Element {
     
     void (async () => {
       try {
-        // 拉取 R2 的配置
         if (useRemoteConfig) {
           const res = await fetch(`${R2_BASE}/data/config.json?t=${Date.now()}`);
           if (res.ok) {
@@ -130,8 +127,6 @@ function AppInner(): React.JSX.Element {
             if (!cancelled) setRemoteConfig(configData);
           }
         }
-        
-        // 拉取 R2 的台词
         if (useRemoteDialogues) {
           const res = await fetch(`${R2_BASE}/dialogue/dialogues.json?t=${Date.now()}`);
           if (res.ok) {
@@ -142,17 +137,14 @@ function AppInner(): React.JSX.Element {
           }
         }
       } catch (error) {
-        console.warn('[App] R2 内容同步失败:', error);
-        if (!cancelled) {
-          Toast.show({ type: 'error', text1: '无法同步云端内容', text2: '请检查网络或 R2 配置' });
-        }
+        console.warn('R2 内容同步失败:', error);
+        if (!cancelled) Toast.show({ type: 'error', text1: '云端内容拉取失败', text2: '请检查网络' });
       }
     })();
     
     return () => { cancelled = true; };
   }, [ready, useRemoteConfig, useRemoteDialogues, setRemoteConfig, setRemoteDialogues]);
 
-  // 4. 检查更新
   useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(() => { void promptIfAvailable(); }, 2500);
@@ -164,14 +156,14 @@ function AppInner(): React.JSX.Element {
     void storageSet(PERMISSIONS_ASKED_KEY, true);
   };
 
+  // 🔥 核心兜底：不管发生什么，都要渲染这个 View
   if (!ready) {
     return (
-      <View className="flex-1 bg-background dark:bg-dark-bg items-center justify-center px-6">
-        <Text className="text-base text-text dark:text-dark-text font-semibold">雾璃专属</Text>
-        <Text className="text-xs text-muted dark:text-dark-muted mt-2">正在准备…</Text>
+      <View style={{ flex: 1, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ color: '#FFF', fontSize: 16 }}>雾璃专属 · 准备中…</Text>
         {bootError ? (
           <ScrollView style={{ maxHeight: 200, marginTop: 16 }}>
-            <Text className="text-[10px] text-danger">{bootError}</Text>
+            <Text style={{ color: '#EF4444', fontSize: 12 }}>{bootError}</Text>
           </ScrollView>
         ) : null}
       </View>
@@ -198,4 +190,4 @@ export default function App(): React.JSX.Element {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
-}
+      }
