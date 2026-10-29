@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView } from 'react-native';
+import { View, Text, ScrollView, StatusBar } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import Toast from 'react-native-toast-message';
 
-// 引入所有 Store
+import RootNavigator from '@/navigation/RootNavigator';
+import PermissionGateModal from '@/components/PermissionGateModal';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useDialogueStore } from '@/store/useDialogueStore';
@@ -16,12 +19,17 @@ import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useTravelStore } from '@/store/useTravelStore';
+import { useTheme } from '@/hooks/useTheme';
+import { storageGet, storageSet } from '@/utils/storage';
 
 const queryClient = new QueryClient();
+const PERMISSIONS_ASKED_KEY = '@wulili/permissions-asked';
 
 function AppInner() {
+  const { isDark } = useTheme();
   const [logs, setLogs] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
+  const [showPermissionGate, setShowPermissionGate] = useState(false);
 
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
@@ -35,6 +43,7 @@ function AppInner() {
   const hydrateSleep = useSleepStore((s) => s.hydrate);
   const hydrateTravel = useTravelStore((s) => s.hydrate);
 
+  // 1. 基础数据水合
   useEffect(() => {
     let mounted = true;
     const run = async (name: string, fn: () => Promise<unknown>) => {
@@ -66,6 +75,21 @@ function AppInner() {
     return () => { mounted = false; };
   }, []);
 
+  // 2. 权限弹窗检查 (不依赖网络)
+  useEffect(() => {
+    if (!ready) return;
+    void (async () => {
+      const asked = await storageGet<boolean>(PERMISSIONS_ASKED_KEY);
+      if (!asked) setShowPermissionGate(true);
+    })();
+  }, [ready]);
+
+  const handlePermissionComplete = () => {
+    setShowPermissionGate(false);
+    void storageSet(PERMISSIONS_ASKED_KEY, true);
+  };
+
+  // 加载中页面
   if (!ready) {
     return (
       <View style={{ flex: 1, backgroundColor: '#1E293B', padding: 20, paddingTop: 60 }}>
@@ -81,12 +105,15 @@ function AppInner() {
     );
   }
 
+  // 核心渲染：这里极其容易报错导致白屏
   return (
-    <View style={{ flex: 1, backgroundColor: 'red', justifyContent: 'center', alignItems: 'center' }}>
-      <Text style={{ color: 'white', fontSize: 30, fontWeight: 'bold' }}>
-        所有数据加载完毕！
-      </Text>
-    </View>
+    <NavigationContainer>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#0F172A' : '#F8FAFC'} />
+      {/* 如果你去掉 RootNavigator 换成一个简单的 Text 能看到字，说明是页面组件的问题 */}
+      <RootNavigator />
+      <Toast />
+      <PermissionGateModal visible={showPermissionGate} onComplete={handlePermissionComplete} />
+    </NavigationContainer>
   );
 }
 
@@ -100,4 +127,4 @@ export default function App() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
-        }
+}
