@@ -1,6 +1,16 @@
 // src/screens/DeveloperConsoleScreen.tsx
 import React, { useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import {
+  Alert,
+  ScrollView,
+  Text,
+  View,
+  Modal,
+  Pressable,
+  TextInput,
+  Clipboard,
+  Linking,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -10,90 +20,130 @@ import Button from '@/components/Button';
 import SettingRow from '@/components/SettingRow';
 import { useDialogueStore } from '@/store/useDialogueStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
-import { uploadToR2 } from '@/api/r2Client';
 import type { RootStackParamList } from '@/types/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DeveloperConsole'>;
 
+// 🔥 你的 R2 控制台直达链接（方便你一键跳转粘贴）
+const R2_CONSOLE_URL = 'https://dash.cloudflare.com/';
+
 export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element {
-  const [uploadingDialogues, setUploadingDialogues] = useState(false);
-  const [uploadingConfig, setUploadingConfig] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportTitle, setExportTitle] = useState('');
+  const [exportJson, setExportJson] = useState('');
+  const [r2Path, setR2Path] = useState('');
 
   const config = useAppConfigStore((s) => s.config);
   const dialogues = useDialogueStore((s) => s.dialogues);
+  
   const userDialogues = dialogues.filter((d) => d.source === 'user');
   const remoteDialogues = dialogues.filter((d) => d.source === 'remote');
 
-  // 🔥 一键发布：台词
-  const handleUploadDialogues = async () => {
-    try {
-      setUploadingDialogues(true);
-      const allDialogues = [...remoteDialogues, ...userDialogues];
-      const json = JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: new Date().toISOString(),
-        dialogues: allDialogues,
-      }, null, 2);
-
-      await uploadToR2('dialogue/dialogues.json', json, 'application/json');
-      Alert.alert('发布成功', '台词已直接同步到 R2 云端，重启 App 即可生效。');
-    } catch (e: any) {
-      Alert.alert('发布失败', String(e?.message ?? e));
-    } finally {
-      setUploadingDialogues(false);
-    }
+  // ===== 导出台词 =====
+  const handleExportDialogues = () => {
+    const allDialogues = [...remoteDialogues, ...userDialogues];
+    const json = JSON.stringify({
+      schemaVersion: 1,
+      updatedAt: new Date().toISOString(),
+      dialogues: allDialogues,
+    }, null, 2);
+    
+    setExportTitle('导出：台词配置');
+    setR2Path('dialogue/dialogues.json');
+    setExportJson(json);
+    setExportModalVisible(true);
   };
 
-  // 🔥 一键发布：物品配置
-  const handleUploadConfig = async () => {
-    try {
-      setUploadingConfig(true);
-      const json = JSON.stringify(config, null, 2);
-      await uploadToR2('data/config.json', json, 'application/json');
-      Alert.alert('发布成功', '物品配置已直接同步到 R2 云端，重启 App 即可生效。');
-    } catch (e: any) {
-      Alert.alert('发布失败', String(e?.message ?? e));
-    } finally {
-      setUploadingConfig(false);
-    }
+  // ===== 导出配置 =====
+  const handleExportConfig = () => {
+    const json = JSON.stringify(config, null, 2);
+    setExportTitle('导出：物品与系统配置');
+    setR2Path('data/config.json');
+    setExportJson(json);
+    setExportModalVisible(true);
+  };
+
+  // ===== 复制并打开 R2 后台 =====
+  const copyToClipboardAndOpenR2 = () => {
+    Clipboard.setString(exportJson);
+    setExportModalVisible(false);
+    
+    Alert.alert(
+      '内容已复制',
+      `请前往 R2 控制台，覆盖文件：\n${r2Path}\n\n（点击“打开 R2”会自动跳转到浏览器）`,
+      [
+        { text: '留在 App', style: 'cancel' },
+        { 
+          text: '打开 R2', 
+          onPress: () => void Linking.openURL(R2_CONSOLE_URL) 
+        },
+      ]
+    );
   };
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 32 }}>
         
+        {/* 顶部提示卡片 */}
         <View className="px-4 pt-4">
           <Card className="bg-primary/10 border-primary/20">
             <View className="flex-row items-center mb-2">
-              <Ionicons name="cloud-upload" size={20} color="#2563EB" />
-              <Text className="ml-2 text-sm font-bold text-primary">云端一键发布</Text>
+              <Ionicons name="cloud-done" size={20} color="#2563EB" />
+              <Text className="ml-2 text-sm font-bold text-primary">内容发布面板</Text>
             </View>
             <Text className="text-xs text-muted dark:text-dark-muted leading-5">
-              你在下方编辑器中做的所有修改，只需点击这里的发布按钮，就会自动覆盖到 Cloudflare R2。发布完毕后重启 App 即可看到最新内容。
+              App 直接读取 R2 上的内容。你在下方修改内容后，点击【导出】复制 JSON，然后去 Cloudflare R2 控制台覆盖对应的文件。重启 App 即可生效。
             </Text>
           </Card>
         </View>
 
-        <View className="px-4 mt-4">
-          <Button 
-            label="发布最新【台词数据】" 
-            icon="chatbubbles" 
-            loading={uploadingDialogues}
-            onPress={() => void handleUploadDialogues()} 
-          />
+        {/* 发布区 */}
+        <Text className="px-4 pt-5 pb-2 text-xs font-bold text-text dark:text-dark-text">
+          第一步：导出并复制
+        </Text>
+
+        <View className="px-4">
+          <Card className="mb-3">
+            <View className="flex-row items-center mb-1">
+              <Ionicons name="chatbubbles" size={16} color="#8B5CF6" />
+              <Text className="ml-2 text-sm font-semibold text-text dark:text-dark-text">台词数据</Text>
+            </View>
+            <Text className="text-[10px] text-muted dark:text-dark-muted mb-3">
+              保存路径: {`dialogue/dialogues.json`}
+            </Text>
+            <Button 
+              label="导出全部台词并复制" 
+              icon="download" 
+              onPress={handleExportDialogues} 
+            />
+          </Card>
+
+          <Card className="mb-3">
+            <View className="flex-row items-center mb-1">
+              <Ionicons name="settings" size={16} color="#10B981" />
+              <Text className="ml-2 text-sm font-semibold text-text dark:text-dark-text">物品与系统配置</Text>
+            </View>
+            <Text className="text-[10px] text-muted dark:text-dark-muted mb-3">
+              保存路径: {`data/config.json`}
+            </Text>
+            <Button 
+              label="导出全部配置并复制" 
+              icon="download" 
+              onPress={handleExportConfig} 
+            />
+          </Card>
         </View>
 
         <View className="px-4 mt-2">
-          <Button 
-            label="发布最新【物品配置】" 
-            icon="settings" 
-            loading={uploadingConfig}
-            onPress={() => void handleUploadConfig()} 
-          />
+          <Text className="text-[10px] text-muted dark:text-dark-muted leading-4">
+            提示：素材图片（食物、服饰、人物立绘等）请直接在电脑浏览器上传到 R2 对应的 images 文件夹中，无需通过 App。
+          </Text>
         </View>
 
+        {/* 编辑器入口 */}
         <Text className="px-4 pt-6 pb-2 text-xs font-bold text-text dark:text-dark-text">
-          编辑内容
+          第二步：在此处修改内容
         </Text>
         <SettingRow
           icon="chatbubble-ellipses"
@@ -138,17 +188,7 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
           onPress={() => navigation.navigate('MemoryManager')}
         />
 
-        <Text className="px-4 pt-6 pb-2 text-xs font-bold text-text dark:text-dark-text">
-          系统与权限
-        </Text>
-        <SettingRow
-          icon="key"
-          label="R2 密钥设置"
-          value="配置上传权限"
-          onPress={() => navigation.navigate('R2Config')}
-        />
-
-        <View className="px-4 mt-6">
+        <View className="px-4 mt-8">
           <Button
             label="返回设置"
             variant="ghost"
@@ -156,6 +196,43 @@ export function DeveloperConsoleScreen({ navigation }: Props): React.JSX.Element
           />
         </View>
       </ScrollView>
+
+      {/* 导出 JSON 弹窗 */}
+      <Modal visible={exportModalVisible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ width: '92%', height: '75%', backgroundColor: '#1E293B', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#334155' }}>
+            
+            <View className="flex-row justify-between items-center mb-2">
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: 'bold' }}>{exportTitle}</Text>
+              <Pressable onPress={() => setExportModalVisible(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </Pressable>
+            </View>
+            
+            <View className="bg-warning/15 px-3 py-2 rounded-lg mb-3">
+              <Text style={{ color: '#F59E0B', fontSize: 12 }}>
+                请覆盖 R2 上的这个文件：{r2Path}
+              </Text>
+            </View>
+
+            <View style={{ flex: 1, backgroundColor: '#0F172A', borderRadius: 8, marginBottom: 12 }}>
+              <TextInput
+                multiline
+                editable={false}
+                value={exportJson}
+                style={{ color: '#CBD5E1', fontSize: 12, padding: 10, flex: 1, textAlignVertical: 'top' }}
+              />
+            </View>
+
+            <Button 
+              label="复制并跳转 R2" 
+              icon="copy"
+              variant="primary" 
+              onPress={copyToClipboardAndOpenR2} 
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
