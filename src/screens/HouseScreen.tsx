@@ -97,10 +97,12 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
               <View className="p-3">
                 <View className="flex-row items-center justify-between mb-1">
                   <Text className="text-lg font-bold text-text dark:text-dark-text">{item.name}</Text>
-                  <Text className="text-xs text-muted dark:text-dark-muted">
-                    月租 {formatCoins(item.rentPrice)}
-                  </Text>
-                </View>
+                  <View className="bg-secondary/15 px-2 py-0.5 rounded">
+                     <Text className="text-[10px] font-bold text-secondary">
+                       每月物业费: {formatCoins(item.rentPrice)}
+                     </Text>
+                   </View>
+                 </View>>
                 <Text className="text-xs text-muted dark:text-dark-muted mb-3 leading-4">
                   {item.description}
                 </Text>
