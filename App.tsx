@@ -20,7 +20,7 @@ import { useMinigameStore } from '@/store/useMinigameStore';
 import { useUpdateStore } from '@/store/useUpdateStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
-import { useTravelStore } from '@/store/useTravelStore'; // 🔥 引入旅游 Store
+import { useTravelStore } from '@/store/useTravelStore';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useTheme } from '@/hooks/useTheme';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
@@ -54,7 +54,6 @@ function AppInner(): React.JSX.Element {
   const [bootError, setBootError] = useState<string | null>(null);
   const [showPermissionGate, setShowPermissionGate] = useState<boolean>(false);
 
-  // Store 水合函数
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateWulili = useWuliliStore((s) => s.hydrate);
   const hydrateDialogues = useDialogueStore((s) => s.hydrate);
@@ -65,8 +64,7 @@ function AppInner(): React.JSX.Element {
   const hydrateUpdate = useUpdateStore((s) => s.hydrate);
   const hydrateStream = useStreamStore((s) => s.hydrate);
   const hydrateSleep = useSleepStore((s) => s.hydrate);
-  const hydrateTravel = useTravelStore((s) => s.hydrate); // 🔥 旅游 Store 水合
-  const hydrateR2 = useR2Store((s) => s.hydrate); // 🔥 R2 密钥水合
+  const hydrateTravel = useTravelStore((s) => s.hydrate);
 
   const useRemoteConfig = useSettingsStore((s) => s.settings.useRemoteConfig);
   const useRemoteDialogues = useSettingsStore((s) => s.settings.useRemoteDialogues);
@@ -77,7 +75,7 @@ function AppInner(): React.JSX.Element {
 
   useGameLoop();
 
-  // 1. 基础数据水合
+  // 1. 基础数据水合 (🔥 彻底删除了 R2 相关的 hydrate)
   useEffect(() => {
     let mounted = true;
     void (async () => {
@@ -96,8 +94,7 @@ function AppInner(): React.JSX.Element {
       await run('update', hydrateUpdate);
       await run('stream', hydrateStream);
       await run('sleep', hydrateSleep);
-      await run('travel', hydrateTravel); // 🔥 水合旅游
-      await run('r2', hydrateR2); // 🔥 水合 R2 密钥
+      await run('travel', hydrateTravel);
 
       if (fails.length > 0) setBootError(fails.join('\n'));
       if (mounted) setReady(true);
