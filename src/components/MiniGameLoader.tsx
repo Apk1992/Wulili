@@ -30,17 +30,30 @@ export function MiniGameLoader({
   const abortSession = useMinigameStore((s) => s.abortSession);
   const startSession = useMinigameStore((s) => s.startSession);
 
-  // ===== 统一弹窗（替代 Alert） =====
+  // ===== 统一弹窗状态 =====
   const [dialogVisible, setDialogVisible] = useState(false);
-  const [dialogText, setDialogText] = useState('');
+  const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
-  // 退出确认态：非 null 时表示"等待玩家确认退出"
-  const [pendingQuit, setPendingQuit] = useState(false);
+  const [dialogTitle, setDialogTitle] = useState<string | undefined>('雾璃');
+  const [dialogMode, setDialogMode] = useState<'info' | 'quitConfirm'>('info');
 
-  const showDialog = useCallback((text: string, icon: string = 'game-controller') => {
-    if (!text) return;
-    setDialogText(text);
-    setDialogIcon(icon);
+  const showDialog = useCallback(
+    (text: string, icon: string = 'game-controller', title: string = '雾璃') => {
+      if (!text) return;
+      setDialogText(text);
+      setDialogIcon(icon);
+      setDialogTitle(title);
+      setDialogMode('info');
+      setDialogVisible(true);
+    },
+    [],
+  );
+
+  const showQuitConfirm = useCallback(() => {
+    setDialogText('确定要退出吗？本局进度不会保存。');
+    setDialogIcon('exit-outline');
+    setDialogTitle('退出游戏');
+    setDialogMode('quitConfirm');
     setDialogVisible(true);
   }, []);
 
@@ -96,21 +109,41 @@ export function MiniGameLoader({
 
   // ===== 退出（第一步：弹确认） =====
   const handleQuit = () => {
-    setPendingQuit(true);
-    showDialog('确定要退出吗？本局进度不会保存。', 'exit-outline');
+    showQuitConfirm();
   };
 
-  // ===== 弹窗关闭（区分"退出确认"和"普通提示"） =====
-  const handleDialogClose = () => {
+  // ===== 退出确认：确认 =====
+  const handleQuitConfirm = () => {
     setDialogVisible(false);
-    if (pendingQuit) {
-      // 玩家点了确认（单按钮语义 = 确认退出）
-      setPendingQuit(false);
-      abortSession();
-      setActiveLevel(null);
-      onExit();
-    }
+    abortSession();
+    setActiveLevel(null);
+    onExit();
   };
+
+  // ===== 退出确认：继续玩 =====
+  const handleQuitCancel = () => {
+    setDialogVisible(false);
+  };
+
+  // ===== 普通提示弹窗关闭 =====
+  const handleInfoClose = () => {
+    setDialogVisible(false);
+  };
+
+  // ===== 统一的弹窗渲染（三处共用） =====
+  const renderDialog = () => (
+    <ActionDialogueModal
+      visible={dialogVisible}
+      text={dialogText}
+      iconName={dialogIcon as any}
+      title={dialogTitle}
+      onClose={handleInfoClose}
+      confirmText={dialogMode === 'quitConfirm' ? '退出' : undefined}
+      cancelText={dialogMode === 'quitConfirm' ? '继续玩' : undefined}
+      onConfirm={dialogMode === 'quitConfirm' ? handleQuitConfirm : undefined}
+      onCancel={dialogMode === 'quitConfirm' ? handleQuitCancel : undefined}
+    />
+  );
 
   // ===== 渲染当前关卡 =====
   if (activeLevel) {
@@ -124,12 +157,7 @@ export function MiniGameLoader({
             onComplete={handleComplete}
             onQuit={handleQuit}
           />
-          <ActionDialogueModal
-            visible={dialogVisible}
-            text={dialogText}
-            onClose={handleDialogClose}
-            iconName={dialogIcon as any}
-          />
+          {renderDialog()}
         </View>
       );
     }
@@ -142,12 +170,7 @@ export function MiniGameLoader({
             onComplete={handleComplete}
             onQuit={handleQuit}
           />
-          <ActionDialogueModal
-            visible={dialogVisible}
-            text={dialogText}
-            onClose={handleDialogClose}
-            iconName={dialogIcon as any}
-          />
+          {renderDialog()}
         </View>
       );
     }
@@ -194,12 +217,7 @@ export function MiniGameLoader({
         <Button label="返回" variant="ghost" onPress={onExit} />
       </View>
 
-      <ActionDialogueModal
-        visible={dialogVisible}
-        text={dialogText}
-        onClose={handleDialogClose}
-        iconName={dialogIcon as any}
-      />
+      {renderDialog()}
     </View>
   );
 }
