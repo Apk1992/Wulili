@@ -1,6 +1,6 @@
 // src/screens/EntertainScreen.tsx
-import React, { useMemo, useState } from 'react';
-import { Alert, FlatList, Text, View, Pressable } from 'react-native';
+import React, { useMemo, useState, useCallback } from 'react';
+import { FlatList, Text, View, Pressable } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
@@ -11,7 +11,7 @@ import { ActionDialogueModal } from '@/components/ActionDialogueModal';
 import EmptyView from '@/components/EmptyView';
 import MiniGameLoader from '@/components/MiniGameLoader';
 import { useDialogue } from '@/hooks/useDialogue';
-import { useAppConfigStore } from '@/store/useAppConfigStore';
+import { useMinigameIndexR2 } from '@/hooks/useMinigameIndexR2';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useTravelStore } from '@/store/useTravelStore';
 import { TRAVEL_DESTINATIONS, TravelDestination } from '@/data/travelConfig';
@@ -19,46 +19,61 @@ import { formatCoins } from '@/utils/format';
 import type { RootStackParamList } from '@/types/navigation';
 import type { MinigameIndexEntry } from '@/types/config';
 
-// 🔥 注意这里要接收 navigation
 type Props = NativeStackScreenProps<RootStackParamList, 'Entertain'>;
-
-const R2_BASE_URL = 'https://pub-daee64ddf4df4b6e8f58100ed89fd6d2.r2.dev';
 
 export function EntertainScreen({ navigation }: Props): React.JSX.Element {
   const { speak } = useDialogue();
-  
-  // Tab 状态
+
+  // Tab
   const [tab, setTab] = useState<'minigame' | 'travel'>('minigame');
 
-  // 弹窗状态
-  const [dialogVisible, setDialogVisible] = useState(false);
-  const [dialogText, setDialogText] = useState('');
+  // 小游戏（R2 index）
+  const {
+    isLoading: mgLoading,
+    isError: mgError,
+    data: minigames,
+    refetch: mgRefetch,
+  } = useMinigameIndexR2(tab === 'minigame');
+
   const [activeGame, setActiveGame] = useState<MinigameIndexEntry | null>(null);
 
-  const rawMinigames = useAppConfigStore((s) => s.config.minigames);
+  // Store
   const energy = useWuliliStore((s) => s.state.stats.energy);
   const coins = useWuliliStore((s) => s.state.coins);
-  
   const travelState = useTravelStore((s) => s.state);
   const startTravel = useTravelStore((s) => s.startTravel);
 
-  // 小游戏 R2 处理
-  const minigames = useMemo(() => {
-    return rawMinigames.map((game) => {
-      if (!game.assetFolder) return game;
-      const cleanFolder = game.assetFolder.startsWith('http')
-        ? game.assetFolder
-        : `${R2_BASE_URL}/${game.assetFolder.replace(/^\/+/, '')}`;
-      return { ...game, assetFolder: cleanFolder };
-    });
-  }, [rawMinigames]);
+  // ===== 统一弹窗 =====
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState<string | null>('');
+  const [dialogTitle, setDialogTitle] = useState<string>('雾璃');
+  const [dialogIcon, setDialogIcon] = useState<string>('heart');
+  const [dialogMode, setDialogMode] = useState<'info' | 'travelConfirm'>('info');
+  const [pendingDestination, setPendingDestination] = useState<TravelDestination | null>(null);
 
-  // ===== 小游戏逻辑 =====
+  const showInfo = useCallback((text: string, icon: string = 'heart', title: string = '雾璃') => {
+    setDialogText(text);
+    setDialogIcon(icon);
+    setDialogTitle(title);
+    setDialogMode('info');
+    setDialogVisible(true);
+  }, []);
+
+  const showTravelConfirm = useCallback((dest: TravelDestination) => {
+    setPendingDestination(dest);
+    setDialogText(
+      `确定要带雾璃去【${dest.city}】吗？\n花费：${formatCoins(dest.price)}\n时长：约 ${dest.durationHours} 小时`,
+    );
+    setDialogIcon('airplane');
+    setDialogTitle('确认出行');
+    setDialogMode('travelConfirm');
+    setDialogVisible(true);
+  }, []);
+
+  // ===== 小游戏 =====
   const handleEnterGame = (entry: MinigameIndexEntry) => {
-    if (energy < entry.energyCost) {
-      Alert.alert('精力不足', '雾璃现在太累了，先让她休息一会儿吧。');
-      return;
-    }
+    // 精力检查交给 levels.json 里的关卡 + MiniGameStore.startSession
+    // 这里不做前置 energy 判断（因为 index 没有 energyCost）
     setActiveGame(entry);
   };
 
@@ -66,39 +81,47 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
     const line = speak({ action: 'entertain' });
     if (line) {
       const text = typeof line === 'string' ? line : (line as any)?.text || '玩得很开心，谢谢你。';
-      setDialogText(text);
-      setDialogVisible(true);
+      showInfo(text, 'game-controller');
     }
     setActiveGame(null);
+    mgRefetch(); // 回来后刷新 index（防止期间改了 R2）
   };
 
-  // ===== 旅游逻辑 =====
+  // ===== 旅游 =====
   const handleStartTravel = (dest: TravelDestination) => {
     if (coins < dest.price) {
-      Alert.alert('金币不足', '攒够了钱再带她去这里吧。');
+      showInfo('攒够了钱再带她去这里吧。', 'cash', '金币不足');
       return;
     }
-    
-    Alert.alert(
-      '确认出行',
-      `确定要带雾璃去【${dest.city}】吗？\n花费：${formatCoins(dest.price)}\n时长：约 ${dest.durationHours} 小时`,
-      [
-        { text: '再想想', style: 'cancel' },
-        {
-          text: '出发',
-          onPress: () => {
-            useWuliliStore.getState().addCoins(-dest.price);
-            startTravel(dest);
-            Alert.alert('出发', `雾璃已经出发去${dest.city}了，记得等她回来哦！`, [
-              { text: '好' }
-            ]);
-          },
-        },
-      ]
-    );
+    showTravelConfirm(dest);
   };
 
-  // 进入小游戏全屏模式
+  const handleTravelConfirm = () => {
+    if (!pendingDestination) {
+      setDialogVisible(false);
+      return;
+    }
+    const dest = pendingDestination;
+    useWuliliStore.getState().addCoins(-dest.price);
+    startTravel(dest);
+    setPendingDestination(null);
+    setDialogVisible(false);
+    // 出行成功提示（下一个弹窗）
+    setTimeout(() => {
+      showInfo(`雾璃已经出发去${dest.city}了，记得等她回来哦！`, 'airplane', '出发');
+    }, 200);
+  };
+
+  const handleTravelCancel = () => {
+    setPendingDestination(null);
+    setDialogVisible(false);
+  };
+
+  const handleInfoClose = () => {
+    setDialogVisible(false);
+  };
+
+  // ===== 全屏进入小游戏 =====
   if (activeGame) {
     return (
       <ScreenContainer edges={['bottom']}>
@@ -109,9 +132,23 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
 
   const isTraveling = travelState.isTraveling;
 
+  const renderDialog = () => (
+    <ActionDialogueModal
+      visible={dialogVisible}
+      text={dialogText}
+      title={dialogTitle}
+      iconName={dialogIcon as any}
+      onClose={handleInfoClose}
+      confirmText={dialogMode === 'travelConfirm' ? '出发' : undefined}
+      cancelText={dialogMode === 'travelConfirm' ? '再想想' : undefined}
+      onConfirm={dialogMode === 'travelConfirm' ? handleTravelConfirm : undefined}
+      onCancel={dialogMode === 'travelConfirm' ? handleTravelCancel : undefined}
+    />
+  );
+
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
-      {/* 🔥 顶部 Tab 切换 */}
+      {/* Tab */}
       <View className="px-4 pt-3 pb-2">
         <View className="flex-row bg-card dark:bg-dark-card rounded-xl p-1 border border-border dark:border-dark-border">
           <Pressable
@@ -139,45 +176,52 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
         </View>
       </View>
 
-      {/* 🔥 小游戏列表 */}
+      {/* ===== 小游戏列表（R2 index） ===== */}
       {tab === 'minigame' && (
         <View className="flex-1">
           <View className="px-4 pb-2 flex-row items-center justify-between">
             <Text className="text-sm text-muted dark:text-dark-muted">当前精力</Text>
             <Text className="text-base font-bold text-text dark:text-dark-text">{Math.round(energy)}/100</Text>
           </View>
-          
-          {minigames.length === 0 ? (
-            <EmptyView title="暂无小游戏" message="请确保小游戏索引已成功载入。" icon="game-controller-outline" fullScreen />
-          ) : (
+
+          {mgLoading && (
+            <View className="px-4 py-6 items-center">
+              <Text className="text-sm text-muted dark:text-dark-muted">正在加载小游戏…</Text>
+            </View>
+          )}
+
+          {mgError && !mgLoading && (
+            <Pressable onPress={mgRefetch} className="px-4 py-6 items-center">
+              <Text className="text-sm text-danger">加载失败，点此重试</Text>
+            </Pressable>
+          )}
+
+          {!mgLoading && !mgError && (minigames?.length ?? 0) === 0 && (
+            <EmptyView title="暂无小游戏" message="请确保 minigames/index.json 已上传到 R2。" icon="game-controller-outline" fullScreen />
+          )}
+
+          {!mgLoading && !mgError && (minigames?.length ?? 0) > 0 && (
             <FlatList
-              data={minigames}
+              data={minigames ?? []}
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
               renderItem={({ item }) => (
                 <Card className="mb-3">
                   <View className="flex-row items-center">
                     <View className="w-10 h-10 rounded-xl bg-success/15 items-center justify-center mr-3">
-                      <Ionicons name={item.icon || 'game-controller'} size={20} color="#10B981" />
+                      <Ionicons name={(item.icon as any) || 'game-controller'} size={20} color="#10B981" />
                     </View>
                     <View className="flex-1">
                       <Text className="text-sm font-semibold text-text dark:text-dark-text">{item.name}</Text>
                       <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">{item.description}</Text>
                     </View>
                   </View>
-                  <View className="flex-row items-center mt-3 justify-between">
-                    <View className="flex-row items-center">
-                      <Ionicons name="flash" size={12} color="#F59E0B" />
-                      <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">消耗 {item.energyCost} 精力</Text>
-                      <Ionicons name="happy" size={12} color="#10B981" style={{ marginLeft: 10 }} />
-                      <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">心情 +{item.moodGain}</Text>
-                    </View>
-                    <View style={{ width: 84 }}>
+                  <View className="flex-row items-center mt-3 justify-end">
+                    <View style={{ width: 96 }}>
                       <Button
-                        label="进入"
+                        label="查看关卡"
                         size="sm"
-                        variant={energy >= item.energyCost ? 'primary' : 'ghost'}
-                        disabled={energy < item.energyCost}
+                        variant="primary"
                         onPress={() => handleEnterGame(item)}
                       />
                     </View>
@@ -190,7 +234,7 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
         </View>
       )}
 
-      {/* 🔥 旅游列表 */}
+      {/* ===== 旅游列表 ===== */}
       {tab === 'travel' && (
         <View className="flex-1">
           <View className="px-4 pb-2 flex-row items-center justify-between">
@@ -198,9 +242,7 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
               <Text className="text-sm text-muted dark:text-dark-muted mr-2">当前金币</Text>
               <Text className="text-base font-bold text-primary">{formatCoins(coins)}</Text>
             </View>
-            
-            {/* 🔥 相册入口按钮 */}
-            <Pressable 
+            <Pressable
               onPress={() => navigation.navigate('Album')}
               className="flex-row items-center bg-secondary/15 px-3 py-1.5 rounded-full"
             >
@@ -210,11 +252,11 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
           </View>
 
           {isTraveling ? (
-            <EmptyView 
-              title="雾璃不在家" 
-              message="她正在外面散心呢，等她回来吧。" 
-              icon="airplane-outline" 
-              fullScreen 
+            <EmptyView
+              title="雾璃不在家"
+              message="她正在外面散心呢，等她回来吧。"
+              icon="airplane-outline"
+              fullScreen
             />
           ) : (
             <FlatList
@@ -247,7 +289,6 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
                         </View>
                       </View>
                     </View>
-                    
                     <View className="flex-row items-center mt-3 justify-between border-t border-border dark:border-dark-border pt-3">
                       <View>
                         <View className="flex-row items-center">
@@ -279,13 +320,7 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
         </View>
       )}
 
-      {/* 统一弹窗 */}
-      <ActionDialogueModal
-        visible={dialogVisible}
-        text={dialogText}
-        onClose={() => setDialogVisible(false)}
-        iconName="game-controller"
-      />
+      {renderDialog()}
     </ScreenContainer>
   );
 }
