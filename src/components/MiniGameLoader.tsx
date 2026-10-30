@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+// src/components/MiniGameLoader.tsx
+import React, { useState, useCallback } from 'react';
+import { Text, View } from 'react-native';
 import Button from './Button';
 import LoadingView from './LoadingView';
 import ErrorView from './ErrorView';
 import EmptyView from './EmptyView';
 import MemoryGame from './minigames/MemoryGame';
 import RhythmGame from './minigames/RhythmGame';
-import { useMinigameLevels } from '@/hooks/useGitHubMinigames';
+import { ActionDialogueModal } from './ActionDialogueModal';
+import { useMinigameLevelsR2 as useMinigameLevels } from '@/hooks/useMinigameLevelsR2';
 import { useMinigameStore } from '@/store/useMinigameStore';
-import { useDialogueStore } from '@/store/useDialogueStore';
-import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { isMemoryLevel, isRhythmLevel } from '@/api/githubMinigames';
 import type { MinigameIndexEntry } from '@/types/config';
 import type { MinigameLevelConfig, MinigameOutcome } from '@/types/minigame';
@@ -25,19 +25,36 @@ export function MiniGameLoader({
 }: MiniGameLoaderProps): React.JSX.Element {
   const levelsQuery = useMinigameLevels(entry, true);
   const [activeLevel, setActiveLevel] = useState<MinigameLevelConfig | null>(null);
+
   const finishSession = useMinigameStore((s) => s.finishSession);
   const abortSession = useMinigameStore((s) => s.abortSession);
   const startSession = useMinigameStore((s) => s.startSession);
 
+  // ===== 统一弹窗（替代 Alert） =====
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState('');
+  const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
+  // 退出确认态：非 null 时表示"等待玩家确认退出"
+  const [pendingQuit, setPendingQuit] = useState(false);
+
+  const showDialog = useCallback((text: string, icon: string = 'game-controller') => {
+    if (!text) return;
+    setDialogText(text);
+    setDialogIcon(icon);
+    setDialogVisible(true);
+  }, []);
+
+  // ===== 加载态 =====
   if (levelsQuery.isLoading) {
     return <LoadingView message="正在加载小游戏…" fullScreen />;
   }
 
+  // ===== 错误态 =====
   if (levelsQuery.isError) {
     return (
       <ErrorView
         title="加载失败"
-        message="无法获取小游戏的关卡数据"
+        message="无法获取小游戏的关卡数据，请检查网络后重试。"
         onRetry={() => levelsQuery.refetch()}
         fullScreen
       />
@@ -46,6 +63,7 @@ export function MiniGameLoader({
 
   const levels = levelsQuery.data ?? [];
 
+  // ===== 空态 =====
   if (levels.length === 0) {
     return (
       <EmptyView
@@ -59,57 +77,78 @@ export function MiniGameLoader({
     );
   }
 
+  // ===== 开始关卡 =====
   const handleStart = (level: MinigameLevelConfig) => {
     const ok = startSession(entry.id, level.id);
     if (!ok) {
-      Alert.alert('精力不足', '雾璃现在太累了，先让她休息一下吧。');
+      showDialog('雾璃现在太累了，先让她休息一下吧。', 'battery-half');
       return;
     }
     setActiveLevel(level);
   };
 
+  // ===== 完成关卡 =====
   const handleComplete = (outcome: MinigameOutcome) => {
     finishSession(outcome);
-    void useDialogueStore.getState();
     setActiveLevel(null);
     onExit();
   };
 
+  // ===== 退出（第一步：弹确认） =====
   const handleQuit = () => {
-    Alert.alert('退出游戏', '确定要退出吗？本局进度不会保存。', [
-      { text: '继续玩', style: 'cancel' },
-      {
-        text: '退出',
-        style: 'destructive',
-        onPress: () => {
-          abortSession();
-          setActiveLevel(null);
-          onExit();
-        },
-      },
-    ]);
+    setPendingQuit(true);
+    showDialog('确定要退出吗？本局进度不会保存。', 'exit-outline');
   };
 
+  // ===== 弹窗关闭（区分"退出确认"和"普通提示"） =====
+  const handleDialogClose = () => {
+    setDialogVisible(false);
+    if (pendingQuit) {
+      // 玩家点了确认（单按钮语义 = 确认退出）
+      setPendingQuit(false);
+      abortSession();
+      setActiveLevel(null);
+      onExit();
+    }
+  };
+
+  // ===== 渲染当前关卡 =====
   if (activeLevel) {
     if (isMemoryLevel(activeLevel)) {
       return (
-        <MemoryGame
-          level={activeLevel}
-          minigameId={entry.id}
-          assetFolder={entry.assetFolder}
-          onComplete={handleComplete}
-          onQuit={handleQuit}
-        />
+        <View style={{ flex: 1 }}>
+          <MemoryGame
+            level={activeLevel}
+            minigameId={entry.id}
+            assetFolder={entry.assetFolder}
+            onComplete={handleComplete}
+            onQuit={handleQuit}
+          />
+          <ActionDialogueModal
+            visible={dialogVisible}
+            text={dialogText}
+            onClose={handleDialogClose}
+            iconName={dialogIcon as any}
+          />
+        </View>
       );
     }
     if (isRhythmLevel(activeLevel)) {
       return (
-        <RhythmGame
-          level={activeLevel}
-          minigameId={entry.id}
-          onComplete={handleComplete}
-          onQuit={handleQuit}
-        />
+        <View style={{ flex: 1 }}>
+          <RhythmGame
+            level={activeLevel}
+            minigameId={entry.id}
+            onComplete={handleComplete}
+            onQuit={handleQuit}
+          />
+          <ActionDialogueModal
+            visible={dialogVisible}
+            text={dialogText}
+            onClose={handleDialogClose}
+            iconName={dialogIcon as any}
+          />
+        </View>
       );
     }
     return (
@@ -123,6 +162,7 @@ export function MiniGameLoader({
     );
   }
 
+  // ===== 关卡选择列表 =====
   return (
     <View className="flex-1">
       <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
@@ -153,6 +193,13 @@ export function MiniGameLoader({
       <View className="mt-2">
         <Button label="返回" variant="ghost" onPress={onExit} />
       </View>
+
+      <ActionDialogueModal
+        visible={dialogVisible}
+        text={dialogText}
+        onClose={handleDialogClose}
+        iconName={dialogIcon as any}
+      />
     </View>
   );
 }
