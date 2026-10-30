@@ -6,7 +6,7 @@ import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
 import { useTravelStore } from '@/store/useTravelStore'; 
-import { HOUSES } from '@/data/houseConfig'; // 🔥 引入房屋配置
+import { HOUSES } from '@/data/houseConfig';
 import { clamp } from '@/utils/random';
 import { STREAM_CONFIG, computeStreamLevel, computeDurationBonus } from '@/data/streamConfig';
 import { SLEEP_CONFIG } from '@/data/sleepConfig';
@@ -46,7 +46,7 @@ export function useGameLoop(): UseGameLoopResult {
       if (!val) AsyncStorage.setItem('@wulili/install_date', Date.now().toString());
     });
 
-    // 🔥 按月扣费逻辑
+    // 🔥 按月扣费逻辑（包含余额倍数判断）
     const checkMonthlyRent = async () => {
       const now = Date.now();
       const installDateStr = await AsyncStorage.getItem('@wulili/install_date');
@@ -55,27 +55,43 @@ export function useGameLoop(): UseGameLoopResult {
       const lastRentDateStr = await AsyncStorage.getItem('@wulili/last_rent_date');
       const lastRentTime = lastRentDateStr ? parseInt(lastRentDateStr, 10) : installDate;
       
-      const ONE_MONTH = 30 * 24 * 60 * 60 * 1000; // 30 天
+      const ONE_MONTH = 30 * 24 * 60 * 60 * 1000;
       
       if (now - lastRentTime >= ONE_MONTH) {
         const wuliliStore = useWuliliStore.getState();
-        
-        // 检查当前住什么房子，决定房租
         const houseId = wuliliStore.state.currentHouseId || 'default_room';
         const house = HOUSES.find(h => h.id === houseId) || HOUSES[0];
         const rentPrice = house.rentPrice;
-        
         const currentCoins = wuliliStore.state.coins;
         
-        // 扣除房租
         wuliliStore.addCoins(-rentPrice);
         await AsyncStorage.setItem('@wulili/last_rent_date', now.toString());
 
-        if (currentCoins >= rentPrice) {
-          wuliliStore.addStats({ mood: -5 }); // 交得起，心疼一下
+        // 🔥 判断余额与房租的倍数
+        const remainingCoins = currentCoins - rentPrice;
+        let msg = '';
+        
+        if (remainingCoins < 0) {
+          msg = '房东来收租了……可是我们的钱不够，对不起，让你跟着我受苦了。';
+          wuliliStore.addStats({ mood: -20 });
+        } else if (remainingCoins === 0) {
+          msg = '刚好交完房租……接下来我们要精打细算每一顿饭了。';
+          wuliliStore.addStats({ mood: -10 });
+        } else if (remainingCoins <= rentPrice) {
+          msg = '房租交上了，不过剩下的钱不多了，接下来要省点花哦。';
+          wuliliStore.addStats({ mood: -5 });
+        } else if (remainingCoins <= rentPrice * 2) {
+          msg = '房租交完了！我们还有一些余钱，要不要去吃顿好的庆祝一下？';
+          wuliliStore.addStats({ mood: 5 });
         } else {
-          wuliliStore.addStats({ mood: -20 }); // 交不起，心情暴跌
+          msg = '轻轻松松就交完房租啦！看来我们最近赚了不少呢，随便你想买什么都可以！';
+          wuliliStore.addStats({ mood: 15 });
         }
+
+        // 把消息塞进 Store 里，触发 UI 弹窗
+        useWuliliStore.setState((prev) => ({
+          state: { ...prev.state, lastEventMessage: msg },
+        }));
       }
     };
 
@@ -174,6 +190,7 @@ export function useGameLoop(): UseGameLoopResult {
 
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
+      
       // 🔥 睡了 24 小时或者精力满了自动醒
       if (afterTick.stats.energy >= SLEEP_CONFIG.autoWakeEnergy || totalHours >= SLEEP_CONFIG.maxSleepHours) {
         sleepStore.stop();
@@ -185,7 +202,7 @@ export function useGameLoop(): UseGameLoopResult {
       if (!runningRef.current) return;
       try {
         checkTravelFinished();
-        void checkMonthlyRent(); // 🔥 改为按月扣房租
+        void checkMonthlyRent(); 
         checkTravelStress();
 
         const wuliliStore = useWuliliStore.getState();
@@ -250,4 +267,4 @@ export function useGameLoop(): UseGameLoopResult {
   }, []);
 
   return { isRunning: runningRef.current };
-}
+    }
