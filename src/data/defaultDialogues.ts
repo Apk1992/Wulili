@@ -1,3 +1,4 @@
+// src/data/defaultDialogues.ts
 import type { Dialogue } from '@/types/dialogue';
 
 function d(
@@ -493,31 +494,63 @@ export const defaultDialogues: Dialogue[] = [
     once: true,
   }),
 
-  // ============ 被摸头 ============ 
+  // ============ 被摸头（poke） ============
+  // 原有 3 条
   d({
-  id: 'poke_head_1',
-  text: '欸……？别、别突然摸我头啦。',
-  category: 'poke',
-  emotion: 'shy',
-  triggers: [],
-  cooldownHours: 2,
-}),
-d({
-  id: 'poke_head_2',
-  text: '……（小声）其实，不讨厌。',
-  category: 'poke',
-  emotion: 'shy',
-  minAffinity: 40,
-  triggers: [],
-  cooldownHours: 4,
-}),
-d({
-  id: 'poke_head_3',
-  text: '再摸的话……我会当真的哦。',
-  category: 'poke',
-  emotion: 'warm',
-  minAffinity: 70,
-  triggers: [],
-  cooldownHours: 6,
-}),
+    id: 'poke_head_1',
+    text: '欸……？别、别突然摸我头啦。',
+    category: 'poke',
+    emotion: 'shy',
+    triggers: [],
+    cooldownHours: 2,
+  }),
+  d({
+    id: 'poke_head_2',
+    text: '……（小声）其实，不讨厌。',
+    category: 'poke',
+    emotion: 'shy',
+    minAffinity: 40,
+    triggers: [],
+    cooldownHours: 4,
+  }),
+  d({
+    id: 'poke_head_3',
+    text: '再摸的话……我会当真的哦。',
+    category: 'poke',
+    emotion: 'warm',
+    minAffinity: 70,
+    triggers: [],
+    cooldownHours: 6,
+  }),
+  // 🔥 新增 3 条，补充低/中/高好感各阶段
+  d({
+    id: 'poke_head_4',
+    text: '唔……头发要被你弄乱啦。',
+    category: 'poke',
+    emotion: 'shy',
+    maxAffinity: 30,
+    triggers: [],
+    cooldownHours: 3,
+    weight: 1.2,
+  }),
+  d({
+    id: 'poke_head_5',
+    text: '（轻轻蹭了蹭你的手心）',
+    category: 'poke',
+    emotion: 'warm',
+    minAffinity: 50,
+    triggers: [],
+    cooldownHours: 5,
+    weight: 1.0,
+  }),
+  d({
+    id: 'poke_head_6',
+    text: '你摸头的时候，我会觉得今天好像也没那么糟。',
+    category: 'poke',
+    emotion: 'warm',
+    minAffinity: 80,
+    triggers: [],
+    cooldownHours: 8,
+    weight: 1.0,
+  }),
 ];
