@@ -1,7 +1,9 @@
+// src/types/minigame.ts
 import type { MinigameIndexEntry } from './config';
 
-export type MinigameEngine = 'memory' | 'rhythm';
+export type MinigameEngine = 'memory' | 'rhythm' | 'tetris';
 
+// ===== Memory =====
 export interface MemoryCardDef {
   id: string;
   pairKey: string;
@@ -20,6 +22,7 @@ export interface MemoryLevelConfig {
   coinReward: number;
 }
 
+// ===== Rhythm =====
 export interface RhythmBeat {
   timeMs: number;
   lane: number;
@@ -38,8 +41,29 @@ export interface RhythmLevelConfig {
   coinReward: number;
 }
 
-export type MinigameLevelConfig = MemoryLevelConfig | RhythmLevelConfig;
+// ===== Tetris =====
+export interface TetrisLevelConfig {
+  id: string;
+  title: string;
+  description: string;
+  /** 每下落一格的间隔毫秒（越小越快） */
+  dropIntervalMs: number;
+  /** 达成多少行算通关 */
+  targetLines: number;
+  /** 时间上限（秒），超时判负 */
+  timeLimitSeconds: number;
+  moodGain: number;
+  energyCost: number;
+  coinReward: number;
+}
 
+// ===== 联合 =====
+export type MinigameLevelConfig =
+  | MemoryLevelConfig
+  | RhythmLevelConfig
+  | TetrisLevelConfig;
+
+// ===== 加载结果 =====
 export interface MinigameLoadResult {
   entry: MinigameIndexEntry;
   levels: MinigameLevelConfig[];
@@ -47,6 +71,7 @@ export interface MinigameLoadResult {
   fetchedAt: number;
 }
 
+// ===== 结算 =====
 export type MinigameResult =
   | 'victory'
   | 'defeat'
