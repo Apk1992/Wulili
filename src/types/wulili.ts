@@ -20,6 +20,7 @@ export type ActionType =
   | 'exercise'
   | 'medicine'
   | 'sleep'
+  | 'poke_head'   // 🔥 新增：摸头
   | 'idle';
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
@@ -139,6 +140,7 @@ export interface WuliliState {
   lastExercisedAt: number | null;
   lastMedicineAt: number | null;
   lastSleptAt: number | null;
+  lastPokedAt: number | null;   // 🔥 新增：上次摸头
   lastInteractionAt: number | null;
   totalStreamEarnings: number;
   totalStreamSeconds: number;
@@ -202,6 +204,7 @@ export const INITIAL_WULILI_STATE: WuliliState = {
   lastExercisedAt: null,
   lastMedicineAt: null,
   lastSleptAt: null,
+  lastPokedAt: null,   // 🔥 新增
   lastInteractionAt: null,
   totalStreamEarnings: 0,
   totalStreamSeconds: 0,
