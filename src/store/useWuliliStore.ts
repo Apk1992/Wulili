@@ -8,8 +8,14 @@ import { aggregateBonus, type AggregatedBonus } from '@/utils/equipmentBonus';
 import { computeSleepDeprivation, SLEEP_CONFIG } from '@/data/sleepConfig';
 import { MENSTRUAL_CONFIG, randomCycleLength, getMedicineExpireAt } from '@/data/menstrualConfig';
 
+// 🔥 扩展类型，加入房屋和事件消息
+export type ExtendedWuliliState = WuliliState & {
+  currentHouseId: string;
+  lastEventMessage: string | null;
+};
+
 interface WuliliStore {
-  state: WuliliState & { currentHouseId: string }; // 🔥 加入房屋 ID
+  state: ExtendedWuliliState;
   hydrated: boolean;
   hydrate: () => Promise<void>;
   persist: () => Promise<void>;
@@ -135,12 +141,13 @@ function computeRhinitisRisk(stats: WuliliStats, hours: number): number {
   return clamp(risk, 0, 0.35);
 }
 
-function migrateState(stored: Partial<WuliliState> & { currentHouseId?: string }): WuliliState & { currentHouseId: string } {
+function migrateState(stored: Partial<ExtendedWuliliState>): ExtendedWuliliState {
   const menstrual = stored.menstrual ?? INITIAL_WULILI_STATE.menstrual;
   return {
     ...INITIAL_WULILI_STATE,
     ...stored,
-    currentHouseId: stored.currentHouseId ?? 'default_room', // 🔥 默认最普通的房子
+    currentHouseId: stored.currentHouseId ?? 'default_room',
+    lastEventMessage: stored.lastEventMessage ?? null,
     stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
     illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
     menstrual: {
@@ -156,11 +163,11 @@ function migrateState(stored: Partial<WuliliState> & { currentHouseId?: string }
 }
 
 export const useWuliliStore = create<WuliliStore>((set, get) => ({
-  state: { ...INITIAL_WULILI_STATE, currentHouseId: 'default_room' },
+  state: { ...INITIAL_WULILI_STATE, currentHouseId: 'default_room', lastEventMessage: null },
   hydrated: false,
 
   hydrate: async () => {
-    const stored = await storageGet<Partial<WuliliState> & { currentHouseId?: string }>(STORAGE_KEYS.wuliliState);
+    const stored = await storageGet<Partial<ExtendedWuliliState>>(STORAGE_KEYS.wuliliState);
     if (stored && typeof stored === 'object') {
       const merged = migrateState(stored);
       if (merged.menstrual.cycleStartAt === null) {
@@ -173,9 +180,10 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
       return;
     }
-    const fresh = {
+    const fresh: ExtendedWuliliState = {
       ...INITIAL_WULILI_STATE,
       currentHouseId: 'default_room',
+      lastEventMessage: null,
       menstrual: { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null },
     };
     set({ state: fresh, hydrated: true });
@@ -203,7 +211,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
 
-  // 🔥 修复了恢复和消耗逻辑
   addStats: (delta) => {
     const current = get().state;
     const bonus = getBonus();
@@ -215,7 +222,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
         if (key === 'mood') d = d * bonus.moodDecayRate;
         if (key === 'energy') d = d * bonus.energyCostRate;
       } else {
-        // 只有正收益才受加成
         if (key === 'mood') d = d * bonus.moodRecoveryRate;
       }
       newStats[key] = clampStat(key, newStats[key] + d);
@@ -234,14 +240,8 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   buyHouse: (houseId, price) => {
     const current = get().state;
-    if (current.coins < price) return false; // 钱不够
-    
-    // 扣钱并更新房子
-    const next = { 
-      ...current, 
-      coins: current.coins - price,
-      currentHouseId: houseId 
-    };
+    if (current.coins < price) return false;
+    const next = { ...current, coins: current.coins - price, currentHouseId: houseId };
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
     return true;
@@ -300,7 +300,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   markInteraction: (action) => {
     const now = Date.now();
     const current = get().state;
-    const next: WuliliState & { currentHouseId: string } = { ...current, lastInteractionAt: now };
+    const next: ExtendedWuliliState = { ...current, lastInteractionAt: now };
     if (action === 'feed') next.lastFedAt = now;
     if (action === 'entertain') next.lastEntertainedAt = now;
     if (action === 'stream') next.lastStreamedAt = now;
@@ -395,9 +395,10 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   getEquipmentBonus: () => getBonus(),
 
   reset: () => {
-    const fresh = {
+    const fresh: ExtendedWuliliState = {
       ...INITIAL_WULILI_STATE,
       currentHouseId: 'default_room',
+      lastEventMessage: null,
       createdAt: Date.now(),
       lastTickAt: Date.now(),
       menstrual: { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null },
@@ -407,7 +408,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   },
 }));
 
-function rollCycleIfNeeded(state: WuliliState & { currentHouseId: string }): WuliliState & { currentHouseId: string } {
+function rollCycleIfNeeded(state: ExtendedWuliliState): ExtendedWuliliState {
   const m = state.menstrual;
   if (!m.cycleStartAt) return state;
   const cycleMs = m.cycleLengthDays * 24 * 60 * 60 * 1000;
