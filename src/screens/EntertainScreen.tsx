@@ -1,5 +1,5 @@
 // src/screens/EntertainScreen.tsx
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { FlatList, Text, View, Pressable } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -51,13 +51,16 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
   const [dialogMode, setDialogMode] = useState<'info' | 'travelConfirm'>('info');
   const [pendingDestination, setPendingDestination] = useState<TravelDestination | null>(null);
 
-  const showInfo = useCallback((text: string, icon: string = 'heart', title: string = '雾璃') => {
-    setDialogText(text);
-    setDialogIcon(icon);
-    setDialogTitle(title);
-    setDialogMode('info');
-    setDialogVisible(true);
-  }, []);
+  const showInfo = useCallback(
+    (text: string, icon: string = 'heart', title: string = '雾璃') => {
+      setDialogText(text);
+      setDialogIcon(icon);
+      setDialogTitle(title);
+      setDialogMode('info');
+      setDialogVisible(true);
+    },
+    [],
+  );
 
   const showTravelConfirm = useCallback((dest: TravelDestination) => {
     setPendingDestination(dest);
@@ -72,8 +75,10 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
 
   // ===== 小游戏 =====
   const handleEnterGame = (entry: MinigameIndexEntry) => {
-    // 精力检查交给 levels.json 里的关卡 + MiniGameStore.startSession
-    // 这里不做前置 energy 判断（因为 index 没有 energyCost）
+    if (energy < entry.energyCost) {
+      showInfo('雾璃现在太累了，先让她休息一会儿吧。', 'battery-half', '精力不足');
+      return;
+    }
     setActiveGame(entry);
   };
 
@@ -84,7 +89,7 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
       showInfo(text, 'game-controller');
     }
     setActiveGame(null);
-    mgRefetch(); // 回来后刷新 index（防止期间改了 R2）
+    mgRefetch();
   };
 
   // ===== 旅游 =====
@@ -106,7 +111,6 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
     startTravel(dest);
     setPendingDestination(null);
     setDialogVisible(false);
-    // 出行成功提示（下一个弹窗）
     setTimeout(() => {
       showInfo(`雾璃已经出发去${dest.city}了，记得等她回来哦！`, 'airplane', '出发');
     }, 200);
@@ -157,8 +161,16 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
               tab === 'minigame' ? 'bg-primary' : 'bg-transparent'
             }`}
           >
-            <Ionicons name="game-controller" size={16} color={tab === 'minigame' ? '#FFF' : '#94A3B8'} />
-            <Text className={`ml-2 text-sm font-semibold ${tab === 'minigame' ? 'text-white' : 'text-muted dark:text-dark-muted'}`}>
+            <Ionicons
+              name="game-controller"
+              size={16}
+              color={tab === 'minigame' ? '#FFF' : '#94A3B8'}
+            />
+            <Text
+              className={`ml-2 text-sm font-semibold ${
+                tab === 'minigame' ? 'text-white' : 'text-muted dark:text-dark-muted'
+              }`}
+            >
               玩游戏
             </Text>
           </Pressable>
@@ -169,7 +181,11 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
             }`}
           >
             <Ionicons name="airplane" size={16} color={tab === 'travel' ? '#FFF' : '#94A3B8'} />
-            <Text className={`ml-2 text-sm font-semibold ${tab === 'travel' ? 'text-white' : 'text-muted dark:text-dark-muted'}`}>
+            <Text
+              className={`ml-2 text-sm font-semibold ${
+                tab === 'travel' ? 'text-white' : 'text-muted dark:text-dark-muted'
+              }`}
+            >
               出门散心
             </Text>
           </Pressable>
@@ -181,7 +197,9 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
         <View className="flex-1">
           <View className="px-4 pb-2 flex-row items-center justify-between">
             <Text className="text-sm text-muted dark:text-dark-muted">当前精力</Text>
-            <Text className="text-base font-bold text-text dark:text-dark-text">{Math.round(energy)}/100</Text>
+            <Text className="text-base font-bold text-text dark:text-dark-text">
+              {Math.round(energy)}/100
+            </Text>
           </View>
 
           {mgLoading && (
@@ -197,7 +215,12 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
           )}
 
           {!mgLoading && !mgError && (minigames?.length ?? 0) === 0 && (
-            <EmptyView title="暂无小游戏" message="请确保 minigames/index.json 已上传到 R2。" icon="game-controller-outline" fullScreen />
+            <EmptyView
+              title="暂无小游戏"
+              message="请确保 minigames/index.json 已上传到 R2。"
+              icon="game-controller-outline"
+              fullScreen
+            />
           )}
 
           {!mgLoading && !mgError && (minigames?.length ?? 0) > 0 && (
@@ -205,29 +228,51 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
               data={minigames ?? []}
               keyExtractor={(item) => item.id}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
-              renderItem={({ item }) => (
-                <Card className="mb-3">
-                  <View className="flex-row items-center">
-                    <View className="w-10 h-10 rounded-xl bg-success/15 items-center justify-center mr-3">
-                      <Ionicons name={(item.icon as any) || 'game-controller'} size={20} color="#10B981" />
+              renderItem={({ item }) => {
+                const affordable = energy >= item.energyCost;
+                return (
+                  <Card className="mb-3">
+                    <View className="flex-row items-center">
+                      <View className="w-10 h-10 rounded-xl bg-success/15 items-center justify-center mr-3">
+                        <Ionicons
+                          name={(item.icon as any) || 'game-controller'}
+                          size={20}
+                          color="#10B981"
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-sm font-semibold text-text dark:text-dark-text">
+                          {item.name}
+                        </Text>
+                        <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">
+                          {item.description}
+                        </Text>
+                      </View>
                     </View>
-                    <View className="flex-1">
-                      <Text className="text-sm font-semibold text-text dark:text-dark-text">{item.name}</Text>
-                      <Text className="text-xs text-muted dark:text-dark-muted mt-0.5">{item.description}</Text>
+                    <View className="flex-row items-center mt-3 justify-between">
+                      <View className="flex-row items-center">
+                        <Ionicons name="flash" size={12} color="#F59E0B" />
+                        <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">
+                          消耗 {item.energyCost} 精力
+                        </Text>
+                        <Ionicons name="happy" size={12} color="#10B981" style={{ marginLeft: 10 }} />
+                        <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">
+                          心情 +{item.moodGain}
+                        </Text>
+                      </View>
+                      <View style={{ width: 84 }}>
+                        <Button
+                          label="进入"
+                          size="sm"
+                          variant={affordable ? 'primary' : 'ghost'}
+                          disabled={!affordable}
+                          onPress={() => handleEnterGame(item)}
+                        />
+                      </View>
                     </View>
-                  </View>
-                  <View className="flex-row items-center mt-3 justify-end">
-                    <View style={{ width: 96 }}>
-                      <Button
-                        label="查看关卡"
-                        size="sm"
-                        variant="primary"
-                        onPress={() => handleEnterGame(item)}
-                      />
-                    </View>
-                  </View>
-                </Card>
-              )}
+                  </Card>
+                );
+              }}
               showsVerticalScrollIndicator={false}
             />
           )}
@@ -279,7 +324,11 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
                             </Text>
                             <View className="px-1.5 py-0.5 rounded-md bg-secondary/15">
                               <Text className="text-[9px] font-bold text-secondary">
-                                {item.type === 'nearby' ? '周边散心' : item.type === 'domestic' ? '短途' : '长途'}
+                                {item.type === 'nearby'
+                                  ? '周边散心'
+                                  : item.type === 'domestic'
+                                    ? '短途'
+                                    : '长途'}
                               </Text>
                             </View>
                           </View>
@@ -293,12 +342,18 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
                       <View>
                         <View className="flex-row items-center">
                           <Ionicons name="cash" size={12} color="#2563EB" />
-                          <Text className="ml-1 text-sm font-bold text-primary">{formatCoins(item.price)}</Text>
+                          <Text className="ml-1 text-sm font-bold text-primary">
+                            {formatCoins(item.price)}
+                          </Text>
                         </View>
                         <View className="flex-row items-center mt-1">
                           <Ionicons name="time" size={12} color="#94A3B8" />
-                          <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">{item.durationHours} 小时</Text>
-                          <Text className="ml-2 text-[10px] text-muted dark:text-dark-muted">照片 x{item.spots.length}</Text>
+                          <Text className="ml-1 text-[10px] text-muted dark:text-dark-muted">
+                            {item.durationHours} 小时
+                          </Text>
+                          <Text className="ml-2 text-[10px] text-muted dark:text-dark-muted">
+                            照片 x{item.spots.length}
+                          </Text>
                         </View>
                       </View>
                       <View style={{ width: 84 }}>
