@@ -148,6 +148,8 @@ function migrateState(stored: Partial<ExtendedWuliliState>): ExtendedWuliliState
     ...stored,
     currentHouseId: stored.currentHouseId ?? 'default_room',
     lastEventMessage: stored.lastEventMessage ?? null,
+    // 🔥 兼容旧存档：缺 lastPokedAt 补 null
+    lastPokedAt: typeof (stored as any).lastPokedAt === 'number' ? (stored as any).lastPokedAt : null,
     stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
     illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
     menstrual: {
@@ -307,6 +309,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
     if (action === 'sleep') next.lastSleptAt = now;
+    if (action === 'poke_head') next.lastPokedAt = now;   // 🔥 新增
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
