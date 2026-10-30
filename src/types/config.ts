@@ -1,3 +1,4 @@
+// src/types/config.ts
 import type {
   Accessory,
   ExerciseOption,
@@ -8,7 +9,7 @@ import type {
 
 export interface MinigameIndexEntry {
   id: string;
-  engine: 'memory' | 'rhythm';
+  engine: 'memory' | 'rhythm' | 'tetris';   // 🔥 加 'tetris'
   name: string;
   description: string;
   icon: string;
