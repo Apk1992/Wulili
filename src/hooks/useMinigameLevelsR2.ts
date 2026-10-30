@@ -1,19 +1,28 @@
-// src/hooks/useMinigameIndexR2.ts
+// src/hooks/useMinigameLevelsR2.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MinigameIndexEntry } from '@/types/config';
-import { fetchMinigameIndex } from '@/services/minigameService';
+import type { MinigameLevelConfig } from '@/types/minigame';
+import { fetchMinigameLevels } from '@/services/minigameService';
 
-export interface UseMinigameIndexR2Result {
+export interface UseMinigameLevelsR2Result {
   isLoading: boolean;
   isError: boolean;
-  data: MinigameIndexEntry[] | undefined;
+  data: MinigameLevelConfig[] | undefined;
+  fromCache: boolean;
   refetch: () => void;
 }
 
-export function useMinigameIndexR2(enabled: boolean = true): UseMinigameIndexR2Result {
+/**
+ * R2 版小游戏关卡加载 hook（替代 useGitHubMinigames.useMinigameLevels）
+ */
+export function useMinigameLevelsR2(
+  entry: MinigameIndexEntry | null,
+  enabled: boolean = true,
+): UseMinigameLevelsR2Result {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isError, setIsError] = useState<boolean>(false);
-  const [data, setData] = useState<MinigameIndexEntry[] | undefined>(undefined);
+  const [data, setData] = useState<MinigameLevelConfig[] | undefined>(undefined);
+  const [fromCache, setFromCache] = useState<boolean>(false);
   const [reloadToken, setReloadToken] = useState<number>(0);
 
   const mountedRef = useRef<boolean>(true);
@@ -25,32 +34,34 @@ export function useMinigameIndexR2(enabled: boolean = true): UseMinigameIndexR2R
   const refetch = useCallback(() => setReloadToken((t) => t + 1), []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!entry || !enabled) return;
+
     let cancelled = false;
     setIsLoading(true);
     setIsError(false);
 
     (async () => {
-      const list = await fetchMinigameIndex();
+      const result = await fetchMinigameLevels(entry);
       if (cancelled || !mountedRef.current) return;
-      if (list === null) {
+
+      const hasAny = Array.isArray(result.levels) && result.levels.length > 0;
+      const hasCache = result.fromCache;
+
+      if (!hasAny && !hasCache) {
         setIsError(true);
         setData(undefined);
       } else {
-        // 只保留 enabled 的，按 order 排序
-        const visible = list
-          .filter((g) => g.enabled !== false)
-          .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
         setIsError(false);
-        setData(visible);
+        setData(result.levels);
       }
+      setFromCache(hasCache);
       setIsLoading(false);
     })();
 
     return () => { cancelled = true; };
-  }, [enabled, reloadToken]);
+  }, [entry, enabled, reloadToken]);
 
-  return { isLoading, isError, data, refetch };
+  return { isLoading, isError, data, fromCache, refetch };
 }
 
-export default useMinigameIndexR2;
+export default useMinigameLevelsR2;
