@@ -46,11 +46,8 @@ export interface TetrisLevelConfig {
   id: string;
   title: string;
   description: string;
-  /** 每下落一格的间隔毫秒（越小越快） */
   dropIntervalMs: number;
-  /** 达成多少行算通关 */
   targetLines: number;
-  /** 时间上限（秒），超时判负 */
   timeLimitSeconds: number;
   moodGain: number;
   energyCost: number;
@@ -72,10 +69,7 @@ export interface MinigameLoadResult {
 }
 
 // ===== 结算 =====
-export type MinigameResult =
-  | 'victory'
-  | 'defeat'
-  | 'quit';
+export type MinigameResult = 'victory' | 'defeat' | 'quit';
 
 export interface MinigameOutcome {
   minigameId: string;
