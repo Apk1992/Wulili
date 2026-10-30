@@ -9,16 +9,19 @@ const ROWS = 20;
 type Cell = 0 | 1;
 type Board = Cell[][];
 
-interface ShapeDef { cells: number[][]; color: string; }
+interface ShapeDef {
+  cells: number[][];
+  color: string;
+}
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1,1,1,1]], color: '#38BDF8' },        // I
-  { cells: [[1,1],[1,1]], color: '#FACC15' },      // O
-  { cells: [[0,1,0],[1,1,1]], color: '#A78BFA' },  // T
-  { cells: [[1,0,0],[1,1,1]], color: '#FB923C' },  // L
-  { cells: [[0,0,1],[1,1,1]], color: '#60A5FA' },  // J
-  { cells: [[0,1,1],[1,1,0]], color: '#4ADE80' },  // S
-  { cells: [[1,1,0],[0,1,1]], color: '#F87171' },  // Z
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
 ];
 
 function emptyBoard(): Board {
@@ -29,8 +32,11 @@ function rotate(matrix: number[][]): number[][] {
   const n = matrix.length;
   const m = matrix[0].length;
   const out = Array.from({ length: m }, () => Array<number>(n).fill(0));
-  for (let i = 0; i < n; i++)
-    for (let j = 0; j < m; j++) out[j][n - 1 - i] = matrix[i][j];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m; j++) {
+      out[j][n - 1 - i] = matrix[i][j];
+    }
+  }
   return out;
 }
 
@@ -51,8 +57,14 @@ function spawnPiece(): Piece {
   };
 }
 
-function collides(board: Board, piece: Piece, dRow = 0, dCol = 0, shape?: number[][]): boolean {
-  const s = shape ?? piece.shape;
+function collides(
+  board: Board,
+  piece: Piece,
+  dRow = 0,
+  dCol = 0,
+  shapeOverride?: number[][],
+): boolean {
+  const s = shapeOverride ?? piece.shape;
   for (let i = 0; i < s.length; i++) {
     for (let j = 0; j < s[i].length; j++) {
       if (!s[i][j]) continue;
@@ -67,9 +79,13 @@ function collides(board: Board, piece: Piece, dRow = 0, dCol = 0, shape?: number
 
 function mergePiece(board: Board, piece: Piece): Board {
   const next = board.map((row) => row.slice());
-  for (let i = 0; i < piece.shape.length; i++)
-    for (let j = 0; j < piece.shape[i].length; j++)
-      if (piece.shape[i][j]) next[piece.row + i][piece.col + j] = 1;
+  for (let i = 0; i < piece.shape.length; i++) {
+    for (let j = 0; j < piece.shape[i].length; j++) {
+      if (piece.shape[i][j]) {
+        next[piece.row + i][piece.col + j] = 1;
+      }
+    }
+  }
   return next;
 }
 
@@ -87,7 +103,12 @@ export interface TetrisGameProps {
   onQuit: () => void;
 }
 
-export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGameProps): React.JSX.Element {
+export function TetrisGame({
+  level,
+  minigameId,
+  onComplete,
+  onQuit,
+}: TetrisGameProps): React.JSX.Element {
   const [board, setBoard] = useState<Board>(emptyBoard);
   const [piece, setPiece] = useState<Piece>(spawnPiece);
   const [lines, setLines] = useState(0);
@@ -98,19 +119,23 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
   const boardRef = useRef(board);
   const pieceRef = useRef(piece);
   const linesRef = useRef(lines);
+  const finishedRef = useRef(finished);
+
   boardRef.current = board;
   pieceRef.current = piece;
   linesRef.current = lines;
+  finishedRef.current = finished;
 
   const finish = useCallback(
     (result: 'victory' | 'defeat') => {
-      if (finished) return;
+      if (finishedRef.current) return;
+      finishedRef.current = true;
       setFinished(true);
       const durationMs = Date.now() - startedAt;
       onComplete({
         minigameId,
         levelId: level.id,
-        engine: 'tetris' as any, // 若 engine 类型不含 tetris，types/minigame.ts 也要加
+        engine: 'tetris',
         result,
         score: linesRef.current,
         maxCombo: 0,
@@ -120,17 +145,17 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
         energyCost: level.energyCost,
       });
     },
-    [finished, startedAt, minigameId, level, onComplete],
+    [startedAt, minigameId, level, onComplete],
   );
 
   const drop = useCallback(() => {
-    if (finished) return;
+    if (finishedRef.current) return;
     const cur = pieceRef.current;
     if (!collides(boardRef.current, cur, 1, 0)) {
       setPiece({ ...cur, row: cur.row + 1 });
       return;
     }
-    // 落地 → 合并 + 消行
+    // 落地
     const merged = mergePiece(boardRef.current, cur);
     const { board: cleared, cleared: n } = clearLines(merged);
     const newLines = linesRef.current + n;
@@ -146,7 +171,7 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
       return;
     }
     setPiece(next);
-  }, [finished, level.targetLines, finish]);
+  }, [level.targetLines, finish]);
 
   // 自动下落
   useEffect(() => {
@@ -171,7 +196,7 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
   }, [finished, finish]);
 
   const move = (dCol: number) => {
-    if (finished) return;
+    if (finishedRef.current) return;
     const cur = pieceRef.current;
     if (!collides(boardRef.current, cur, 0, dCol)) {
       setPiece({ ...cur, col: cur.col + dCol });
@@ -179,7 +204,7 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
   };
 
   const rotatePiece = () => {
-    if (finished) return;
+    if (finishedRef.current) return;
     const cur = pieceRef.current;
     const rotated = rotate(cur.shape);
     if (!collides(boardRef.current, cur, 0, 0, rotated)) {
@@ -188,37 +213,41 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
   };
 
   const hardDrop = () => {
-    if (finished) return;
+    if (finishedRef.current) return;
     let cur = pieceRef.current;
     while (!collides(boardRef.current, cur, 1, 0)) {
       cur = { ...cur, row: cur.row + 1 };
     }
     setPiece(cur);
-    // 下一 tick 会触发落地合并
     setTimeout(() => drop(), 0);
   };
 
-  // 渲染：board + 当前 piece
   const displayBoard = useMemo(() => {
     const b = board.map((row) => row.slice());
     if (!finished) {
-      for (let i = 0; i < piece.shape.length; i++)
+      for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
           const r = piece.row + i;
           const c = piece.col + j;
           if (r >= 0 && r < ROWS && c >= 0 && c < COLS) b[r][c] = 1;
         }
+      }
     }
     return b;
   }, [board, piece, finished]);
 
-  const pieceColor = piece.color;
-
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: 50 }}>
       {/* 顶部信息 */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          paddingHorizontal: 20,
+          marginBottom: 12,
+        }}
+      >
         <Text style={{ color: '#F8FAFC', fontSize: 15, fontWeight: '700' }}>
           消行 {lines}/{level.targetLines}
         </Text>
@@ -229,28 +258,46 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
 
       {/* 棋盘 */}
       <View style={{ alignItems: 'center' }}>
-        <View style={{
-          backgroundColor: '#1E293B', padding: 4, borderRadius: 8,
-          borderWidth: 1, borderColor: '#334155',
-        }}>
+        <View
+          style={{
+            backgroundColor: '#1E293B',
+            padding: 4,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: '#334155',
+          }}
+        >
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row' }}>
               {row.map((cell, ci) => {
-                // 判断是否是当前 piece 的格子，用于上色
                 let isPiece = false;
                 if (!finished) {
-                  for (let i = 0; i < piece.shape.length; i++)
-                    for (let j = 0; j < piece.shape[i].length; j++)
-                      if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) isPiece = true;
+                  for (let i = 0; i < piece.shape.length; i++) {
+                    for (let j = 0; j < piece.shape[i].length; j++) {
+                      if (
+                        piece.shape[i][j] &&
+                        piece.row + i === ri &&
+                        piece.col + j === ci
+                      ) {
+                        isPiece = true;
+                      }
+                    }
+                  }
                 }
-                const color = isPiece ? pieceColor : cell ? '#64748B' : 'transparent';
+                const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
                 return (
-                  <View key={ci} style={{
-                    width: 16, height: 16, margin: 1, borderRadius: 2,
-                    backgroundColor: color,
-                    borderWidth: cell || isPiece ? 1 : 0,
-                    borderColor: '#0F172A',
-                  }} />
+                  <View
+                    key={ci}
+                    style={{
+                      width: 16,
+                      height: 16,
+                      margin: 1,
+                      borderRadius: 2,
+                      backgroundColor: color,
+                      borderWidth: cell || isPiece ? 1 : 0,
+                      borderColor: '#0F172A',
+                    }}
+                  />
                 );
               })}
             </View>
@@ -259,7 +306,14 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
       </View>
 
       {/* 控制按钮 */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 20, paddingHorizontal: 20 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-evenly',
+          marginTop: 20,
+          paddingHorizontal: 20,
+        }}
+      >
         <CtrlBtn label="←" onPress={() => move(-1)} />
         <CtrlBtn label="↻" onPress={rotatePiece} />
         <CtrlBtn label="↓" onPress={hardDrop} />
@@ -267,10 +321,17 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
       </View>
 
       <View style={{ marginTop: 20, paddingHorizontal: 20 }}>
-        <Pressable onPress={onQuit} style={{
-          paddingVertical: 12, borderRadius: 12, alignItems: 'center',
-          backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444',
-        }}>
+        <Pressable
+          onPress={onQuit}
+          style={{
+            paddingVertical: 12,
+            borderRadius: 12,
+            alignItems: 'center',
+            backgroundColor: 'rgba(239,68,68,0.2)',
+            borderWidth: 1,
+            borderColor: '#EF4444',
+          }}
+        >
           <Text style={{ color: '#EF4444', fontWeight: '700' }}>退出</Text>
         </Pressable>
       </View>
@@ -280,11 +341,17 @@ export function TetrisGame({ level, minigameId, onComplete, onQuit }: TetrisGame
 
 function CtrlBtn({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({
-      width: 56, height: 56, borderRadius: 28,
-      backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
-      alignItems: 'center', justifyContent: 'center',
-    })}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
+        alignItems: 'center',
+        justifyContent: 'center',
+      })}
+    >
       <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
