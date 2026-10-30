@@ -7,10 +7,11 @@ import ErrorView from './ErrorView';
 import EmptyView from './EmptyView';
 import MemoryGame from './minigames/MemoryGame';
 import RhythmGame from './minigames/RhythmGame';
+import TetrisGame from './minigames/TetrisGame';
 import { ActionDialogueModal } from './ActionDialogueModal';
 import { useMinigameLevelsR2 as useMinigameLevels } from '@/hooks/useMinigameLevelsR2';
 import { useMinigameStore } from '@/store/useMinigameStore';
-import { isMemoryLevel, isRhythmLevel } from '@/api/githubMinigames';
+import { isMemoryLevel, isRhythmLevel, isTetrisLevel } from '@/utils/minigameGuards';
 import type { MinigameIndexEntry } from '@/types/config';
 import type { MinigameLevelConfig, MinigameOutcome } from '@/types/minigame';
 
@@ -30,7 +31,7 @@ export function MiniGameLoader({
   const abortSession = useMinigameStore((s) => s.abortSession);
   const startSession = useMinigameStore((s) => s.startSession);
 
-  // ===== 统一弹窗状态 =====
+  // ===== 统一弹窗 =====
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
@@ -57,12 +58,10 @@ export function MiniGameLoader({
     setDialogVisible(true);
   }, []);
 
-  // ===== 加载态 =====
   if (levelsQuery.isLoading) {
     return <LoadingView message="正在加载小游戏…" fullScreen />;
   }
 
-  // ===== 错误态 =====
   if (levelsQuery.isError) {
     return (
       <ErrorView
@@ -76,7 +75,6 @@ export function MiniGameLoader({
 
   const levels = levelsQuery.data ?? [];
 
-  // ===== 空态 =====
   if (levels.length === 0) {
     return (
       <EmptyView
@@ -90,7 +88,6 @@ export function MiniGameLoader({
     );
   }
 
-  // ===== 开始关卡 =====
   const handleStart = (level: MinigameLevelConfig) => {
     const ok = startSession(entry.id, level.id);
     if (!ok) {
@@ -100,19 +97,16 @@ export function MiniGameLoader({
     setActiveLevel(level);
   };
 
-  // ===== 完成关卡 =====
   const handleComplete = (outcome: MinigameOutcome) => {
     finishSession(outcome);
     setActiveLevel(null);
     onExit();
   };
 
-  // ===== 退出（第一步：弹确认） =====
   const handleQuit = () => {
     showQuitConfirm();
   };
 
-  // ===== 退出确认：确认 =====
   const handleQuitConfirm = () => {
     setDialogVisible(false);
     abortSession();
@@ -120,17 +114,14 @@ export function MiniGameLoader({
     onExit();
   };
 
-  // ===== 退出确认：继续玩 =====
   const handleQuitCancel = () => {
     setDialogVisible(false);
   };
 
-  // ===== 普通提示弹窗关闭 =====
   const handleInfoClose = () => {
     setDialogVisible(false);
   };
 
-  // ===== 统一的弹窗渲染（三处共用） =====
   const renderDialog = () => (
     <ActionDialogueModal
       visible={dialogVisible}
@@ -165,6 +156,19 @@ export function MiniGameLoader({
       return (
         <View style={{ flex: 1 }}>
           <RhythmGame
+            level={activeLevel}
+            minigameId={entry.id}
+            onComplete={handleComplete}
+            onQuit={handleQuit}
+          />
+          {renderDialog()}
+        </View>
+      );
+    }
+    if (isTetrisLevel(activeLevel)) {
+      return (
+        <View style={{ flex: 1 }}>
+          <TetrisGame
             level={activeLevel}
             minigameId={entry.id}
             onComplete={handleComplete}
