@@ -1,10 +1,11 @@
 // src/components/minigames/TetrisGame.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, Dimensions } from 'react-native'; // 🔥 引入 Dimensions
 import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 
 const COLS = 10;
 const ROWS = 20;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Cell = 0 | 1;
 type Board = Cell[][];
@@ -15,13 +16,13 @@ interface ShapeDef {
 }
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
-  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
-  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
-  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
-  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
-  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
-  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },
 ];
 
 function emptyBoard(): Board {
@@ -234,77 +235,66 @@ export function TetrisGame({
     return b;
   }, [board, piece, finished]);
 
+  const BOARD_WIDTH = (16 + 2) * COLS; // 180
+  
   return (
-    <View style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: 60 }}>
-      {/* 顶部信息：加固了字体高度 */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginBottom: 12 }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 16, lineHeight: 24, fontWeight: '700' }}>
-          消行 {lines}/{level.targetLines}
-        </Text>
-        <Text style={{ color: '#F8FAFC', fontSize: 16, lineHeight: 24, fontWeight: '700' }}>
-          ⏱ {secondsLeft}s
-        </Text>
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F172A' }}>
+      
+      {/* 顶部信息：绝对定位，放在屏幕正上方 */}
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30 }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700' }}>消行 {lines}</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
       </View>
 
-      {/* 棋盘：强制居中 */}
-      <View style={{ flex: 1, alignItems: 'center' }}>
-        <View style={{ backgroundColor: '#1E293B', padding: 4, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
-          {displayBoard.map((row, ri) => (
-            <View key={ri} style={{ flexDirection: 'row' }}>
-              {row.map((cell, ci) => {
-                let isPiece = false;
-                if (!finished) {
-                  for (let i = 0; i < piece.shape.length; i++) {
-                    for (let j = 0; j < piece.shape[i].length; j++) {
-                      if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) {
-                        isPiece = true;
-                      }
+      {/* 棋盘：绝对定位，水平居中，放置在屏幕偏上位置 */}
+      <View style={{ position: 'absolute', top: 100, left: (SCREEN_WIDTH - BOARD_WIDTH) / 2, backgroundColor: '#1E293B', padding: 4, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
+        {displayBoard.map((row, ri) => (
+          <View key={ri} style={{ flexDirection: 'row' }}>
+            {row.map((cell, ci) => {
+              let isPiece = false;
+              if (!finished) {
+                for (let i = 0; i < piece.shape.length; i++) {
+                  for (let j = 0; j < piece.shape[i].length; j++) {
+                    if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) {
+                      isPiece = true;
                     }
                   }
                 }
-                const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
-                return (
-                  <View
-                    key={ci}
-                    style={{
-                      width: 16,
-                      height: 16,
-                      margin: 1,
-                      borderRadius: 2,
-                      backgroundColor: color,
-                      borderWidth: cell || isPiece ? 1 : 0,
-                      borderColor: '#0F172A',
-                    }}
-                  />
-                );
-              })}
-            </View>
-          ))}
-        </View>
+              }
+              const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
+              return (
+                <View
+                  key={ci}
+                  style={{
+                    width: 16,
+                    height: 16,
+                    margin: 1,
+                    borderRadius: 2,
+                    backgroundColor: color,
+                    borderWidth: cell || isPiece ? 1 : 0,
+                    borderColor: '#0F172A',
+                  }}
+                />
+              );
+            })}
+          </View>
+        ))}
       </View>
 
-      {/* 控制按钮 */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', marginTop: 20, paddingHorizontal: 20 }}>
+      {/* 按钮：绝对定位，屏幕底部 */}
+      <View style={{ position: 'absolute', bottom: 80, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 20 }}>
         <CtrlBtn label="←" onPress={() => move(-1)} />
         <CtrlBtn label="↻" onPress={rotatePiece} />
         <CtrlBtn label="↓" onPress={hardDrop} />
         <CtrlBtn label="→" onPress={() => move(1)} />
       </View>
 
-      {/* 退出按钮：加固字体 */}
-      <View style={{ marginTop: 20, marginBottom: 40, paddingHorizontal: 20 }}>
+      <View style={{ position: 'absolute', bottom: 20, width: SCREEN_WIDTH, paddingHorizontal: 20 }}>
         <Pressable
           onPress={onQuit}
-          style={{
-            paddingVertical: 14,
-            borderRadius: 12,
-            alignItems: 'center',
-            backgroundColor: 'rgba(239,68,68,0.2)',
-            borderWidth: 1,
-            borderColor: '#EF4444',
-          }}
+          style={{ paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
         >
-          <Text style={{ color: '#EF4444', fontSize: 16, lineHeight: 24, fontWeight: '700' }}>退出</Text>
+          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出</Text>
         </Pressable>
       </View>
     </View>
@@ -324,7 +314,7 @@ function CtrlBtn({ label, onPress }: { label: string; onPress: () => void }) {
         justifyContent: 'center',
       })}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: 24, lineHeight: 32, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }
