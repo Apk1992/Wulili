@@ -25,7 +25,7 @@ interface MinigameStore {
   activeLevelId: string | null;
 
   hydrate: () => Promise<void>;
-  startSession: (minigameId: string, levelId: string) => boolean;
+  startSession: (minigameId: string, levelId: string, energyCost?: number) => boolean;
   finishSession: (outcome: MinigameOutcome) => void;
   abortSession: () => void;
   getStat: (minigameId: string, levelId: string) => MinigameStatEntry | null;
@@ -58,11 +58,17 @@ export const useMinigameStore = create<MinigameStore>((set, get) => ({
     return energy >= energyCost;
   },
 
-  startSession: (minigameId, levelId) => {
+// 实现
+  startSession: (minigameId, levelId, energyCost) => {
     const cfg = useAppConfigStore.getState();
     const entry = cfg.getMinigameById(minigameId);
-    if (!entry) return false;
-    if (!get().canPlay(entry.energyCost)) return false;
+
+  // R2 index 来的 entry 可能不在 config.minigames 里
+  // 优先用调用方传的 energyCost（来自 levels.json）
+    const cost = energyCost ?? entry?.energyCost ?? 10;
+
+    if (!get().canPlay(cost)) return false;
+
     set({
       isPlaying: true,
       activeMinigameId: minigameId,
