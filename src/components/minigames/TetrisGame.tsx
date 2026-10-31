@@ -238,14 +238,15 @@ export function TetrisGame({
   }, [board, piece, finished]);
 
   return (
-    // 🔥 终极修复：绝对定位铺满，无视父容器高度限制
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F172A', paddingTop: 60 }}>
-      {/* 顶部信息 */}
+    // 🔥 回归标准的 flex: 1 布局，不用 absolute 了
+    <View style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: 50, alignItems: 'center' }}>
+      
+      {/* 顶部信息栏，限制宽度为棋盘的宽度 */}
       <View
         style={{
           flexDirection: 'row',
           justifyContent: 'space-between',
-          paddingHorizontal: 20,
+          width: (16 + 2) * COLS + 10, 
           marginBottom: 12,
         }}
       >
@@ -258,52 +259,50 @@ export function TetrisGame({
       </View>
 
       {/* 棋盘 */}
-      <View style={{ alignItems: 'center' }}>
-        <View
-          style={{
-            backgroundColor: '#1E293B',
-            padding: 4,
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: '#334155',
-          }}
-        >
-          {displayBoard.map((row, ri) => (
-            <View key={ri} style={{ flexDirection: 'row' }}>
-              {row.map((cell, ci) => {
-                let isPiece = false;
-                if (!finished) {
-                  for (let i = 0; i < piece.shape.length; i++) {
-                    for (let j = 0; j < piece.shape[i].length; j++) {
-                      if (
-                        piece.shape[i][j] &&
-                        piece.row + i === ri &&
-                        piece.col + j === ci
-                      ) {
-                        isPiece = true;
-                      }
+      <View
+        style={{
+          backgroundColor: '#1E293B',
+          padding: 4,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: '#334155',
+        }}
+      >
+        {displayBoard.map((row, ri) => (
+          <View key={ri} style={{ flexDirection: 'row' }}>
+            {row.map((cell, ci) => {
+              let isPiece = false;
+              if (!finished) {
+                for (let i = 0; i < piece.shape.length; i++) {
+                  for (let j = 0; j < piece.shape[i].length; j++) {
+                    if (
+                      piece.shape[i][j] &&
+                      piece.row + i === ri &&
+                      piece.col + j === ci
+                    ) {
+                      isPiece = true;
                     }
                   }
                 }
-                const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
-                return (
-                  <View
-                    key={ci}
-                    style={{
-                      width: 16,
-                      height: 16,
-                      margin: 1,
-                      borderRadius: 2,
-                      backgroundColor: color,
-                      borderWidth: cell || isPiece ? 1 : 0,
-                      borderColor: '#0F172A',
-                    }}
-                  />
-                );
-              })}
-            </View>
-          ))}
-        </View>
+              }
+              const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
+              return (
+                <View
+                  key={ci}
+                  style={{
+                    width: 16,
+                    height: 16,
+                    margin: 1,
+                    borderRadius: 2,
+                    backgroundColor: color,
+                    borderWidth: cell || isPiece ? 1 : 0,
+                    borderColor: '#0F172A',
+                  }}
+                />
+              );
+            })}
+          </View>
+        ))}
       </View>
 
       {/* 控制按钮 */}
@@ -311,6 +310,7 @@ export function TetrisGame({
         style={{
           flexDirection: 'row',
           justifyContent: 'space-evenly',
+          width: '100%',
           marginTop: 20,
           paddingHorizontal: 20,
         }}
@@ -321,7 +321,7 @@ export function TetrisGame({
         <CtrlBtn label="→" onPress={() => move(1)} />
       </View>
 
-      <View style={{ marginTop: 20, paddingHorizontal: 20 }}>
+      <View style={{ marginTop: 20, paddingHorizontal: 20, width: '100%' }}>
         <Pressable
           onPress={onQuit}
           style={{
