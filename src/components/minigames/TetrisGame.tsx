@@ -238,7 +238,8 @@ export function TetrisGame({
   }, [board, piece, finished]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: 50 }}>
+    // 🔥 终极修复：绝对定位铺满，无视父容器高度限制
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F172A', paddingTop: 60 }}>
       {/* 顶部信息 */}
       <View
         style={{
