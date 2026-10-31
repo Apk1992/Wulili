@@ -167,14 +167,20 @@ export function MiniGameLoader({
     }
     if (isTetrisLevel(activeLevel)) {
       return (
-        <View style={{ flex: 1 }}>
-          <TetrisGame
-            level={activeLevel}
-            minigameId={entry.id}
-            onComplete={handleComplete}
-            onQuit={handleQuit}
-          />
-          {renderDialog()}
+        <View style={{ flex: 1, backgroundColor: '#0F172A', padding: 20, justifyContent: 'center' }}>
+          <Text style={{ color: '#38BDF8', fontSize: 24, fontWeight: 'bold', textAlign: 'center' }}>
+            Tetris 拦截成功！
+          </Text>
+          <Text style={{ color: '#FFF', fontSize: 14, textAlign: 'center', marginTop: 10 }}>
+            关卡名称: {activeLevel.title}
+          </Text>
+          <Text style={{ color: '#FFF', fontSize: 14, textAlign: 'center' }}>
+            目标消行: {activeLevel.targetLines}
+          </Text>
+      
+          <View style={{ marginTop: 40 }}>
+            <Button label="退出测试" variant="primary" onPress={() => setActiveLevel(null)} />
+          </View>
         </View>
       );
     }
