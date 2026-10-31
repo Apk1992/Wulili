@@ -1,5 +1,6 @@
 // src/hooks/useMinigameLevelsR2.ts
 import { useCallback, useEffect, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MinigameIndexEntry } from '@/types/config';
 import type { MinigameLevelConfig } from '@/types/minigame';
 import { fetchMinigameLevels } from '@/services/minigameService';
@@ -12,9 +13,6 @@ export interface UseMinigameLevelsR2Result {
   refetch: () => void;
 }
 
-/**
- * R2 版小游戏关卡加载 hook（替代 useGitHubMinigames.useMinigameLevels）
- */
 export function useMinigameLevelsR2(
   entry: MinigameIndexEntry | null,
   enabled: boolean = true,
@@ -41,6 +39,13 @@ export function useMinigameLevelsR2(
     setIsError(false);
 
     (async () => {
+      // 🔥 强制清空一次小游戏关卡缓存，确保拉到最新 JSON
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const mgKeys = keys.filter(k => k.startsWith('@wulili/minigame/levels_v1_'));
+        if (mgKeys.length > 0) await AsyncStorage.multiRemove(mgKeys);
+      } catch {}
+
       const result = await fetchMinigameLevels(entry);
       if (cancelled || !mountedRef.current) return;
 
