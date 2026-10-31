@@ -138,9 +138,10 @@ export function MiniGameLoader({
 
   // ===== 渲染当前关卡 =====
   if (activeLevel) {
-    if (isMemoryLevel(activeLevel)) {
-      return (
-        <View style={{ flex: 1 }}>
+    // 🔥 包裹一个纯 View 撑满
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+        {isMemoryLevel(activeLevel) && (
           <MemoryGame
             level={activeLevel}
             minigameId={entry.id}
@@ -148,56 +149,40 @@ export function MiniGameLoader({
             onComplete={handleComplete}
             onQuit={handleQuit}
           />
-          {renderDialog()}
-        </View>
-      );
-    }
-    if (isRhythmLevel(activeLevel)) {
-      return (
-        <View style={{ flex: 1 }}>
+        )}
+        {isRhythmLevel(activeLevel) && (
           <RhythmGame
             level={activeLevel}
             minigameId={entry.id}
             onComplete={handleComplete}
             onQuit={handleQuit}
           />
-          {renderDialog()}
-        </View>
-      );
-    }
-    if (isTetrisLevel(activeLevel)) {
-      return (
-        <View style={{ flex: 1, backgroundColor: '#0F172A', padding: 20, justifyContent: 'center' }}>
-          <Text style={{ color: '#38BDF8', fontSize: 24, fontWeight: 'bold', textAlign: 'center' }}>
-            Tetris 拦截成功！
-          </Text>
-          <Text style={{ color: '#FFF', fontSize: 14, textAlign: 'center', marginTop: 10 }}>
-            关卡名称: {activeLevel.title}
-          </Text>
-          <Text style={{ color: '#FFF', fontSize: 14, textAlign: 'center' }}>
-            目标消行: {activeLevel.targetLines}
-          </Text>
-      
-          <View style={{ marginTop: 40 }}>
-            <Button label="退出测试" variant="primary" onPress={() => setActiveLevel(null)} />
+        )}
+        {isTetrisLevel(activeLevel) && (
+          <TetrisGame
+            level={activeLevel}
+            minigameId={entry.id}
+            onComplete={handleComplete}
+            onQuit={handleQuit}
+          />
+        )}
+        {/* 如果一个都没匹配上，兜底显示 */}
+        {!isMemoryLevel(activeLevel) && !isRhythmLevel(activeLevel) && !isTetrisLevel(activeLevel) && (
+          <View style={{ flex: 1, padding: 20, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ color: '#FFF', fontSize: 16 }}>关卡识别失败</Text>
+            <View style={{ marginTop: 20 }}>
+              <Button label="返回" variant="primary" onPress={() => setActiveLevel(null)} />
+            </View>
           </View>
-        </View>
-      );
-    }
-    return (
-      <EmptyView
-        title="暂不支持"
-        message="这个关卡类型尚未支持"
-        actionLabel="返回"
-        onAction={onExit}
-        fullScreen
-      />
+        )}
+        {renderDialog()}
+      </View>
     );
   }
 
   // ===== 关卡选择列表 =====
   return (
-    <View className="flex-1">
+    <View className="flex-1 p-4 bg-background dark:bg-dark-background">
       <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
         选择关卡
       </Text>
