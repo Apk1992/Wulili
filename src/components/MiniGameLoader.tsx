@@ -138,9 +138,8 @@ export function MiniGameLoader({
 
   // ===== 渲染当前关卡 =====
   if (activeLevel) {
-    // 🔥 包裹一个纯 View 撑满
     return (
-      <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+      <View style={{ flex: 1 }}>
         {isMemoryLevel(activeLevel) && (
           <MemoryGame
             level={activeLevel}
@@ -166,7 +165,7 @@ export function MiniGameLoader({
             onQuit={handleQuit}
           />
         )}
-        {/* 如果一个都没匹配上，兜底显示 */}
+        {/* 兜底防白屏 */}
         {!isMemoryLevel(activeLevel) && !isRhythmLevel(activeLevel) && !isTetrisLevel(activeLevel) && (
           <View style={{ flex: 1, padding: 20, justifyContent: 'center', alignItems: 'center' }}>
             <Text style={{ color: '#FFF', fontSize: 16 }}>关卡识别失败</Text>
@@ -182,8 +181,8 @@ export function MiniGameLoader({
 
   // ===== 关卡选择列表 =====
   return (
-    <View className="flex-1 p-4 bg-background dark:bg-dark-background">
-      <Text className="text-base font-semibold text-text dark:text-dark-text mb-3">
+    <View className="flex-1 p-4" style={{ backgroundColor: '#0F172A' }}>
+      <Text className="text-base font-semibold text-white mb-3">
         选择关卡
       </Text>
       {levels.map((level) => (
