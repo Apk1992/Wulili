@@ -127,10 +127,11 @@ export function EntertainScreen({ navigation }: Props): React.JSX.Element {
 
   // ===== 全屏进入小游戏 =====
   if (activeGame) {
+    // 🔥 修复：抛弃 ScreenContainer，用纯 View 撑满全屏
     return (
-      <ScreenContainer edges={['bottom']}>
+      <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
         <MiniGameLoader entry={activeGame} onExit={handleExitGame} />
-      </ScreenContainer>
+      </View>
     );
   }
 
