@@ -89,7 +89,7 @@ export function MiniGameLoader({
   }
 
   const handleStart = (level: MinigameLevelConfig) => {
-    const ok = startSession(entry.id, level.id);
+    const ok = startSession(entry.id, level.id, level.energyCost);
     if (!ok) {
       showDialog('雾璃现在太累了，先让她休息一下吧。', 'battery-half');
       return;
