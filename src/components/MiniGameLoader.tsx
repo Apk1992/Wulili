@@ -2,7 +2,6 @@
 import React, { useState, useCallback } from 'react';
 import { Text, View, Pressable } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import Button from './Button';
 import LoadingView from './LoadingView';
 import ErrorView from './ErrorView';
 import EmptyView from './EmptyView';
@@ -113,7 +112,7 @@ export function MiniGameLoader({
         <Pressable onPress={onExit} style={{ padding: 8, marginLeft: -8 }}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
-        <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginLeft: 8 }}>
+        <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '700', marginLeft: 8, lineHeight: 28 }}>
           {entry.name} - 选择关卡
         </Text>
       </View>
@@ -125,22 +124,24 @@ export function MiniGameLoader({
             key={level.id}
             onPress={() => handleStart(level)}
             style={({ pressed }) => ({
-              backgroundColor: pressed ? '#334155' : '#1E293B',
+              // 🔥 强制覆盖全局背景色，不再变成蓝色药丸
+              backgroundColor: pressed ? 'rgba(51, 65, 85, 0.8)' : 'rgba(30, 41, 59, 0.8)', 
               padding: 16,
               borderRadius: 16,
               marginBottom: 12,
               borderWidth: 1,
-              borderColor: '#334155',
+              borderColor: pressed ? '#475569' : '#334155',
               flexDirection: 'row',
               alignItems: 'center',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              minHeight: 80, // 🔥 强制给高度，防止文字塌陷
             })}
           >
             <View style={{ flex: 1 }}>
-              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700', marginBottom: 4, lineHeight: 22 }}>
                 {level.title}
               </Text>
-              <Text style={{ color: '#94A3B8', fontSize: 13 }}>
+              <Text style={{ color: '#94A3B8', fontSize: 13, lineHeight: 18 }}>
                 {level.description}
               </Text>
             </View>
