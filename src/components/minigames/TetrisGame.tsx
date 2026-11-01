@@ -1,12 +1,10 @@
 // src/components/minigames/TetrisGame.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View, Dimensions } from 'react-native';
+import { Pressable, Text, View, Dimensions, PanResponder } from 'react-native';
 import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 
 const COLS = 10;
 const ROWS = 20;
-const CELL_SIZE = 20; // 🔥 格子放大到 20
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Cell = 0 | 1;
 type Board = Cell[][];
@@ -194,24 +192,24 @@ export function TetrisGame({
     return () => clearInterval(id);
   }, [finished, finish]);
 
-  const move = (dCol: number) => {
+  const move = useCallback((dCol: number) => {
     if (finishedRef.current) return;
     const cur = pieceRef.current;
     if (!collides(boardRef.current, cur, 0, dCol)) {
       setPiece({ ...cur, col: cur.col + dCol });
     }
-  };
+  }, []);
 
-  const rotatePiece = () => {
+  const rotatePiece = useCallback(() => {
     if (finishedRef.current) return;
     const cur = pieceRef.current;
     const rotated = rotate(cur.shape);
     if (!collides(boardRef.current, cur, 0, 0, rotated)) {
       setPiece({ ...cur, shape: rotated });
     }
-  };
+  }, []);
 
-  const hardDrop = () => {
+  const hardDrop = useCallback(() => {
     if (finishedRef.current) return;
     let cur = pieceRef.current;
     while (!collides(boardRef.current, cur, 1, 0)) {
@@ -219,7 +217,37 @@ export function TetrisGame({
     }
     setPiece(cur);
     setTimeout(() => drop(), 0);
-  };
+  }, [drop]);
+
+  // 🔥 手势控制 (PanResponder)
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // 只有滑动距离超过一定阈值才拦截
+        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        const { dx, dy } = gestureState;
+        const swipeThreshold = 30; // 滑动阈值
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          // 水平滑动
+          if (dx > swipeThreshold) move(1); // 右滑
+          else if (dx < -swipeThreshold) move(-1); // 左滑
+        } else {
+          // 垂直滑动
+          if (dy > swipeThreshold) hardDrop(); // 下滑
+          else if (dy < -swipeThreshold) rotatePiece(); // 上滑也可以旋转
+        }
+
+        // 如果滑动距离很小，视为点击（Tap）
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+          rotatePiece();
+        }
+      },
+    })
+  ).current;
 
   const displayBoard = useMemo(() => {
     const b = board.map((row) => row.slice());
@@ -236,89 +264,96 @@ export function TetrisGame({
     return b;
   }, [board, piece, finished]);
 
-  const BOARD_WIDTH = (CELL_SIZE + 2) * COLS;
-  const boardLeft = (SCREEN_WIDTH - BOARD_WIDTH) / 2;
+  // 🔥 响应式计算格子大小
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+  const TOP_UI_HEIGHT = 100; // 顶部留白
+  const BOTTOM_UI_HEIGHT = 60; // 底部留白（放退出按钮）
+  
+  // 计算可用高度
+  const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
+  // 根据宽高比算出最合适的格子大小
+  const CELL_SIZE = Math.floor(Math.min(SCREEN_WIDTH / COLS, availableHeight / ROWS) * 0.95);
+  
+  const BOARD_WIDTH = CELL_SIZE * COLS;
+  const BOARD_HEIGHT = CELL_SIZE * ROWS;
 
   return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F172A' }}>
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       
       {/* 顶部信息栏 */}
-      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30 }}>
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
       </View>
 
-      {/* 棋盘 */}
-      <View style={{ position: 'absolute', top: 100, left: boardLeft, backgroundColor: '#1E293B', padding: 4, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
-        {displayBoard.map((row, ri) => (
-          <View key={ri} style={{ flexDirection: 'row' }}>
-            {row.map((cell, ci) => {
-              let isPiece = false;
-              if (!finished) {
-                for (let i = 0; i < piece.shape.length; i++) {
-                  for (let j = 0; j < piece.shape[i].length; j++) {
-                    if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) {
-                      isPiece = true;
+      {/* 游戏操作区（铺满全屏，用于接收手势） */}
+      <View 
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}
+        {...panResponder.panHandlers}
+      >
+        {/* 棋盘背景 */}
+        <View style={{ 
+          width: BOARD_WIDTH, 
+          height: BOARD_HEIGHT, 
+          backgroundColor: '#1E293B', 
+          borderWidth: 1, 
+          borderColor: '#334155',
+          position: 'relative'
+        }}>
+          
+          {/* 🔥 画底层网格 */}
+          {Array.from({ length: ROWS }).map((_, r) => (
+            <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
+          ))}
+          {Array.from({ length: COLS }).map((_, c) => (
+            <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
+          ))}
+
+          {/* 🔥 渲染方块 */}
+          {displayBoard.map((row, ri) => (
+            <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
+              {row.map((cell, ci) => {
+                let isPiece = false;
+                if (!finished) {
+                  for (let i = 0; i < piece.shape.length; i++) {
+                    for (let j = 0; j < piece.shape[i].length; j++) {
+                      if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) {
+                        isPiece = true;
+                      }
                     }
                   }
                 }
-              }
-              const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
-              return (
-                <View
-                  key={ci}
-                  style={{
-                    width: CELL_SIZE,
-                    height: CELL_SIZE,
-                    margin: 1,
-                    borderRadius: 2,
-                    backgroundColor: color,
-                    borderWidth: cell || isPiece ? 1 : 0,
-                    borderColor: '#0F172A',
-                  }}
-                />
-              );
-            })}
-          </View>
-        ))}
+                const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
+                return (
+                  <View
+                    key={ci}
+                    style={{
+                      position: 'absolute',
+                      left: ci * CELL_SIZE,
+                      width: CELL_SIZE,
+                      height: CELL_SIZE,
+                      backgroundColor: color,
+                      borderWidth: cell || isPiece ? 1 : 0,
+                      borderColor: '#1E293B', // 方块间隙
+                    }}
+                  />
+                );
+              })}
+            </View>
+          ))}
+        </View>
       </View>
 
-      {/* 控制按钮：放在棋盘正下方，固定高度防压缩 */}
-      <View style={{ position: 'absolute', top: 100 + (CELL_SIZE + 2) * ROWS + 20, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 10 }}>
-        <CtrlBtn label="←" onPress={() => move(-1)} />
-        <CtrlBtn label="↻" onPress={rotatePiece} />
-        <CtrlBtn label="↓" onPress={hardDrop} />
-        <CtrlBtn label="→" onPress={() => move(1)} />
-      </View>
-
-      {/* 退出按钮 */}
-      <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 20 }}>
+      {/* 底部退出按钮 */}
+      <View style={{ position: 'absolute', bottom: 20, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
         <Pressable
           onPress={onQuit}
-          style={{ paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
+          style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
         >
           <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出游戏</Text>
         </Pressable>
       </View>
     </View>
-  );
-}
-
-function CtrlBtn({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        width: 65,
-        height: 65,
-        borderRadius: 32.5,
-        backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
-        alignItems: 'center',
-        justifyContent: 'center',
-      })}
-    >
-      <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{label}</Text>
-    </Pressable>
   );
 }
 
