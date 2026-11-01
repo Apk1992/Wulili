@@ -6,7 +6,7 @@ import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 const COLS = 10;
 const ROWS = 20;
 
-type Cell = 0 | 1;
+type Cell = 0 | 1 | 2; // 1 = 固定方块, 2 = 影子
 type Board = Cell[][];
 
 interface ShapeDef {
@@ -71,7 +71,7 @@ function collides(
       const r = piece.row + i + dRow;
       const c = piece.col + j + dCol;
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
-      if (board[r][c]) return true;
+      if (board[r][c] === 1) return true; // 只和固定方块碰撞
     }
   }
   return false;
@@ -90,7 +90,7 @@ function mergePiece(board: Board, piece: Piece): Board {
 }
 
 function clearLines(board: Board): { board: Board; cleared: number } {
-  const kept = board.filter((row) => row.some((c) => c === 0));
+  const kept = board.filter((row) => row.some((c) => c === 0 || c === 2)); // 影子不算满
   const cleared = ROWS - kept.length;
   const emptyRows = Array.from({ length: cleared }, () => Array<Cell>(COLS).fill(0));
   return { board: [...emptyRows, ...kept], cleared };
@@ -219,65 +219,92 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 🔥 手势控制 (PanResponder) - 优化版
-  const lastMoveX = useRef(0);
+  // 🔥 手势控制 (PanResponder) - 完美防冲突版
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        // 每次触摸开始时，重置基准
+        gestureState.current = {
+          lastDx: 0,
+          hasMoved: false,
+          lockedAxis: null,
+          lastMoveTime: 0,
+        };
       },
       onPanResponderMove: (evt, gestureState) => {
-        // 灵敏度：每滑动 20 像素移动一格（可自行调整）
-        const MOVE_THRESHOLD = 20; 
-        const { dx } = gestureState;
+        const state = gestureState.current;
+        const { dx, dy } = gestureState;
+        const now = Date.now();
 
-        // 如果水平滑动超过了阈值
-        if (Math.abs(dx) > MOVE_THRESHOLD) {
-          const steps = Math.floor(Math.abs(dx) / MOVE_THRESHOLD);
-          const direction = dx > 0 ? 1 : -1;
-          const targetCol = pieceRef.current.col + direction * steps;
-          
-          // 避免无限连发，计算实际能移动几格
-          let moved = 0;
-          for (let i = 0; i < steps; i++) {
-            if (!collides(boardRef.current, pieceRef.current, 0, direction)) {
-              // 这里需要直接修改 piece 状态，但因为在手势里不触发重渲染太频繁
-              // 改用一次性移动多格的方法
+        // 1. 判断主导轴（锁定轴）
+        if (!state.lockedAxis) {
+          if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+            if (Math.abs(dx) > Math.abs(dy)) {
+              state.lockedAxis = 'horizontal';
+            } else {
+              state.lockedAxis = 'vertical';
             }
           }
-          
-          // 直接根据当前计算出的移动距离，算出目标位置并应用
-          const cur = pieceRef.current;
-          let finalCol = cur.col;
-          for (let i = 0; i < steps; i++) {
-            if (!collides(boardRef.current, { ...cur, col: finalCol + direction }, 0, 0)) {
-              finalCol += direction;
-            }
+        }
+
+        // 2. 如果锁定了垂直滑动
+        if (state.lockedAxis === 'vertical') {
+          if (dy > 30 && !state.hasMoved) {
+            // 下滑硬降（只触发一次）
+            hardDrop();
+            state.hasMoved = true;
           }
-          if (finalCol !== cur.col) {
-            setPiece({ ...cur, col: finalCol });
-            // 重置滑动基准，避免一次滑得太远直接飞到边缘
-            gestureState.dx = 0; 
+          return; // 垂直滑动时，直接 return，绝不处理左右移动
+        }
+
+        // 3. 如果锁定了水平滑动
+        if (state.lockedAxis === 'horizontal') {
+          const MOVE_THRESHOLD = 25; // 每滑动 25 像素移动一格
+          const diff = dx - state.lastDx;
+          
+          if (Math.abs(diff) >= MOVE_THRESHOLD) {
+            const steps = Math.floor(Math.abs(diff) / MOVE_THRESHOLD);
+            const direction = diff > 0 ? 1 : -1;
+            
+            // 执行连续移动
+            let cur = pieceRef.current;
+            let moved = false;
+            for (let i = 0; i < steps; i++) {
+              if (!collides(boardRef.current, cur, 0, direction)) {
+                cur = { ...cur, col: cur.col + direction };
+                moved = true;
+              } else {
+                break; // 撞墙就停止
+              }
+            }
+            if (moved) {
+              setPiece(cur);
+              state.hasMoved = true;
+              // 重置基准，防止一次滑太远
+              state.lastDx = dx - (diff % MOVE_THRESHOLD) * direction; 
+            }
           }
         }
       },
       onPanResponderRelease: (evt, gestureState) => {
-        const { dx, dy } = gestureState;
-
-        // 如果滑动距离非常小，视为点击（旋转）
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+        const state = gestureState.current;
+        // 如果整个触摸过程中没有产生有效滑动（也就是单纯的点击），触发旋转
+        if (!state.hasMoved && Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
           rotatePiece();
-          return;
-        }
-
-        // 如果竖直滑动很大（向下），视为硬降
-        if (dy > 50 && Math.abs(dy) > Math.abs(dx)) {
-          hardDrop();
         }
       },
     })
   ).current;
+
+  // 维护手势的内部状态（避免频繁触发 React 渲染）
+  const gestureState = useRef({
+    lastDx: 0,
+    hasMoved: false,
+    lockedAxis: null as 'horizontal' | 'vertical' | null,
+    lastMoveTime: 0,
+  });
 
   // 🔥 计算方块落底的影子位置
   const shadowRow = useMemo(() => {
@@ -299,14 +326,13 @@ export function TetrisGame({
           const r = shadowRow + i;
           const c = piece.col + j;
           if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-             // 只有当影子的位置不是当前方块的位置时，才显示影子
              if (r !== piece.row + i) {
-               b[r][c] = 2 as any; 
+               b[r][c] = 2; 
              }
           }
         }
       }
-      // 2. 再画当前方块（用 1 代表当前方块）
+      // 2. 再画当前方块
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
@@ -319,7 +345,6 @@ export function TetrisGame({
     return b;
   }, [board, piece, finished, shadowRow]);
 
-  // 🔥 响应式计算格子大小
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const TOP_UI_HEIGHT = 100;
   const BOTTOM_UI_HEIGHT = 60;
@@ -332,19 +357,15 @@ export function TetrisGame({
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      
-      {/* 顶部信息栏 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
       </View>
 
-      {/* 游戏操作区（铺满全屏，用于接收手势） */}
       <View 
         style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}
         {...panResponder.panHandlers}
       >
-        {/* 棋盘背景 */}
         <View style={{ 
           width: BOARD_WIDTH, 
           height: BOARD_HEIGHT, 
@@ -353,8 +374,7 @@ export function TetrisGame({
           borderColor: '#334155',
           position: 'relative'
         }}>
-          
-          {/* 🔥 画底层网格 */}
+          {/* 网格 */}
           {Array.from({ length: ROWS }).map((_, r) => (
             <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
@@ -362,11 +382,10 @@ export function TetrisGame({
             <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
 
-          {/* 🔥 渲染方块（包含影子和当前方块） */}
+          {/* 方块渲染 */}
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
               {row.map((cell, ci) => {
-                // 判断是否是当前方块
                 let isPiece = false;
                 if (!finished) {
                   for (let i = 0; i < piece.shape.length; i++) {
@@ -378,18 +397,15 @@ export function TetrisGame({
                   }
                 }
                 
-                // 决定颜色
                 let color = 'transparent';
                 let isGhost = false;
 
                 if (isPiece) {
                   color = piece.color;
                 } else if (cell === 2) {
-                  // 🔥 影子方块特殊样式
                   isGhost = true;
-                  color = 'rgba(255,255,255,0.1)'; // 半透明白色影子
+                  color = 'rgba(255,255,255,0.1)';
                 } else if (cell === 1) {
-                  // 已经固定的方块
                   color = '#64748B';
                 }
 
@@ -403,7 +419,7 @@ export function TetrisGame({
                       height: CELL_SIZE,
                       backgroundColor: color,
                       borderWidth: (cell === 1 || isPiece) ? 1 : (isGhost ? 1 : 0),
-                      borderColor: isGhost ? 'rgba(255,255,255,0.3)' : '#1E293B', // 影子的边框稍微亮一点
+                      borderColor: isGhost ? 'rgba(255,255,255,0.3)' : '#1E293B',
                     }}
                   />
                 );
@@ -413,7 +429,6 @@ export function TetrisGame({
         </View>
       </View>
 
-      {/* 底部退出按钮 */}
       <View style={{ position: 'absolute', bottom: 20, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
         <Pressable
           onPress={onQuit}
