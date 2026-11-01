@@ -15,13 +15,13 @@ interface ShapeDef {
 }
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
-  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
-  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
-  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
-  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
-  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
-  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },
 ];
 
 function emptyBoard(): Board {
@@ -71,7 +71,7 @@ function collides(
       const r = piece.row + i + dRow;
       const c = piece.col + j + dCol;
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
-      if (board[r][c] === 1) return true; // 只和固定方块碰撞
+      if (board[r][c] === 1) return true;
     }
   }
   return false;
@@ -90,7 +90,7 @@ function mergePiece(board: Board, piece: Piece): Board {
 }
 
 function clearLines(board: Board): { board: Board; cleared: number } {
-  const kept = board.filter((row) => row.some((c) => c === 0 || c === 2)); // 影子不算满
+  const kept = board.filter((row) => row.some((c) => c === 0 || c === 2));
   const cleared = ROWS - kept.length;
   const emptyRows = Array.from({ length: cleared }, () => Array<Cell>(COLS).fill(0));
   return { board: [...emptyRows, ...kept], cleared };
@@ -219,56 +219,53 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 🔥 手势控制 (PanResponder) - 完美防冲突版
+  // 🔥 修复：把内部状态移到 PanResponder 上方
+  const gestureState = useRef({
+    lastDx: 0,
+    hasMoved: false,
+    lockedAxis: null as 'horizontal' | 'vertical' | null,
+  });
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        // 每次触摸开始时，重置基准
         gestureState.current = {
           lastDx: 0,
           hasMoved: false,
           lockedAxis: null,
-          lastMoveTime: 0,
         };
       },
-      onPanResponderMove: (evt, gestureState) => {
-        const state = gestureState.current;
-        const { dx, dy } = gestureState;
-        const now = Date.now();
+      onPanResponderMove: (evt, gestureStateNative) => {
+        const state = gestureState.current; // 现在这里安全了
+        const { dx, dy } = gestureStateNative;
 
-        // 1. 判断主导轴（锁定轴）
+        // 1. 判断主导轴
         if (!state.lockedAxis) {
           if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-            if (Math.abs(dx) > Math.abs(dy)) {
-              state.lockedAxis = 'horizontal';
-            } else {
-              state.lockedAxis = 'vertical';
-            }
+            state.lockedAxis = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
           }
         }
 
-        // 2. 如果锁定了垂直滑动
+        // 2. 垂直滑动（硬降）
         if (state.lockedAxis === 'vertical') {
           if (dy > 30 && !state.hasMoved) {
-            // 下滑硬降（只触发一次）
             hardDrop();
             state.hasMoved = true;
           }
-          return; // 垂直滑动时，直接 return，绝不处理左右移动
+          return;
         }
 
-        // 3. 如果锁定了水平滑动
+        // 3. 水平滑动
         if (state.lockedAxis === 'horizontal') {
-          const MOVE_THRESHOLD = 25; // 每滑动 25 像素移动一格
+          const MOVE_THRESHOLD = 25;
           const diff = dx - state.lastDx;
           
           if (Math.abs(diff) >= MOVE_THRESHOLD) {
             const steps = Math.floor(Math.abs(diff) / MOVE_THRESHOLD);
             const direction = diff > 0 ? 1 : -1;
             
-            // 执行连续移动
             let cur = pieceRef.current;
             let moved = false;
             for (let i = 0; i < steps; i++) {
@@ -276,37 +273,28 @@ export function TetrisGame({
                 cur = { ...cur, col: cur.col + direction };
                 moved = true;
               } else {
-                break; // 撞墙就停止
+                break;
               }
             }
             if (moved) {
               setPiece(cur);
               state.hasMoved = true;
-              // 重置基准，防止一次滑太远
-              state.lastDx = dx - (diff % MOVE_THRESHOLD) * direction; 
+              state.lastDx = dx - (diff % MOVE_THRESHOLD) * direction;
             }
           }
         }
       },
-      onPanResponderRelease: (evt, gestureState) => {
+      onPanResponderRelease: (evt, gestureStateNative) => {
         const state = gestureState.current;
-        // 如果整个触摸过程中没有产生有效滑动（也就是单纯的点击），触发旋转
-        if (!state.hasMoved && Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+        // 如果完全没滑动过且位移极小，视为点击旋转
+        if (!state.hasMoved && Math.abs(gestureStateNative.dx) < 10 && Math.abs(gestureStateNative.dy) < 10) {
           rotatePiece();
         }
       },
     })
   ).current;
 
-  // 维护手势的内部状态（避免频繁触发 React 渲染）
-  const gestureState = useRef({
-    lastDx: 0,
-    hasMoved: false,
-    lockedAxis: null as 'horizontal' | 'vertical' | null,
-    lastMoveTime: 0,
-  });
-
-  // 🔥 计算方块落底的影子位置
+  // 计算影子
   const shadowRow = useMemo(() => {
     if (finished) return piece.row;
     let testRow = piece.row;
@@ -319,20 +307,18 @@ export function TetrisGame({
   const displayBoard = useMemo(() => {
     const b = board.map((row) => row.slice());
     if (!finished) {
-      // 1. 先画影子（用 2 代表影子）
+      // 画影子
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
           const r = shadowRow + i;
           const c = piece.col + j;
           if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-             if (r !== piece.row + i) {
-               b[r][c] = 2; 
-             }
+             if (r !== piece.row + i) b[r][c] = 2;
           }
         }
       }
-      // 2. 再画当前方块
+      // 画当前
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
@@ -374,7 +360,6 @@ export function TetrisGame({
           borderColor: '#334155',
           position: 'relative'
         }}>
-          {/* 网格 */}
           {Array.from({ length: ROWS }).map((_, r) => (
             <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
@@ -382,7 +367,6 @@ export function TetrisGame({
             <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
 
-          {/* 方块渲染 */}
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
               {row.map((cell, ci) => {
