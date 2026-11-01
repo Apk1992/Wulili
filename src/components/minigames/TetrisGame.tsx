@@ -219,39 +219,94 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 🔥 手势控制 (PanResponder)
+  // 🔥 手势控制 (PanResponder) - 优化版
+  const lastMoveX = useRef(0);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // 只有滑动距离超过一定阈值才拦截
-        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
+        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // 灵敏度：每滑动 20 像素移动一格（可自行调整）
+        const MOVE_THRESHOLD = 20; 
+        const { dx } = gestureState;
+
+        // 如果水平滑动超过了阈值
+        if (Math.abs(dx) > MOVE_THRESHOLD) {
+          const steps = Math.floor(Math.abs(dx) / MOVE_THRESHOLD);
+          const direction = dx > 0 ? 1 : -1;
+          const targetCol = pieceRef.current.col + direction * steps;
+          
+          // 避免无限连发，计算实际能移动几格
+          let moved = 0;
+          for (let i = 0; i < steps; i++) {
+            if (!collides(boardRef.current, pieceRef.current, 0, direction)) {
+              // 这里需要直接修改 piece 状态，但因为在手势里不触发重渲染太频繁
+              // 改用一次性移动多格的方法
+            }
+          }
+          
+          // 直接根据当前计算出的移动距离，算出目标位置并应用
+          const cur = pieceRef.current;
+          let finalCol = cur.col;
+          for (let i = 0; i < steps; i++) {
+            if (!collides(boardRef.current, { ...cur, col: finalCol + direction }, 0, 0)) {
+              finalCol += direction;
+            }
+          }
+          if (finalCol !== cur.col) {
+            setPiece({ ...cur, col: finalCol });
+            // 重置滑动基准，避免一次滑得太远直接飞到边缘
+            gestureState.dx = 0; 
+          }
+        }
       },
       onPanResponderRelease: (evt, gestureState) => {
         const { dx, dy } = gestureState;
-        const swipeThreshold = 30; // 滑动阈值
 
-        if (Math.abs(dx) > Math.abs(dy)) {
-          // 水平滑动
-          if (dx > swipeThreshold) move(1); // 右滑
-          else if (dx < -swipeThreshold) move(-1); // 左滑
-        } else {
-          // 垂直滑动
-          if (dy > swipeThreshold) hardDrop(); // 下滑
-          else if (dy < -swipeThreshold) rotatePiece(); // 上滑也可以旋转
-        }
-
-        // 如果滑动距离很小，视为点击（Tap）
+        // 如果滑动距离非常小，视为点击（旋转）
         if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
           rotatePiece();
+          return;
+        }
+
+        // 如果竖直滑动很大（向下），视为硬降
+        if (dy > 50 && Math.abs(dy) > Math.abs(dx)) {
+          hardDrop();
         }
       },
     })
   ).current;
 
+  // 🔥 计算方块落底的影子位置
+  const shadowRow = useMemo(() => {
+    if (finished) return piece.row;
+    let testRow = piece.row;
+    while (!collides(board, { ...piece, row: testRow + 1 }, 0, 0)) {
+      testRow++;
+    }
+    return testRow;
+  }, [board, piece, finished]);
+
   const displayBoard = useMemo(() => {
     const b = board.map((row) => row.slice());
     if (!finished) {
+      // 1. 先画影子（用 2 代表影子）
+      for (let i = 0; i < piece.shape.length; i++) {
+        for (let j = 0; j < piece.shape[i].length; j++) {
+          if (!piece.shape[i][j]) continue;
+          const r = shadowRow + i;
+          const c = piece.col + j;
+          if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+             // 只有当影子的位置不是当前方块的位置时，才显示影子
+             if (r !== piece.row + i) {
+               b[r][c] = 2 as any; 
+             }
+          }
+        }
+      }
+      // 2. 再画当前方块（用 1 代表当前方块）
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
@@ -262,16 +317,14 @@ export function TetrisGame({
       }
     }
     return b;
-  }, [board, piece, finished]);
+  }, [board, piece, finished, shadowRow]);
 
   // 🔥 响应式计算格子大小
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-  const TOP_UI_HEIGHT = 100; // 顶部留白
-  const BOTTOM_UI_HEIGHT = 60; // 底部留白（放退出按钮）
+  const TOP_UI_HEIGHT = 100;
+  const BOTTOM_UI_HEIGHT = 60;
   
-  // 计算可用高度
   const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
-  // 根据宽高比算出最合适的格子大小
   const CELL_SIZE = Math.floor(Math.min(SCREEN_WIDTH / COLS, availableHeight / ROWS) * 0.95);
   
   const BOARD_WIDTH = CELL_SIZE * COLS;
@@ -309,10 +362,11 @@ export function TetrisGame({
             <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
 
-          {/* 🔥 渲染方块 */}
+          {/* 🔥 渲染方块（包含影子和当前方块） */}
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
               {row.map((cell, ci) => {
+                // 判断是否是当前方块
                 let isPiece = false;
                 if (!finished) {
                   for (let i = 0; i < piece.shape.length; i++) {
@@ -323,7 +377,22 @@ export function TetrisGame({
                     }
                   }
                 }
-                const color = isPiece ? piece.color : cell ? '#64748B' : 'transparent';
+                
+                // 决定颜色
+                let color = 'transparent';
+                let isGhost = false;
+
+                if (isPiece) {
+                  color = piece.color;
+                } else if (cell === 2) {
+                  // 🔥 影子方块特殊样式
+                  isGhost = true;
+                  color = 'rgba(255,255,255,0.1)'; // 半透明白色影子
+                } else if (cell === 1) {
+                  // 已经固定的方块
+                  color = '#64748B';
+                }
+
                 return (
                   <View
                     key={ci}
@@ -333,8 +402,8 @@ export function TetrisGame({
                       width: CELL_SIZE,
                       height: CELL_SIZE,
                       backgroundColor: color,
-                      borderWidth: cell || isPiece ? 1 : 0,
-                      borderColor: '#1E293B', // 方块间隙
+                      borderWidth: (cell === 1 || isPiece) ? 1 : (isGhost ? 1 : 0),
+                      borderColor: isGhost ? 'rgba(255,255,255,0.3)' : '#1E293B', // 影子的边框稍微亮一点
                     }}
                   />
                 );
