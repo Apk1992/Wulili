@@ -11,6 +11,7 @@ import TetrisGame from './minigames/TetrisGame';
 import { ActionDialogueModal } from './ActionDialogueModal';
 import { useMinigameLevelsR2 as useMinigameLevels } from '@/hooks/useMinigameLevelsR2';
 import { useMinigameStore } from '@/store/useMinigameStore';
+import { useDialogue } from '@/hooks/useDialogue'; // 🔥 引入对话 Hook
 import { isMemoryLevel, isRhythmLevel, isTetrisLevel } from '@/utils/minigameGuards';
 import type { MinigameIndexEntry } from '@/types/config';
 import type { MinigameLevelConfig, MinigameOutcome } from '@/types/minigame';
@@ -26,6 +27,7 @@ export function MiniGameLoader({
 }: MiniGameLoaderProps): React.JSX.Element {
   const levelsQuery = useMinigameLevels(entry, true);
   const [activeLevel, setActiveLevel] = useState<MinigameLevelConfig | null>(null);
+  const { speak } = useDialogue(); // 🔥 获取 speak 方法
 
   const finishSession = useMinigameStore((s) => s.finishSession);
   const abortSession = useMinigameStore((s) => s.abortSession);
@@ -37,9 +39,6 @@ export function MiniGameLoader({
   const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
   const [dialogTitle, setDialogTitle] = useState<string | undefined>('雾璃');
   const [dialogMode, setDialogMode] = useState<'info' | 'quitConfirm' | 'result'>('info');
-  
-  // 保存游戏结算数据，用于显示在弹窗里
-  const [lastOutcome, setLastOutcome] = useState<MinigameOutcome | null>(null);
 
   const showDialog = useCallback(
     (text: string, icon: string = 'game-controller', title: string = '雾璃') => {
@@ -77,20 +76,35 @@ export function MiniGameLoader({
     setActiveLevel(level);
   };
 
+  // 🔥 游戏结束处理（带台词 + 结算面板）
   const handleComplete = (outcome: MinigameOutcome) => {
+    // 1. 先处理数值结算（扣精力、加金币心情、记录数据）
     finishSession(outcome);
     setActiveLevel(null);
-    
-    // 🔥 游戏结束，弹出结算结果
-    setLastOutcome(outcome);
+
+    // 2. 判断输赢并计算实际收益
     const isWin = outcome.result === 'victory';
-    const title = isWin ? '游戏胜利！' : '游戏结束';
     const mood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.3);
     const coins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.2);
     
-    setDialogTitle(title);
+    // 3. 获取雾璃的台词
+    let wuliliLine = isWin ? '玩得很开心，谢谢你陪我。' : '唔……这次没发挥好，下次再来吧。';
+    try {
+      const line = speak({ action: 'entertain' });
+      if (line) {
+        const text = typeof line === 'string' ? line : (line as any)?.text;
+        if (text) wuliliLine = text;
+      }
+    } catch (e) {
+      // 如果 speak 报错，静默回退到默认台词
+    }
+
+    // 4. 组合最终的弹窗文本
+    setDialogTitle(isWin ? '游戏胜利！' : '游戏结束');
     setDialogIcon(isWin ? 'trophy' : 'game-controller');
-    setDialogText(`雾璃消耗了 ${outcome.energyCost} 精力。\n心情 +${mood}，金币 +${coins}。\n${isWin ? '她看起来很开心！' : '下次再加油吧~'}`);
+    setDialogText(
+      `“${wuliliLine}”\n\n【本局结算】\n消耗精力：${outcome.energyCost}\n心情变化：+${mood}\n金币收益：+${coins}\n最终得分：${outcome.score}`
+    );
     setDialogMode('result');
     setDialogVisible(true);
   };
