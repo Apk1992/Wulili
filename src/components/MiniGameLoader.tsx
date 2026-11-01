@@ -36,7 +36,10 @@ export function MiniGameLoader({
   const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
   const [dialogTitle, setDialogTitle] = useState<string | undefined>('雾璃');
-  const [dialogMode, setDialogMode] = useState<'info' | 'quitConfirm'>('info');
+  const [dialogMode, setDialogMode] = useState<'info' | 'quitConfirm' | 'result'>('info');
+  
+  // 保存游戏结算数据，用于显示在弹窗里
+  const [lastOutcome, setLastOutcome] = useState<MinigameOutcome | null>(null);
 
   const showDialog = useCallback(
     (text: string, icon: string = 'game-controller', title: string = '雾璃') => {
@@ -51,7 +54,7 @@ export function MiniGameLoader({
   );
 
   const showQuitConfirm = useCallback(() => {
-    setDialogText('确定要退出吗？本局进度不会保存。');
+    setDialogText('确定要退出吗？本局进度不会保存，且会消耗对应精力。');
     setDialogIcon('exit-outline');
     setDialogTitle('退出游戏');
     setDialogMode('quitConfirm');
@@ -59,35 +62,11 @@ export function MiniGameLoader({
   }, []);
 
   // ===== 状态处理 =====
-  if (levelsQuery.isLoading) {
-    return <LoadingView message="正在加载关卡数据…" fullScreen />;
-  }
-
-  if (levelsQuery.isError) {
-    return (
-      <ErrorView
-        title="加载失败"
-        message="无法获取小游戏的关卡数据，请检查网络后重试。"
-        onRetry={() => levelsQuery.refetch()}
-        fullScreen
-      />
-    );
-  }
-
+  if (levelsQuery.isLoading) return <LoadingView message="正在加载关卡数据…" fullScreen />;
+  if (levelsQuery.isError) return <ErrorView title="加载失败" message="网络错误" onRetry={() => levelsQuery.refetch()} fullScreen />;
+  
   const levels = levelsQuery.data ?? [];
-
-  if (levels.length === 0) {
-    return (
-      <EmptyView
-        title="暂无关卡"
-        message="这个游戏还没有可玩的关卡，请先在小游戏的 levels.json 中添加。"
-        icon="game-controller-outline"
-        actionLabel="返回"
-        onAction={onExit}
-        fullScreen
-      />
-    );
-  }
+  if (levels.length === 0) return <EmptyView title="暂无关卡" message="暂无数据" icon="game-controller-outline" actionLabel="返回" onAction={onExit} fullScreen />;
 
   const handleStart = (level: MinigameLevelConfig) => {
     const ok = startSession(entry.id, level.id, level.energyCost);
@@ -101,7 +80,19 @@ export function MiniGameLoader({
   const handleComplete = (outcome: MinigameOutcome) => {
     finishSession(outcome);
     setActiveLevel(null);
-    onExit();
+    
+    // 🔥 游戏结束，弹出结算结果
+    setLastOutcome(outcome);
+    const isWin = outcome.result === 'victory';
+    const title = isWin ? '游戏胜利！' : '游戏结束';
+    const mood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.3);
+    const coins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.2);
+    
+    setDialogTitle(title);
+    setDialogIcon(isWin ? 'trophy' : 'game-controller');
+    setDialogText(`雾璃消耗了 ${outcome.energyCost} 精力。\n心情 +${mood}，金币 +${coins}。\n${isWin ? '她看起来很开心！' : '下次再加油吧~'}`);
+    setDialogMode('result');
+    setDialogVisible(true);
   };
 
   const handleQuitConfirm = () => {
@@ -111,16 +102,27 @@ export function MiniGameLoader({
     onExit();
   };
 
+  const handleResultClose = () => {
+    setDialogVisible(false);
+    onExit(); // 结算完直接退回娱乐大厅
+  };
+
   const renderDialog = () => (
     <ActionDialogueModal
       visible={dialogVisible}
       text={dialogText}
       iconName={dialogIcon as any}
       title={dialogTitle}
-      onClose={() => setDialogVisible(false)}
-      confirmText={dialogMode === 'quitConfirm' ? '退出' : undefined}
+      onClose={() => {
+        if (dialogMode === 'result') handleResultClose();
+        else setDialogVisible(false);
+      }}
+      confirmText={dialogMode === 'quitConfirm' || dialogMode === 'result' ? '确定' : undefined}
       cancelText={dialogMode === 'quitConfirm' ? '继续玩' : undefined}
-      onConfirm={dialogMode === 'quitConfirm' ? handleQuitConfirm : undefined}
+      onConfirm={
+        dialogMode === 'quitConfirm' ? handleQuitConfirm : 
+        dialogMode === 'result' ? handleResultClose : undefined
+      }
       onCancel={dialogMode === 'quitConfirm' ? () => setDialogVisible(false) : undefined}
     />
   );
@@ -129,42 +131,9 @@ export function MiniGameLoader({
   if (activeLevel) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-        {isMemoryLevel(activeLevel) && (
-          <MemoryGame
-            level={activeLevel}
-            minigameId={entry.id}
-            assetFolder={entry.assetFolder}
-            onComplete={handleComplete}
-            onQuit={showQuitConfirm}
-          />
-        )}
-        {isRhythmLevel(activeLevel) && (
-          <RhythmGame
-            level={activeLevel}
-            minigameId={entry.id}
-            onComplete={handleComplete}
-            onQuit={showQuitConfirm}
-          />
-        )}
-        {isTetrisLevel(activeLevel) && (
-          <TetrisGame
-            level={activeLevel}
-            minigameId={entry.id}
-            onComplete={handleComplete}
-            onQuit={showQuitConfirm}
-          />
-        )}
-        
-        {/* 兜底，防止引擎没匹配上白屏 */}
-        {!isMemoryLevel(activeLevel) && !isRhythmLevel(activeLevel) && !isTetrisLevel(activeLevel) && (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ color: '#FFF' }}>关卡类型不支持</Text>
-            <Pressable onPress={onExit} style={{ marginTop: 20 }}>
-              <Text style={{ color: '#2563EB' }}>返回</Text>
-            </Pressable>
-          </View>
-        )}
-
+        {isMemoryLevel(activeLevel) && <MemoryGame level={activeLevel} minigameId={entry.id} assetFolder={entry.assetFolder} onComplete={handleComplete} onQuit={showQuitConfirm} />}
+        {isRhythmLevel(activeLevel) && <RhythmGame level={activeLevel} minigameId={entry.id} onComplete={handleComplete} onQuit={showQuitConfirm} />}
+        {isTetrisLevel(activeLevel) && <TetrisGame level={activeLevel} minigameId={entry.id} onComplete={handleComplete} onQuit={showQuitConfirm} />}
         {renderDialog()}
       </View>
     );
@@ -213,7 +182,6 @@ export function MiniGameLoader({
                 {level.description}
               </Text>
               
-              {/* 额外信息展示 */}
               <View style={{ flexDirection: 'row', marginTop: 12 }}>
                 <Text style={{ color: '#F59E0B', fontSize: 12, marginRight: 12 }}>
                   ⚡ 消耗 {level.energyCost} 精力
@@ -224,8 +192,9 @@ export function MiniGameLoader({
               </View>
             </View>
             
-            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(37,99,235,0.2)', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="play" size={24} color="#3B82F6" style={{ marginLeft: 4 }} />
+            {/* 开始按钮 */}
+            <View style={{ backgroundColor: '#2563EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>开始</Text>
             </View>
           </Pressable>
         ))}
