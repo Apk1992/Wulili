@@ -1,9 +1,10 @@
+// src/components/minigames/MemoryGame.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, Dimensions } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import RemoteImage from '../RemoteImage';
-import { useGitHubImage } from '@/hooks/useGitHubImage';
 import { shuffle } from '@/utils/random';
+import { resolveMinigameAsset } from '@/services/minigameService';
 import type {
   MemoryCardDef,
   MemoryLevelConfig,
@@ -41,6 +42,21 @@ export function MemoryGame({
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
     level.timeLimitSeconds,
   );
+
+  // 响应式尺寸计算
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+  const TOP_UI_HEIGHT = 80;
+  const BOTTOM_UI_HEIGHT = 80;
+  
+  // 计算卡片大小
+  const availableWidth = SCREEN_WIDTH - 40; // 左右各留 20 padding
+  const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
+  
+  const cols = level.columns || 3;
+  const rows = Math.ceil((level.cards.length * 2) / cols);
+  
+  // 根据宽高取最小值，保证不越界
+  const CARD_SIZE = Math.floor(Math.min(availableWidth / cols, availableHeight / rows) - 8);
 
   const deck = useMemo(() => {
     const doubled: MemoryCardDef[] = [];
@@ -157,85 +173,61 @@ export function MemoryGame({
   };
 
   return (
-    <View className="flex-1">
-      <View className="flex-row items-center justify-between mb-3">
-        <View className="flex-row items-center">
-          <Ionicons name="time-outline" size={16} color="#EF4444" />
-          <Text className="ml-1 text-sm font-semibold text-danger">
-            {remainingSeconds}s
-          </Text>
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+      {/* 顶部信息 */}
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="time-outline" size={18} color="#EF4444" />
+          <Text style={{ color: '#EF4444', fontSize: 18, fontWeight: '700', marginLeft: 4 }}>{remainingSeconds}s</Text>
         </View>
-        <Text className="text-sm font-semibold text-text dark:text-dark-text">
-          分数 {score}
-        </Text>
-        <Pressable
-          onPress={onQuit}
-          className="p-2 rounded-full active:opacity-60"
-        >
-          <Ionicons name="close" size={20} color="#94A3B8" />
-        </Pressable>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
       </View>
 
-      <View
-        className="flex-row flex-wrap justify-center"
-        style={{ marginHorizontal: -4 }}
-      >
-        {cards.map((card, index) => (
-          <MemoryCardView
-            key={card.key}
-            card={card}
-            assetFolder={assetFolder}
-            width={computeCardWidth(cards.length, level.columns)}
-            onPress={() => handleFlip(index)}
-          />
-        ))}
+      {/* 卡片区域 */}
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: CARD_SIZE * cols + (cols * 8) }}>
+          {cards.map((card, index) => (
+            <MemoryCardView
+              key={card.key}
+              card={card}
+              assetFolder={assetFolder}
+              width={CARD_SIZE}
+              onPress={() => handleFlip(index)}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* 底部退出 */}
+      <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
+        <Pressable
+          onPress={onQuit}
+          style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
+        >
+          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出游戏</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
-function computeCardWidth(total: number, columns: number): number {
-  const screenWidth = 340;
-  return Math.floor((screenWidth - columns * 12) / columns);
-}
-
-interface MemoryCardViewProps {
-  card: CardState;
-  assetFolder: string;
-  width: number;
-  onPress: () => void;
-}
-
-function MemoryCardView({
-  card,
-  assetFolder,
-  width,
-  onPress,
-}: MemoryCardViewProps): React.JSX.Element {
+function MemoryCardView({ card, assetFolder, width, onPress }: { card: CardState; assetFolder: string; width: number; onPress: () => void; }) {
   const visible = card.flipped || card.matched;
-  const imagePath = `${assetFolder}/${card.card.image}`;
-  const { url } = useGitHubImage(imagePath, true);
-  const backPath = `${assetFolder}/card_back.png`;
-  const { url: backUrl } = useGitHubImage(backPath, true);
+  const imageUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${card.card.image}` : card.card.image);
+  const backUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/card_back.png` : 'card_back.png');
 
   return (
     <Pressable
       onPress={onPress}
-      style={{ width, height: width, margin: 4 }}
-      className="rounded-xl overflow-hidden active:opacity-80"
+      style={{ width, height: width, margin: 4, borderRadius: 12, overflow: 'hidden' }}
     >
       {visible ? (
-        <View className="flex-1 items-center justify-center rounded-xl bg-card dark:bg-dark-card border border-primary">
-          <RemoteImage uri={url} width={width - 8} height={width - 8} fallbackIcon="star" />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#2563EB' }}>
+          <RemoteImage uri={imageUrl} width={width - 8} height={width - 8} fallbackIcon="star" />
         </View>
       ) : (
-        <View className="flex-1 items-center justify-center rounded-xl bg-primary/20 dark:bg-primary/30 border border-primary/40">
-          <RemoteImage
-            uri={backUrl}
-            width={width - 8}
-            height={width - 8}
-            fallbackIcon="help"
-          />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(37,99,235,0.2)', borderWidth: 1, borderColor: 'rgba(37,99,235,0.4)' }}>
+          <RemoteImage uri={backUrl} width={width - 8} height={width - 8} fallbackIcon="help" />
         </View>
       )}
     </Pressable>
