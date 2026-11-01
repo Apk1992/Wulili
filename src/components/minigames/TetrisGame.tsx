@@ -111,18 +111,23 @@ export function TetrisGame({
 }: TetrisGameProps): React.JSX.Element {
   const [board, setBoard] = useState<Board>(emptyBoard);
   const [piece, setPiece] = useState<Piece>(spawnPiece);
+  const [score, setScore] = useState(0);
   const [lines, setLines] = useState(0);
   const [startedAt] = useState(Date.now());
   const [finished, setFinished] = useState(false);
+  
+  // 连击计时器
+  const lastClearTimeRef = useRef<number>(0);
+  const comboRef = useRef<number>(0);
 
   const boardRef = useRef(board);
   const pieceRef = useRef(piece);
-  const linesRef = useRef(lines);
+  const scoreRef = useRef(score);
   const finishedRef = useRef(finished);
 
   boardRef.current = board;
   pieceRef.current = piece;
-  linesRef.current = lines;
+  scoreRef.current = score;
   finishedRef.current = finished;
 
   const finish = useCallback(
@@ -136,9 +141,10 @@ export function TetrisGame({
         levelId: level.id,
         engine: 'tetris',
         result,
-        score: linesRef.current,
-        maxCombo: 0,
+        score: scoreRef.current, // 分数直接传给结算
+        maxCombo: comboRef.current,
         durationMs,
+        // 如果分数高，可以给额外的金币奖励（可选）
         moodGain: result === 'victory' ? level.moodGain : 0,
         coinReward: result === 'victory' ? level.coinReward : 0,
         energyCost: level.energyCost,
@@ -162,7 +168,33 @@ export function TetrisGame({
     const { board: cleared, cleared: n } = clearLines(merged);
     
     setBoard(cleared);
-    setLines((prev) => prev + n);
+
+    // 🔥 计分逻辑
+    if (n > 0) {
+      let baseScore = 0;
+      if (n === 1) baseScore = 100;
+      else if (n === 2) baseScore = 300;
+      else if (n === 3) baseScore = 500;
+      else if (n >= 4) baseScore = 800;
+
+      // 连击判断（如果上次消行是在 1.5 秒以内）
+      const now = Date.now();
+      if (now - lastClearTimeRef.current < 1500) {
+        comboRef.current += 1;
+      } else {
+        comboRef.current = 0;
+      }
+      lastClearTimeRef.current = now;
+
+      // 加上连击加成 (每连击 +50 分)
+      const comboBonus = comboRef.current * 50;
+      
+      setScore((prev) => prev + baseScore + comboBonus);
+      setLines((prev) => prev + n);
+    } else {
+      // 没有消行，连击中断
+      comboRef.current = 0;
+    }
 
     // 生成下一个方块
     const next = spawnPiece();
@@ -200,7 +232,7 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 手势管理
+  // 手势管理（不变）
   const gestureState = useRef({
     lastDx: 0,
     hasMoved: false,
@@ -212,11 +244,7 @@ export function TetrisGame({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        gestureState.current = {
-          lastDx: 0,
-          hasMoved: false,
-          lockedAxis: null,
-        };
+        gestureState.current = { lastDx: 0, hasMoved: false, lockedAxis: null };
       },
       onPanResponderMove: (evt, gestureStateNative) => {
         const state = gestureState.current;
@@ -307,7 +335,7 @@ export function TetrisGame({
 
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const TOP_UI_HEIGHT = 100;
-  const BOTTOM_UI_HEIGHT = 80; // 底部按钮占用高度
+  const BOTTOM_UI_HEIGHT = 80;
   
   const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
   const CELL_SIZE = Math.floor(Math.min(SCREEN_WIDTH / COLS, availableHeight / ROWS) * 0.95);
@@ -318,9 +346,10 @@ export function TetrisGame({
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       
-      {/* 顶部信息栏：只保留消行数 */}
-      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'center', zIndex: 10 }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '700' }}>消行 {lines}</Text>
+      {/* 顶部信息栏：显示分数和行数 */}
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
+        <Text style={{ color: '#38BDF8', fontSize: 22, fontWeight: '900' }}>分数 {score}</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
       {/* 棋盘操作区 */}
@@ -391,7 +420,7 @@ export function TetrisGame({
         </View>
       </View>
 
-      {/* 结束游戏按钮（随时可以结束） */}
+      {/* 结束游戏按钮 */}
       <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 60 }}>
         <Pressable
           onPress={() => finish('victory')}
