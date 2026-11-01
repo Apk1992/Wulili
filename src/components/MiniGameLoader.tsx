@@ -11,7 +11,7 @@ import TetrisGame from './minigames/TetrisGame';
 import { ActionDialogueModal } from './ActionDialogueModal';
 import { useMinigameLevelsR2 as useMinigameLevels } from '@/hooks/useMinigameLevelsR2';
 import { useMinigameStore } from '@/store/useMinigameStore';
-import { useDialogue } from '@/hooks/useDialogue'; // 🔥 引入对话 Hook
+import { useDialogue } from '@/hooks/useDialogue';
 import { isMemoryLevel, isRhythmLevel, isTetrisLevel } from '@/utils/minigameGuards';
 import type { MinigameIndexEntry } from '@/types/config';
 import type { MinigameLevelConfig, MinigameOutcome } from '@/types/minigame';
@@ -27,13 +27,12 @@ export function MiniGameLoader({
 }: MiniGameLoaderProps): React.JSX.Element {
   const levelsQuery = useMinigameLevels(entry, true);
   const [activeLevel, setActiveLevel] = useState<MinigameLevelConfig | null>(null);
-  const { speak } = useDialogue(); // 🔥 获取 speak 方法
+  const { speak } = useDialogue();
 
   const finishSession = useMinigameStore((s) => s.finishSession);
   const abortSession = useMinigameStore((s) => s.abortSession);
   const startSession = useMinigameStore((s) => s.startSession);
 
-  // ===== 统一弹窗状态 =====
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
@@ -48,8 +47,7 @@ export function MiniGameLoader({
       setDialogTitle(title);
       setDialogMode('info');
       setDialogVisible(true);
-    },
-    [],
+    }, [],
   );
 
   const showQuitConfirm = useCallback(() => {
@@ -60,7 +58,6 @@ export function MiniGameLoader({
     setDialogVisible(true);
   }, []);
 
-  // ===== 状态处理 =====
   if (levelsQuery.isLoading) return <LoadingView message="正在加载关卡数据…" fullScreen />;
   if (levelsQuery.isError) return <ErrorView title="加载失败" message="网络错误" onRetry={() => levelsQuery.refetch()} fullScreen />;
   
@@ -76,18 +73,14 @@ export function MiniGameLoader({
     setActiveLevel(level);
   };
 
-  // 🔥 游戏结束处理（带台词 + 结算面板）
   const handleComplete = (outcome: MinigameOutcome) => {
-    // 1. 先处理数值结算（扣精力、加金币心情、记录数据）
     finishSession(outcome);
     setActiveLevel(null);
 
-    // 2. 判断输赢并计算实际收益
     const isWin = outcome.result === 'victory';
     const mood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.3);
     const coins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.2);
     
-    // 3. 获取雾璃的台词
     let wuliliLine = isWin ? '玩得很开心，谢谢你陪我。' : '唔……这次没发挥好，下次再来吧。';
     try {
       const line = speak({ action: 'entertain' });
@@ -95,11 +88,8 @@ export function MiniGameLoader({
         const text = typeof line === 'string' ? line : (line as any)?.text;
         if (text) wuliliLine = text;
       }
-    } catch (e) {
-      // 如果 speak 报错，静默回退到默认台词
-    }
+    } catch (e) {}
 
-    // 4. 组合最终的弹窗文本
     setDialogTitle(isWin ? '游戏胜利！' : '游戏结束');
     setDialogIcon(isWin ? 'trophy' : 'game-controller');
     setDialogText(
@@ -118,7 +108,7 @@ export function MiniGameLoader({
 
   const handleResultClose = () => {
     setDialogVisible(false);
-    onExit(); // 结算完直接退回娱乐大厅
+    onExit();
   };
 
   const renderDialog = () => (
@@ -141,7 +131,6 @@ export function MiniGameLoader({
     />
   );
 
-  // ===== 渲染当前关卡（全屏） =====
   if (activeLevel) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
@@ -153,10 +142,8 @@ export function MiniGameLoader({
     );
   }
 
-  // ===== 关卡选择列表 =====
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      {/* 顶部导航 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20 }}>
         <Pressable onPress={onExit} style={{ padding: 8, marginLeft: -8 }}>
           <Ionicons name="arrow-back" size={26} color="#F8FAFC" />
@@ -166,51 +153,63 @@ export function MiniGameLoader({
         </Text>
       </View>
 
-      {/* 关卡卡片列表 */}
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
         <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 16 }}>
           选择一个关卡开始游戏
         </Text>
         
         {levels.map((level) => (
-          <Pressable
+          <View
             key={level.id}
-            onPress={() => handleStart(level)}
-            style={({ pressed }) => ({
-              backgroundColor: pressed ? '#334155' : '#1E293B',
-              padding: 20,
+            style={{
+              backgroundColor: '#1E293B',
               borderRadius: 16,
               marginBottom: 16,
               borderWidth: 1,
-              borderColor: pressed ? '#475569' : '#334155',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            })}
+              borderColor: '#334155',
+              // 🔥 使用内边距和分行布局来区分区域
+              padding: 16,
+            }}
           >
-            <View style={{ flex: 1, paddingRight: 16 }}>
+            {/* 上半部分：标题与描述 */}
+            <View style={{ marginBottom: 12 }}>
               <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700', marginBottom: 6 }}>
                 {level.title}
               </Text>
               <Text style={{ color: '#94A3B8', fontSize: 14, lineHeight: 20 }}>
                 {level.description}
               </Text>
-              
-              <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                <Text style={{ color: '#F59E0B', fontSize: 12, marginRight: 12 }}>
-                  ⚡ 消耗 {level.energyCost} 精力
+            </View>
+
+            {/* 🔥 分节线 */}
+            <View style={{ height: 1, backgroundColor: '#334155', marginBottom: 12 }} />
+
+            {/* 下半部分：消耗、心情与按钮 */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ color: '#F59E0B', fontSize: 13, marginRight: 12 }}>
+                  ⚡ 消耗 {level.energyCost}
                 </Text>
-                <Text style={{ color: '#10B981', fontSize: 12 }}>
+                <Text style={{ color: '#10B981', fontSize: 13 }}>
                   😊 心情 +{level.moodGain}
                 </Text>
               </View>
+
+              <Pressable
+                onPress={() => handleStart(level)}
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
+                  paddingHorizontal: 24,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  minWidth: 88,
+                  alignItems: 'center',
+                })}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700' }}>开始</Text>
+              </Pressable>
             </View>
-            
-            {/* 开始按钮 */}
-            <View style={{ backgroundColor: '#2563EB', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 }}>
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>开始</Text>
-            </View>
-          </Pressable>
+          </View>
         ))}
       </ScrollView>
 
