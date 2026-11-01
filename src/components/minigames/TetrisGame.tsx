@@ -15,13 +15,13 @@ interface ShapeDef {
 }
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },
-  { cells: [[1, 1], [1, 1]], color: '#FACC15' },
-  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },
-  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },
-  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },
-  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },
-  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
 ];
 
 function emptyBoard(): Board {
@@ -113,7 +113,6 @@ export function TetrisGame({
   const [piece, setPiece] = useState<Piece>(spawnPiece);
   const [lines, setLines] = useState(0);
   const [startedAt] = useState(Date.now());
-  const [secondsLeft, setSecondsLeft] = useState(level.timeLimitSeconds);
   const [finished, setFinished] = useState(false);
 
   const boardRef = useRef(board);
@@ -151,54 +150,36 @@ export function TetrisGame({
   const drop = useCallback(() => {
     if (finishedRef.current) return;
     const cur = pieceRef.current;
+    
+    // 没碰到东西，继续下落
     if (!collides(boardRef.current, cur, 1, 0)) {
       setPiece({ ...cur, row: cur.row + 1 });
       return;
     }
+
+    // 已经落地，合并方块并消行
     const merged = mergePiece(boardRef.current, cur);
     const { board: cleared, cleared: n } = clearLines(merged);
-    const newLines = linesRef.current + n;
+    
     setBoard(cleared);
-    setLines(newLines);
-    if (newLines >= level.targetLines) {
-      finish('victory');
-      return;
-    }
+    setLines((prev) => prev + n);
+
+    // 生成下一个方块
     const next = spawnPiece();
+    // 🔥 如果新方块在顶部生成时就发生碰撞，游戏结束！
     if (collides(cleared, next)) {
       finish('defeat');
       return;
     }
     setPiece(next);
-  }, [level.targetLines, finish]);
+  }, [finish]);
 
+  // 自动下落心跳
   useEffect(() => {
     if (finished) return;
     const id = setInterval(drop, level.dropIntervalMs);
     return () => clearInterval(id);
   }, [drop, level.dropIntervalMs, finished]);
-
-  useEffect(() => {
-    if (finished) return;
-    const id = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          finish('defeat');
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [finished, finish]);
-
-  const move = useCallback((dCol: number) => {
-    if (finishedRef.current) return;
-    const cur = pieceRef.current;
-    if (!collides(boardRef.current, cur, 0, dCol)) {
-      setPiece({ ...cur, col: cur.col + dCol });
-    }
-  }, []);
 
   const rotatePiece = useCallback(() => {
     if (finishedRef.current) return;
@@ -219,7 +200,7 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 🔥 修复：把内部状态移到 PanResponder 上方
+  // 手势管理
   const gestureState = useRef({
     lastDx: 0,
     hasMoved: false,
@@ -238,17 +219,15 @@ export function TetrisGame({
         };
       },
       onPanResponderMove: (evt, gestureStateNative) => {
-        const state = gestureState.current; // 现在这里安全了
+        const state = gestureState.current;
         const { dx, dy } = gestureStateNative;
 
-        // 1. 判断主导轴
         if (!state.lockedAxis) {
           if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
             state.lockedAxis = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
           }
         }
 
-        // 2. 垂直滑动（硬降）
         if (state.lockedAxis === 'vertical') {
           if (dy > 30 && !state.hasMoved) {
             hardDrop();
@@ -257,7 +236,6 @@ export function TetrisGame({
           return;
         }
 
-        // 3. 水平滑动
         if (state.lockedAxis === 'horizontal') {
           const MOVE_THRESHOLD = 25;
           const diff = dx - state.lastDx;
@@ -286,7 +264,6 @@ export function TetrisGame({
       },
       onPanResponderRelease: (evt, gestureStateNative) => {
         const state = gestureState.current;
-        // 如果完全没滑动过且位移极小，视为点击旋转
         if (!state.hasMoved && Math.abs(gestureStateNative.dx) < 10 && Math.abs(gestureStateNative.dy) < 10) {
           rotatePiece();
         }
@@ -294,7 +271,6 @@ export function TetrisGame({
     })
   ).current;
 
-  // 计算影子
   const shadowRow = useMemo(() => {
     if (finished) return piece.row;
     let testRow = piece.row;
@@ -307,7 +283,6 @@ export function TetrisGame({
   const displayBoard = useMemo(() => {
     const b = board.map((row) => row.slice());
     if (!finished) {
-      // 画影子
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
@@ -318,7 +293,6 @@ export function TetrisGame({
           }
         }
       }
-      // 画当前
       for (let i = 0; i < piece.shape.length; i++) {
         for (let j = 0; j < piece.shape[i].length; j++) {
           if (!piece.shape[i][j]) continue;
@@ -333,7 +307,7 @@ export function TetrisGame({
 
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const TOP_UI_HEIGHT = 100;
-  const BOTTOM_UI_HEIGHT = 60;
+  const BOTTOM_UI_HEIGHT = 80; // 底部按钮占用高度
   
   const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
   const CELL_SIZE = Math.floor(Math.min(SCREEN_WIDTH / COLS, availableHeight / ROWS) * 0.95);
@@ -343,11 +317,13 @@ export function TetrisGame({
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
+      
+      {/* 顶部信息栏：只保留消行数 */}
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'center', zIndex: 10 }}>
+        <Text style={{ color: '#F8FAFC', fontSize: 20, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
+      {/* 棋盘操作区 */}
       <View 
         style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}
         {...panResponder.panHandlers}
@@ -360,6 +336,7 @@ export function TetrisGame({
           borderColor: '#334155',
           position: 'relative'
         }}>
+          {/* 背景网格 */}
           {Array.from({ length: ROWS }).map((_, r) => (
             <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
@@ -367,6 +344,7 @@ export function TetrisGame({
             <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
 
+          {/* 方块与影子渲染 */}
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
               {row.map((cell, ci) => {
@@ -413,12 +391,13 @@ export function TetrisGame({
         </View>
       </View>
 
-      <View style={{ position: 'absolute', bottom: 20, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
+      {/* 结束游戏按钮（随时可以结束） */}
+      <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 60 }}>
         <Pressable
-          onPress={onQuit}
-          style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
+          onPress={() => finish('victory')}
+          style={{ paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
         >
-          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出游戏</Text>
+          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>结束游戏</Text>
         </Pressable>
       </View>
     </View>
