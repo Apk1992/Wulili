@@ -1,13 +1,13 @@
+// src/components/minigames/RhythmGame.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useTheme } from '@/hooks/useTheme';
+import { Pressable, Text, View, Dimensions } from 'react-native';
 import type {
   MinigameOutcome,
   RhythmLevelConfig,
 } from '@/types/minigame';
 
 const HIT_WINDOW_MS = 180;
+const BEAT_FALL_TIME_MS = 1500; // 音符从出现到判定线的时间
 
 export interface RhythmGameProps {
   level: RhythmLevelConfig;
@@ -22,7 +22,6 @@ export function RhythmGame({
   onComplete,
   onQuit,
 }: RhythmGameProps): React.JSX.Element {
-  const { isDark } = useTheme();
   const startedAtRef = useRef<number>(Date.now());
   const hitBeatsRef = useRef<Set<number>>(new Set());
   const [elapsed, setElapsed] = useState<number>(0);
@@ -123,118 +122,121 @@ export function RhythmGame({
   };
 
   const progress = Math.min(1, elapsed / level.durationMs);
-  const laneWidth = 100 / level.lanes;
+
+  // 🔥 响应式尺寸
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+  const TOP_UI_HEIGHT = 120;
+  const BOTTOM_UI_HEIGHT = 100; // 底部点击区高度
+
+  // 游戏区宽高
+  const GAME_WIDTH = SCREEN_WIDTH;
+  const GAME_HEIGHT = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
+  const LANE_WIDTH = GAME_WIDTH / level.lanes;
+  
+  // 判定线的高度（距离底部）
+  const HIT_LINE_Y = GAME_HEIGHT - 20; 
 
   return (
-    <View className="flex-1">
-      <View className="flex-row items-center justify-between mb-3">
-        <View className="flex-row items-center">
-          <Ionicons name="time-outline" size={16} color="#F59E0B" />
-          <Text className="ml-1 text-sm font-semibold text-warning">
+    <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+      
+      {/* 顶部信息栏 */}
+      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, zIndex: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ color: '#F59E0B', fontSize: 18, fontWeight: '700' }}>
             {Math.max(0, Math.ceil((level.durationMs - elapsed) / 1000))}s
           </Text>
         </View>
-        <Text className="text-sm font-semibold text-text dark:text-dark-text">
-          分数 {score}
-        </Text>
-        <View className="flex-row items-center">
-          <Text className="text-xs text-muted dark:text-dark-muted mr-2">
-            x{combo}
-          </Text>
-          <Pressable
-            onPress={onQuit}
-            className="p-2 rounded-full active:opacity-60"
-          >
-            <Ionicons name="close" size={20} color="#94A3B8" />
-          </Pressable>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
+        <Pressable onPress={onQuit} style={{ padding: 4, marginRight: -10 }}>
+          <Text style={{ color: '#94A3B8', fontSize: 16 }}>退出</Text>
+        </Pressable>
+      </View>
+
+      {/* 进度条 */}
+      <View style={{ position: 'absolute', top: 90, width: SCREEN_WIDTH, paddingHorizontal: 20 }}>
+        <View style={{ height: 4, backgroundColor: '#1E293B', borderRadius: 2 }}>
+          <View style={{ width: `${progress * 100}%`, height: 4, backgroundColor: '#2563EB', borderRadius: 2 }} />
         </View>
       </View>
 
-      <View className="w-full h-1.5 rounded-full overflow-hidden bg-border dark:bg-dark-border mb-3">
-        <View
-          className="h-1.5 bg-primary"
-          style={{ width: `${progress * 100}%` }}
-        />
-      </View>
+      {/* 🔥 游戏区（接收点击） */}
+      <View style={{ marginTop: TOP_UI_HEIGHT, width: GAME_WIDTH, height: GAME_HEIGHT, overflow: 'hidden' }}>
+        {/* 轨道 */}
+        {Array.from({ length: level.lanes }).map((_, i) => (
+          <View key={i} style={{
+            position: 'absolute',
+            left: i * LANE_WIDTH,
+            width: LANE_WIDTH,
+            height: '100%',
+            borderRightWidth: 1,
+            borderColor: '#1E293B',
+          }} />
+        ))}
 
-      <View className="flex-1 rounded-3xl overflow-hidden bg-card dark:bg-dark-card border border-border dark:border-dark-border">
-        <View className="flex-1 flex-row">
-          {Array.from({ length: level.lanes }).map((_, lane) => (
-            <LaneView
-              key={`lane-${lane}`}
-              lane={lane}
-              beats={beats}
-              hitBeats={hitBeatsRef.current}
-              elapsed={elapsed}
-              laneWidth={laneWidth}
-              onTap={() => handleTap(lane)}
-              isDark={isDark}
+        {/* 判定线 */}
+        <View style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 40,
+          backgroundColor: 'rgba(37,99,235,0.1)',
+          borderTopWidth: 2,
+          borderColor: '#2563EB',
+        }} />
+
+        {/* 音符 */}
+        {beats.map((beat, i) => {
+          if (hitBeatsRef.current.has(i)) return null;
+          const timeToHit = beat.timeMs - elapsed;
+          
+          // 超出可视范围不渲染
+          if (timeToHit > BEAT_FALL_TIME_MS || timeToHit < -HIT_WINDOW_MS) return null;
+
+          const yPos = HIT_LINE_Y - (timeToHit / BEAT_FALL_TIME_MS) * HIT_LINE_Y;
+
+          return (
+            <View
+              key={`beat-${i}`}
+              style={{
+                position: 'absolute',
+                width: LANE_WIDTH * 0.8,
+                height: 24,
+                left: beat.lane * LANE_WIDTH + LANE_WIDTH * 0.1,
+                top: yPos - 12, // 居中
+                backgroundColor: '#38BDF8',
+                borderRadius: 12,
+              }}
             />
-          ))}
-        </View>
+          );
+        })}
       </View>
 
-      <View className="mt-3 flex-row items-center justify-center">
-        <Text className="text-xs text-muted dark:text-dark-muted">
-          连击 x{combo} · 失误 {missed}
-        </Text>
+      {/* 🔥 底部点击区（放大判定区，手感更好） */}
+      <View style={{ flexDirection: 'row', height: BOTTOM_UI_HEIGHT, backgroundColor: '#1E293B', position: 'absolute', bottom: 0, width: SCREEN_WIDTH }}>
+        {Array.from({ length: level.lanes }).map((_, lane) => (
+          <Pressable
+            key={`btn-${lane}`}
+            onPress={() => handleTap(lane)}
+            style={({ pressed }) => ({
+              flex: 1,
+              borderRightWidth: 1,
+              borderColor: '#334155',
+              backgroundColor: pressed ? 'rgba(37,99,235,0.3)' : 'transparent',
+              alignItems: 'center',
+              justifyContent: 'center',
+            })}
+          >
+            <Text style={{ color: '#475569', fontSize: 24, fontWeight: 'bold' }}>|</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* 底部连击状态 */}
+      <View style={{ position: 'absolute', bottom: BOTTOM_UI_HEIGHT + 10, width: SCREEN_WIDTH, alignItems: 'center' }}>
+         <Text style={{ color: '#64748B', fontSize: 14 }}>连击 x{combo} · 失误 {missed}</Text>
       </View>
     </View>
-  );
-}
-
-interface LaneViewProps {
-  lane: number;
-  beats: RhythmLevelConfig['beats'];
-  hitBeats: Set<number>;
-  elapsed: number;
-  laneWidth: number;
-  onTap: () => void;
-  isDark: boolean;
-}
-
-function LaneView({
-  lane,
-  beats,
-  hitBeats,
-  elapsed,
-  laneWidth,
-  onTap,
-  isDark,
-}: LaneViewProps): React.JSX.Element {
-  const visibleBeats = beats
-    .map((b, i) => ({ beat: b, index: i }))
-    .filter(
-      (entry) =>
-        entry.beat.lane === lane &&
-        !hitBeats.has(entry.index) &&
-        entry.beat.timeMs > elapsed - HIT_WINDOW_MS &&
-        entry.beat.timeMs < elapsed + 1500,
-    );
-
-  return (
-    <Pressable
-      onPress={onTap}
-      style={{ width: `${laneWidth}%` }}
-      className={[
-        'flex-1 border-r',
-        isDark ? 'border-dark-border' : 'border-border',
-      ].join(' ')}
-    >
-      {visibleBeats.map((entry) => (
-        <View
-          key={`beat-${entry.index}`}
-          className="absolute rounded-full bg-primary"
-          style={{
-            width: 32,
-            height: 32,
-            left: '50%',
-            marginLeft: -16,
-            top: `${(1 - (entry.beat.timeMs - elapsed) / 1500) * 100}%`,
-          }}
-        />
-      ))}
-    </Pressable>
   );
 }
 
