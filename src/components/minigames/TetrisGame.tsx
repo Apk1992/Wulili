@@ -1,10 +1,11 @@
 // src/components/minigames/TetrisGame.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View, Dimensions } from 'react-native'; // 🔥 引入 Dimensions
+import { Pressable, Text, View, Dimensions } from 'react-native';
 import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 
 const COLS = 10;
 const ROWS = 20;
+const CELL_SIZE = 20; // 🔥 格子放大到 20
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 type Cell = 0 | 1;
@@ -16,13 +17,13 @@ interface ShapeDef {
 }
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },
-  { cells: [[1, 1], [1, 1]], color: '#FACC15' },
-  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },
-  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },
-  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },
-  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },
-  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
 ];
 
 function emptyBoard(): Board {
@@ -235,19 +236,20 @@ export function TetrisGame({
     return b;
   }, [board, piece, finished]);
 
-  const BOARD_WIDTH = (16 + 2) * COLS; // 180
-  
+  const BOARD_WIDTH = (CELL_SIZE + 2) * COLS;
+  const boardLeft = (SCREEN_WIDTH - BOARD_WIDTH) / 2;
+
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F172A' }}>
       
-      {/* 顶部信息：绝对定位，放在屏幕正上方 */}
+      {/* 顶部信息栏 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30 }}>
-        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700' }}>消行 {lines}</Text>
-        <Text style={{ color: '#F8FAFC', fontSize: 16, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
+        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>⏱ {secondsLeft}s</Text>
       </View>
 
-      {/* 棋盘：绝对定位，水平居中，放置在屏幕偏上位置 */}
-      <View style={{ position: 'absolute', top: 100, left: (SCREEN_WIDTH - BOARD_WIDTH) / 2, backgroundColor: '#1E293B', padding: 4, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
+      {/* 棋盘 */}
+      <View style={{ position: 'absolute', top: 100, left: boardLeft, backgroundColor: '#1E293B', padding: 4, borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}>
         {displayBoard.map((row, ri) => (
           <View key={ri} style={{ flexDirection: 'row' }}>
             {row.map((cell, ci) => {
@@ -266,8 +268,8 @@ export function TetrisGame({
                 <View
                   key={ci}
                   style={{
-                    width: 16,
-                    height: 16,
+                    width: CELL_SIZE,
+                    height: CELL_SIZE,
                     margin: 1,
                     borderRadius: 2,
                     backgroundColor: color,
@@ -281,20 +283,21 @@ export function TetrisGame({
         ))}
       </View>
 
-      {/* 按钮：绝对定位，屏幕底部 */}
-      <View style={{ position: 'absolute', bottom: 80, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 20 }}>
+      {/* 控制按钮：放在棋盘正下方，固定高度防压缩 */}
+      <View style={{ position: 'absolute', top: 100 + (CELL_SIZE + 2) * ROWS + 20, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-evenly', paddingHorizontal: 10 }}>
         <CtrlBtn label="←" onPress={() => move(-1)} />
         <CtrlBtn label="↻" onPress={rotatePiece} />
         <CtrlBtn label="↓" onPress={hardDrop} />
         <CtrlBtn label="→" onPress={() => move(1)} />
       </View>
 
-      <View style={{ position: 'absolute', bottom: 20, width: SCREEN_WIDTH, paddingHorizontal: 20 }}>
+      {/* 退出按钮 */}
+      <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 20 }}>
         <Pressable
           onPress={onQuit}
           style={{ paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
         >
-          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出</Text>
+          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出游戏</Text>
         </Pressable>
       </View>
     </View>
@@ -306,15 +309,15 @@ function CtrlBtn({ label, onPress }: { label: string; onPress: () => void }) {
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        width: 60,
-        height: 60,
-        borderRadius: 30,
+        width: 65,
+        height: 65,
+        borderRadius: 32.5,
         backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
         alignItems: 'center',
         justifyContent: 'center',
       })}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color: '#FFFFFF', fontSize: 28, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
 }
