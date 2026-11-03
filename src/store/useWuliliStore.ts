@@ -1,3 +1,4 @@
+// src/store/useWuliliStore.ts
 import { create } from 'zustand';
 import type { ActionFeedback, ActionType, IllnessType, WuliliState, WuliliStats } from '@/types/wulili';
 import { INITIAL_WULILI_STATE, STAT_LIMITS } from '@/types/wulili';
@@ -8,7 +9,6 @@ import { aggregateBonus, type AggregatedBonus } from '@/utils/equipmentBonus';
 import { computeSleepDeprivation, SLEEP_CONFIG } from '@/data/sleepConfig';
 import { MENSTRUAL_CONFIG, randomCycleLength, getMedicineExpireAt } from '@/data/menstrualConfig';
 
-// 🔥 扩展类型，加入房屋和事件消息
 export type ExtendedWuliliState = WuliliState & {
   currentHouseId: string;
   lastEventMessage: string | null;
@@ -77,6 +77,12 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   const streaming = isStreamingNow();
   const sleeping = isSleepingNow();
+  
+  // 🔥 核心修复：如果在睡觉，直接跳过所有数值扣除，返回原状态（仅更新时间戳）
+  if (sleeping) {
+    return { ...state, lastTickAt: Date.now() };
+  }
+
   const bonus = getBonus();
   const sleepDeprivation = computeSleepDeprivation(state.lastSleptAt, state.createdAt);
 
@@ -88,11 +94,11 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const menstrualPenalty = inPeriod ? (medicineActive ? 0.3 : 1.0) : 0;
 
   const hungerDecay = 3.2 * hours;
-  const energyDecay = (streaming || sleeping) ? 0 : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
-  const moodDecayBase = (streaming || sleeping) ? 0 : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier * (1 + menstrualPenalty * 1.0);
+  const energyDecay = streaming ? 0 : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
+  const moodDecayBase = streaming ? 0 : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier * (1 + menstrualPenalty * 1.0);
 
   let moodDecay = moodDecayBase;
-  if (!streaming && !sleeping) {
+  if (!streaming) {
     if (state.stats.hunger < 30) moodDecay += 1.4 * hours;
     if (state.stats.health < 40) moodDecay += 1.2 * hours;
     if (state.illness.type !== 'none') moodDecay += 1.6 * hours;
@@ -100,7 +106,7 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
 
   let healthDecay = 0.5 * hours;
   if (state.stats.hunger < 20) healthDecay += 1.6 * hours;
-  if (state.stats.energy < 15 && !streaming && !sleeping) healthDecay += 1.2 * hours;
+  if (state.stats.energy < 15 && !streaming) healthDecay += 1.2 * hours;
   if (inPeriod) healthDecay += 0.5 * hours * (medicineActive ? 0.3 : 1.0);
 
   const newStats: WuliliStats = {
@@ -114,7 +120,7 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   let illness = state.illness;
   if (illness.type === 'none') {
     const rhinitisRisk = computeRhinitisRisk(newStats, hours) * (1 - bonus.illnessResistance);
-    const sleepIllnessRisk = sleeping ? 0 : sleepDeprivation.illnessRiskPerHour * hours * (1 - bonus.illnessResistance);
+    const sleepIllnessRisk = sleepDeprivation.illnessRiskPerHour * hours * (1 - bonus.illnessResistance);
     if (chance(sleepIllnessRisk)) {
       illness = { type: pickRandomSleepIllness(), since: Date.now(), severity: 1.2 };
     } else if (chance(rhinitisRisk)) {
@@ -148,7 +154,6 @@ function migrateState(stored: Partial<ExtendedWuliliState>): ExtendedWuliliState
     ...stored,
     currentHouseId: stored.currentHouseId ?? 'default_room',
     lastEventMessage: stored.lastEventMessage ?? null,
-    // 🔥 兼容旧存档：缺 lastPokedAt 补 null
     lastPokedAt: typeof (stored as any).lastPokedAt === 'number' ? (stored as any).lastPokedAt : null,
     stats: { ...INITIAL_WULILI_STATE.stats, ...(stored.stats ?? {}) },
     illness: { ...INITIAL_WULILI_STATE.illness, ...(stored.illness ?? {}) },
@@ -215,16 +220,19 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   addStats: (delta) => {
     const current = get().state;
-    const bonus = getBonus();
     const newStats: WuliliStats = { ...current.stats };
     (Object.keys(delta) as Array<keyof WuliliStats>).forEach((key) => {
       let d = delta[key];
       if (typeof d !== 'number') return;
+      
+      // 只对减少的数值进行衣服/饰品折扣，增加的直接加
       if (d < 0) {
-        if (key === 'mood') d = d * bonus.moodDecayRate;
-        if (key === 'energy') d = d * bonus.energyCostRate;
+        const bonus = getBonus();
+        if (key === 'mood') d = d * (bonus.moodDecayRate ?? 1);
+        if (key === 'energy') d = d * (bonus.energyCostRate ?? 1);
       } else {
-        if (key === 'mood') d = d * bonus.moodRecoveryRate;
+        const bonus = getBonus();
+        if (key === 'mood') d = d * (bonus.moodRecoveryRate ?? 1);
       }
       newStats[key] = clampStat(key, newStats[key] + d);
     });
@@ -309,7 +317,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     if (action === 'exercise') next.lastExercisedAt = now;
     if (action === 'medicine') next.lastMedicineAt = now;
     if (action === 'sleep') next.lastSleptAt = now;
-    if (action === 'poke_head') next.lastPokedAt = now;   // 🔥 新增
+    if (action === 'poke_head') next.lastPokedAt = now;
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
   },
@@ -424,6 +432,4 @@ function rollCycleIfNeeded(state: ExtendedWuliliState): ExtendedWuliliState {
 
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
-}
-
-void SLEEP_CONFIG;
+                    }
