@@ -1,3 +1,4 @@
+// src/hooks/useGameLoop.ts
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -40,16 +41,13 @@ export function useGameLoop(): UseGameLoopResult {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const runningRef = useRef<boolean>(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  // 🔥 房租内存锁，防止 tick 并发/进程切换导致重复扣租
   const rentLockRef = useRef<boolean>(false);
 
   useEffect(() => {
-    // 初始化安装日期
     AsyncStorage.getItem('@wulili/install_date').then((val) => {
       if (!val) AsyncStorage.setItem('@wulili/install_date', Date.now().toString());
     });
 
-    // 🔥 按月扣费（先写日期再扣钱 + 内存锁）
     const checkMonthlyRent = async () => {
       if (rentLockRef.current) return;
       rentLockRef.current = true;
@@ -57,7 +55,6 @@ export function useGameLoop(): UseGameLoopResult {
         const now = Date.now();
         const installDateStr = await AsyncStorage.getItem('@wulili/install_date');
         const installDate = installDateStr ? parseInt(installDateStr, 10) : now;
-
         const lastRentDateStr = await AsyncStorage.getItem('@wulili/last_rent_date');
         const lastRentTime = lastRentDateStr ? parseInt(lastRentDateStr, 10) : installDate;
 
@@ -69,12 +66,9 @@ export function useGameLoop(): UseGameLoopResult {
         const rentPrice = house.rentPrice;
         const currentCoins = wuliliStore.state.coins;
 
-        // ✅ 先写日期，再扣钱：即使进程在扣钱前被杀，也不会重复扣
         await AsyncStorage.setItem('@wulili/last_rent_date', now.toString());
-
         wuliliStore.addCoins(-rentPrice);
 
-        // 判断余额与房租的倍数，决定台词与心情
         const remainingCoins = currentCoins - rentPrice;
         let msg = '';
 
@@ -95,12 +89,10 @@ export function useGameLoop(): UseGameLoopResult {
           wuliliStore.addStats({ mood: 15 });
         }
 
-        // 塞进 Store，触发 WuliliScreen 的统一弹窗
         useWuliliStore.setState((prev) => ({
           state: { ...prev.state, lastEventMessage: msg },
         }));
       } catch (e) {
-        // 静默失败，下个 tick 重试
       } finally {
         rentLockRef.current = false;
       }
@@ -159,28 +151,14 @@ export function useGameLoop(): UseGameLoopResult {
       const streamIncomePenalty = 1 - menstrualPenalty * 0.3;
       const energyExtraCost = 1 + menstrualPenalty * 0.3;
 
-      const earningsPerSecond =
-        STREAM_CONFIG.baseEarningPerSecond *
-        moodFactor *
-        healthFactor *
-        bonus.streamIncomeRate *
-        levelMultiplier *
-        durationInfo.multiplier *
-        streamIncomePenalty;
+      const earningsPerSecond = STREAM_CONFIG.baseEarningPerSecond * moodFactor * healthFactor * bonus.streamIncomeRate * levelMultiplier * durationInfo.multiplier * streamIncomePenalty;
       const energyCostPerSecond = STREAM_CONFIG.energyCostPerSecond * bonus.energyCostRate * energyExtraCost;
       const moodCostPerSecond = STREAM_CONFIG.moodCostPerSecond * bonus.moodDecayRate * (1 + menstrualPenalty * 0.5);
 
       streamStore.tick(
-        deltaMs,
-        earningsPerSecond,
-        energyCostPerSecond,
-        moodCostPerSecond,
-        (energyCost, moodCost) => {
-          useWuliliStore.getState().addStats({ energy: -energyCost, mood: -moodCost });
-        },
-        (seconds) => {
-          useWuliliStore.getState().addStreamSeconds(seconds);
-        },
+        deltaMs, earningsPerSecond, energyCostPerSecond, moodCostPerSecond,
+        (energyCost, moodCost) => { useWuliliStore.getState().addStats({ energy: -energyCost, mood: -moodCost }); },
+        (seconds) => { useWuliliStore.getState().addStreamSeconds(seconds); },
       );
 
       const afterTick = useWuliliStore.getState().state;
@@ -193,36 +171,51 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
+    // 🔥 暴力修复睡眠逻辑：不走 addStats，直接计算并写死
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
       if (!sleep.isSleeping) return;
 
-      const bonus = getBonus();
-      let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
-      const menstrualPenalty = getMenstrualPenalty();
-      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
+      // 设定恢复速率（每小时恢复 15 点精力，约 7 小时回满）
+      const energyPerHour = 15; 
+      const moodPerHour = 10;
+      const healthPerHour = 8;
 
-      const energyPerSec = (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
-      const moodPerSec = (SLEEP_CONFIG.moodRecoveryPerHour / 3600) * recoveryMultiplier;
-      const healthPerSec = (SLEEP_CONFIG.healthRecoveryPerHour / 3600) * recoveryMultiplier;
+      const hoursPassed = deltaMs / (3600 * 1000);
+      const energyGain = energyPerHour * hoursPassed;
+      const moodGain = moodPerHour * hoursPassed;
+      const healthGain = healthPerHour * hoursPassed;
 
+      // 强制加精力，忽略任何衣服折扣
+      useWuliliStore.setState((prev) => {
+        const s = prev.state.stats;
+        return {
+          state: {
+            ...prev.state,
+            stats: {
+              ...s,
+              energy: Math.min(100, s.energy + energyGain),
+              mood: Math.min(100, s.mood + moodGain),
+              health: Math.min(100, s.health + healthGain),
+            },
+          },
+        };
+      });
+
+      // 累加睡眠时长
       sleepStore.tick(
         deltaMs,
-        { energy: energyPerSec, mood: moodPerSec, health: healthPerSec },
-        (energyGain, moodGain, healthGain) => {
-          useWuliliStore.getState().addStats({ energy: energyGain, mood: moodGain, health: healthGain });
-        },
-        (seconds) => {
-          useWuliliStore.getState().addSleepSeconds(seconds);
-        },
+        { energy: 0, mood: 0, health: 0 }, 
+        () => {}, 
+        (seconds) => useWuliliStore.getState().addSleepSeconds(seconds),
       );
 
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
-
-      // 精力满 或 睡满 maxSleepHours 自动醒
-      if (afterTick.stats.energy >= SLEEP_CONFIG.autoWakeEnergy || totalHours >= SLEEP_CONFIG.maxSleepHours) {
+      
+      // 精力满了 或者 睡满 24 小时，自动醒
+      if (afterTick.stats.energy >= 100 || totalHours >= 24) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
       }
