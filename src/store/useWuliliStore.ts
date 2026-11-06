@@ -53,8 +53,12 @@ function isStreamingNow(): boolean {
   try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
+// 🔥 直接检查睡眠状态
 function isSleepingNow(): boolean {
-  try { const { useSleepStore } = require('@/store/useSleepStore'); return useSleepStore.getState().state.isSleeping === true; } catch { return false; }
+  try { 
+    const { useSleepStore } = require('@/store/useSleepStore'); 
+    return useSleepStore.getState().state.isSleeping === true; 
+  } catch { return false; }
 }
 
 function getBonus(): AggregatedBonus {
@@ -71,18 +75,20 @@ function getBonus(): AggregatedBonus {
 
 function pickRandomSleepIllness(): IllnessType { return chance(0.6) ? 'cold' : 'fever'; }
 
+// 🔥 重写时间流逝判定
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  const streaming = isStreamingNow();
   const sleeping = isSleepingNow();
-  
-  // 🔥 核心修复：如果在睡觉，直接跳过所有数值扣除，返回原状态（仅更新时间戳）
+
+  // 🔥 睡眠状态下，绝不衰减，直接返回
   if (sleeping) {
     return { ...state, lastTickAt: Date.now() };
   }
 
+  // 非睡眠状态，正常衰减
+  const streaming = isStreamingNow();
   const bonus = getBonus();
   const sleepDeprivation = computeSleepDeprivation(state.lastSleptAt, state.createdAt);
 
@@ -201,6 +207,15 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
 
   applyTimeDecay: () => {
     const current = get().state;
+    
+    // 🔥 核心拦截：如果在睡觉，直接更新时间戳并跳过所有逻辑！
+    if (isSleepingNow()) {
+      const sleepingState = { ...current, lastTickAt: Date.now() };
+      set({ state: sleepingState });
+      void storageSet(STORAGE_KEYS.wuliliState, sleepingState);
+      return;
+    }
+
     const rolled = rollCycleIfNeeded(current);
     const elapsed = (Date.now() - rolled.lastTickAt) / HOUR_MS;
     if (elapsed < 0.0005) {
@@ -225,7 +240,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       let d = delta[key];
       if (typeof d !== 'number') return;
       
-      // 只对减少的数值进行衣服/饰品折扣，增加的直接加
       if (d < 0) {
         const bonus = getBonus();
         if (key === 'mood') d = d * (bonus.moodDecayRate ?? 1);
@@ -432,4 +446,4 @@ function rollCycleIfNeeded(state: ExtendedWuliliState): ExtendedWuliliState {
 
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
-                    }
+}
