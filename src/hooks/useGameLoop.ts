@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useWuliliStore } from '@/store/useWuliliStore';
+import { useWuliliStore, isSleepingNow } from '@/store/useWuliliStore';
 import { useStreamStore } from '@/store/useStreamStore';
 import { useSleepStore } from '@/store/useSleepStore';
 import { useAppConfigStore } from '@/store/useAppConfigStore';
@@ -171,23 +171,13 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 暴力修复睡眠逻辑：不走 addStats，直接计算并写死
+    // 🔥 终极暴力加血逻辑
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
       if (!sleep.isSleeping) return;
 
-      // 设定恢复速率（每小时恢复 15 点精力，约 7 小时回满）
-      const energyPerHour = 15; 
-      const moodPerHour = 10;
-      const healthPerHour = 8;
-
-      const hoursPassed = deltaMs / (3600 * 1000);
-      const energyGain = energyPerHour * hoursPassed;
-      const moodGain = moodPerHour * hoursPassed;
-      const healthGain = healthPerHour * hoursPassed;
-
-      // 强制加精力，忽略任何衣服折扣
+      // 强制每 5 秒恢复 0.02 精力（相当于每小时 14.4 点）
       useWuliliStore.setState((prev) => {
         const s = prev.state.stats;
         return {
@@ -195,26 +185,21 @@ export function useGameLoop(): UseGameLoopResult {
             ...prev.state,
             stats: {
               ...s,
-              energy: Math.min(100, s.energy + energyGain),
-              mood: Math.min(100, s.mood + moodGain),
-              health: Math.min(100, s.health + healthGain),
+              energy: Math.min(100, s.energy + 0.02), // 硬性增加
+              mood: Math.min(100, s.mood + 0.01),
+              health: Math.min(100, s.health + 0.01),
             },
           },
         };
       });
 
       // 累加睡眠时长
-      sleepStore.tick(
-        deltaMs,
-        { energy: 0, mood: 0, health: 0 }, 
-        () => {}, 
-        (seconds) => useWuliliStore.getState().addSleepSeconds(seconds),
-      );
+      sleepStore.tick(deltaMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
+        (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
 
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
       
-      // 精力满了 或者 睡满 24 小时，自动醒
       if (afterTick.stats.energy >= 100 || totalHours >= 24) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
@@ -229,7 +214,12 @@ export function useGameLoop(): UseGameLoopResult {
         checkTravelStress();
 
         const wuliliStore = useWuliliStore.getState();
-        wuliliStore.applyTimeDecay();
+        
+        // 🔥 如果在睡觉，跳过正常的时间衰减
+        if (!isSleepingNow()) {
+          wuliliStore.applyTimeDecay();
+        }
+        
         processStreamTick(TICK_INTERVAL_MS);
         processSleepTick(TICK_INTERVAL_MS);
       } catch {}
