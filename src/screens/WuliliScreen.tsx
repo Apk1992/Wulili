@@ -51,26 +51,26 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [pokeMood, setPokeMood] = useState<Mood | null>(null);
   const pokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ===== 统一业务弹窗（替代 Alert） =====
-  // 通用对话弹窗：标题/文本/图标
+  // ===== 统一业务弹窗 =====
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogText, setDialogText] = useState('');
   const [dialogIcon, setDialogIcon] = useState<string>('chatbubble-ellipses');
+  const [dialogTitle, setDialogTitle] = useState<string>('雾璃');
 
-  const showDialog = useCallback((text: string, icon: string = 'chatbubble-ellipses') => {
+  const showDialog = useCallback((text: string, icon: string = 'chatbubble-ellipses', title: string = '雾璃') => {
     if (!text) return;
     setDialogText(text);
     setDialogIcon(icon);
+    setDialogTitle(title);
     setDialogVisible(true);
   }, []);
 
-  // 旅游归来照片弹窗（独立，因为要清 lastTravelResult）
   const [photoDialogVisible, setPhotoDialogVisible] = useState(false);
   const [photoDialogText, setPhotoDialogText] = useState('');
 
   const timeOfDay = getTimeOfDay();
 
-  // ===== Store 订阅（防御性取值） =====
+  // ===== Store 订阅 =====
   const energy = useWuliliStore((s) => s.state?.stats?.energy) ?? 100;
   const hunger = useWuliliStore((s) => s.state?.stats?.hunger) ?? 100;
   const moodVal = useWuliliStore((s) => s.state?.stats?.mood) ?? 80;
@@ -78,8 +78,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const illness = useWuliliStore((s) => s.state?.illness);
   const affinity = useWuliliStore((s) => s.state?.affinity) ?? 0;
   const currentHouseId = useWuliliStore((s) => s.state?.currentHouseId) || 'default_room';
-
-  // 🔥 房租/事件消息：订阅并触发弹窗
   const lastEventMessage = useWuliliStore((s) => s.state?.lastEventMessage ?? null);
 
   const isStreaming = useStreamStore((s) => s.state?.isStreaming) ?? false;
@@ -95,18 +93,17 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const isTraveling = travelState.isTraveling;
   const lastTravelResult = (travelState as any).lastTravelResult as string | null;
 
-  // ===== 1s 心跳（直播/睡眠/旅游倒计时） =====
+  // ===== 1s 心跳 =====
   useEffect(() => {
     if (!isStreaming && !isSleeping && !isTraveling) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping, isTraveling]);
 
-  // ===== 🔥 房租事件 → 统一弹窗 =====
+  // ===== 房租事件弹窗 =====
   useEffect(() => {
     if (!lastEventMessage) return;
     showDialog(lastEventMessage, 'cash');
-    // 消费掉消息，防止重复弹
     useWuliliStore.setState((prev) => ({
       state: { ...prev.state, lastEventMessage: null },
     }));
@@ -133,7 +130,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => { if (pokeTimerRef.current) clearTimeout(pokeTimerRef.current); };
   }, []);
 
-  // ===== 动态背景（房屋 + 季节 + 昼夜） =====
+  // ===== 动态背景 =====
   const awakeSceneUri = useMemo(() => {
     const seasonStr = season ?? 'autumn';
     const h = new Date().getHours();
@@ -169,7 +166,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     setPokeMood('shy');
     try { useWuliliStore.getState().markInteraction('poke_head'); } catch {}
     try {
-      const line = speak({ forceCategory: 'poke' });
+      const line = speak({ action: 'entertain' }); // 兼容现有 action
       const text = typeof line === 'string' ? line : (line as any)?.text;
       if (typeof text === 'string' && text.length > 0) {
         showDialog(text, 'hand-left');
@@ -189,11 +186,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
+  // 🔥 叫醒逻辑（强制回 50 点测试版）
   const handleWakeUp = useCallback(() => {
+    // 强制塞 50 点精力
+    useWuliliStore.setState((prev) => ({
+      state: {
+        ...prev.state,
+        stats: { ...prev.state.stats, energy: Math.min(100, prev.state.stats.energy + 50) }
+      }
+    }));
+
     stopSleep();
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
-    showDialog(`雾璃睡了 ${formatSleepDuration(totalSec)}，精力恢复了一些。`, 'sunny');
+    showDialog(`雾璃睡了 ${formatSleepDuration(totalSec)}，精力强制恢复了 50 点。`, 'sunny');
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog]);
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
@@ -218,7 +224,6 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         style={{ flex: 1 }}
         resizeMode="cover"
       >
-        {/* 立绘 + 摸头热区 */}
         {!isSleeping && !isTraveling && (
           <>
             <Image
@@ -374,10 +379,11 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
         </View>
       </ImageBackground>
 
-      {/* 通用业务弹窗（房租 / 摸头 / 睡眠 / 提示） */}
+      {/* 通用业务弹窗 */}
       <ActionDialogueModal
         visible={dialogVisible}
         text={dialogText}
+        title={dialogTitle}
         onClose={() => setDialogVisible(false)}
         iconName={dialogIcon as any}
       />
