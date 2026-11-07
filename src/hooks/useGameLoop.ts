@@ -171,13 +171,31 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 终极暴力加血逻辑
+    // 🔥 恢复正常睡眠逻辑（带装备加成）
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
       if (!sleep.isSleeping) return;
 
-      // 强制每 5 秒恢复 0.02 精力（相当于每小时 14.4 点）
+      const bonus = getBonus();
+      let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
+      
+      // 大姨妈惩罚（如果在经期且没吃药，恢复减半）
+      const menstrualPenalty = getMenstrualPenalty();
+      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
+
+      // 读取 sleepConfig 里的恢复速率（每小时恢复多少点）
+      // 假设 energyRecoveryPerHour 是 15，那么 1 小时能恢复 15 点。
+      const energyPerSec = (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
+      const moodPerSec = (SLEEP_CONFIG.moodRecoveryPerHour / 3600) * recoveryMultiplier;
+      const healthPerSec = (SLEEP_CONFIG.healthRecoveryPerHour / 3600) * recoveryMultiplier;
+
+      // 计算这 5 秒应该恢复多少
+      const energyGain = energyPerSec * (deltaMs / 1000);
+      const moodGain = moodPerSec * (deltaMs / 1000);
+      const healthGain = healthPerSec * (deltaMs / 1000);
+
+      // 用 setState 强制加，防止被 addStats 里的负向逻辑干扰
       useWuliliStore.setState((prev) => {
         const s = prev.state.stats;
         return {
@@ -185,9 +203,9 @@ export function useGameLoop(): UseGameLoopResult {
             ...prev.state,
             stats: {
               ...s,
-              energy: Math.min(100, s.energy + 0.02), // 硬性增加
-              mood: Math.min(100, s.mood + 0.01),
-              health: Math.min(100, s.health + 0.01),
+              energy: Math.min(100, s.energy + energyGain),
+              mood: Math.min(100, s.mood + moodGain),
+              health: Math.min(100, s.health + healthGain),
             },
           },
         };
@@ -200,7 +218,8 @@ export function useGameLoop(): UseGameLoopResult {
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
       
-      if (afterTick.stats.energy >= 100 || totalHours >= 24) {
+      // 精力满了 或者 睡满 maxSleepHours（24小时），自动醒
+      if (afterTick.stats.energy >= 100 || totalHours >= SLEEP_CONFIG.maxSleepHours) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
       }
@@ -215,7 +234,7 @@ export function useGameLoop(): UseGameLoopResult {
 
         const wuliliStore = useWuliliStore.getState();
         
-        // 🔥 如果在睡觉，跳过正常的时间衰减
+        // 如果在睡觉，跳过正常的时间衰减
         if (!isSleepingNow()) {
           wuliliStore.applyTimeDecay();
         }
