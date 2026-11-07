@@ -100,7 +100,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     return () => clearInterval(timer);
   }, [isStreaming, isSleeping, isTraveling]);
 
-  // ===== 房租事件弹窗 =====
+  // ===== 房租/事件弹窗 =====
   useEffect(() => {
     if (!lastEventMessage) return;
     showDialog(lastEventMessage, 'cash');
@@ -166,7 +166,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     setPokeMood('shy');
     try { useWuliliStore.getState().markInteraction('poke_head'); } catch {}
     try {
-      const line = speak({ action: 'entertain' }); // 兼容现有 action
+      const line = speak({ action: 'entertain' });
       const text = typeof line === 'string' ? line : (line as any)?.text;
       if (typeof text === 'string' && text.length > 0) {
         showDialog(text, 'hand-left');
@@ -186,20 +186,12 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 叫醒逻辑（强制回 50 点测试版）
+  // 🔥 恢复正常叫醒逻辑
   const handleWakeUp = useCallback(() => {
-    // 强制塞 50 点精力
-    useWuliliStore.setState((prev) => ({
-      state: {
-        ...prev.state,
-        stats: { ...prev.state.stats, energy: Math.min(100, prev.state.stats.energy + 50) }
-      }
-    }));
-
     stopSleep();
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
-    showDialog(`雾璃睡了 ${formatSleepDuration(totalSec)}，精力强制恢复了 50 点。`, 'sunny');
+    showDialog(`雾璃睡了 ${formatSleepDuration(totalSec)}，精力恢复了一些。`, 'sunny');
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog]);
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
