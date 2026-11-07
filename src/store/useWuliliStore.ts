@@ -53,8 +53,7 @@ function isStreamingNow(): boolean {
   try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
-// 🔥 直接检查睡眠状态
-function isSleepingNow(): boolean {
+export function isSleepingNow(): boolean {
   try { 
     const { useSleepStore } = require('@/store/useSleepStore'); 
     return useSleepStore.getState().state.isSleeping === true; 
@@ -75,19 +74,11 @@ function getBonus(): AggregatedBonus {
 
 function pickRandomSleepIllness(): IllnessType { return chance(0.6) ? 'cold' : 'fever'; }
 
-// 🔥 重写时间流逝判定
 function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliState {
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  const sleeping = isSleepingNow();
-
-  // 🔥 睡眠状态下，绝不衰减，直接返回
-  if (sleeping) {
-    return { ...state, lastTickAt: Date.now() };
-  }
-
-  // 非睡眠状态，正常衰减
+  // 正常衰减逻辑（仅在清醒时调用）
   const streaming = isStreamingNow();
   const bonus = getBonus();
   const sleepDeprivation = computeSleepDeprivation(state.lastSleptAt, state.createdAt);
@@ -206,18 +197,19 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
-    const current = get().state;
-    
-    // 🔥 核心拦截：如果在睡觉，直接更新时间戳并跳过所有逻辑！
+    // 🔥 绝对防御：如果在睡觉，直接跳过所有时间衰减！
     if (isSleepingNow()) {
+      const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
       set({ state: sleepingState });
       void storageSet(STORAGE_KEYS.wuliliState, sleepingState);
       return;
     }
 
+    const current = get().state;
     const rolled = rollCycleIfNeeded(current);
     const elapsed = (Date.now() - rolled.lastTickAt) / HOUR_MS;
+    
     if (elapsed < 0.0005) {
       if (rolled !== current) { set({ state: rolled }); void storageSet(STORAGE_KEYS.wuliliState, rolled); }
       return;
@@ -239,14 +231,14 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     (Object.keys(delta) as Array<keyof WuliliStats>).forEach((key) => {
       let d = delta[key];
       if (typeof d !== 'number') return;
+      const bonus = getBonus();
       
       if (d < 0) {
-        const bonus = getBonus();
         if (key === 'mood') d = d * (bonus.moodDecayRate ?? 1);
         if (key === 'energy') d = d * (bonus.energyCostRate ?? 1);
       } else {
-        const bonus = getBonus();
         if (key === 'mood') d = d * (bonus.moodRecoveryRate ?? 1);
+        // 正向加精力不乘任何装备系数
       }
       newStats[key] = clampStat(key, newStats[key] + d);
     });
