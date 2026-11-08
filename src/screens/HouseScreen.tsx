@@ -1,12 +1,10 @@
 // src/screens/HouseScreen.tsx
 import React, { useState, useCallback } from 'react';
-import { FlatList, Text, View, Pressable } from 'react-native';
+import { FlatList, Text, View, Pressable, Image } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import ScreenContainer from '@/components/ScreenContainer';
-import RemoteImage from '@/components/RemoteImage';
-import Button from '@/components/Button';
 import { ActionDialogueModal } from '@/components/ActionDialogueModal';
 import { useWuliliStore } from '@/store/useWuliliStore';
 import { useSeason } from '@/hooks/useSeason';
@@ -128,15 +126,13 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
               borderColor: '#334155',
               overflow: 'hidden',
             }}>
-              {/* 房屋预览图：强制深色底，防止白屏 */}
+              {/* 房屋预览图：原生 Image 确保底色深色 */}
               <View style={{ height: 180, width: '100%', backgroundColor: '#0F172A' }}>
                 {imageUri ? (
-                  <RemoteImage
-                    uri={imageUri}
-                    width={undefined as any}
-                    height={180}
+                  <Image
+                    source={{ uri: imageUri }}
+                    style={{ width: '100%', height: '100%' }}
                     resizeMode="cover"
-                    fallbackIcon="home"
                   />
                 ) : (
                   <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -156,15 +152,6 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
                     </View>
                   )}
                 </View>
-
-                {/* 🔥 调试用：显示请求的 URL，如果你看到这行字，说明 URL 拼接正确 */}
-                {imageUri && (
-                  <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4 }}>
-                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }} numberOfLines={1}>
-                      {imageUri}
-                    </Text>
-                  </View>
-                )}
               </View>
 
               {/* 卡片内容 */}
@@ -190,16 +177,28 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
                     </Text>
                   </View>
 
+                  {/* 🔥 按钮：手写 Pressable，强制白字，杜绝 NativeWind 干扰 */}
                   {!isOwned && (
-                    <View style={{ width: 110 }}>
-                      <Button
-                        label={affordable ? '购买搬家' : '金币不足'}
-                        size="sm"
-                        variant={affordable ? 'primary' : 'ghost'}
-                        disabled={!affordable}
-                        onPress={() => handleBuyPress(item.id, item.price)}
-                      />
-                    </View>
+                    <Pressable
+                      onPress={() => handleBuyPress(item.id, item.price)}
+                      disabled={!affordable}
+                      style={({ pressed }) => ({
+                        width: 100,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        backgroundColor: !affordable ? '#334155' : (pressed ? '#1D4ED8' : '#2563EB'),
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      })}
+                    >
+                      <Text style={{ 
+                        color: !affordable ? '#64748B' : '#FFFFFF', 
+                        fontSize: 14, 
+                        fontWeight: '700' 
+                      }}>
+                        {affordable ? '购买搬家' : '金币不足'}
+                      </Text>
+                    </Pressable>
                   )}
                 </View>
               </View>
