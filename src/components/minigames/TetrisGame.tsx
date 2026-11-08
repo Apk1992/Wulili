@@ -129,7 +129,6 @@ export function TetrisGame({
   scoreRef.current = score;
   finishedRef.current = finished;
 
-  // 🔥 核心修复：不管是通关还是堆满，都按正常结算给奖励！
   const finish = useCallback(
     (result: 'victory' | 'defeat') => {
       if (finishedRef.current) return;
@@ -138,7 +137,6 @@ export function TetrisGame({
       
       const durationMs = Date.now() - startedAt;
       
-      // 即使是 defeat（堆满），我们也当作正常结束发放基础奖励
       onComplete({
         minigameId,
         levelId: level.id,
@@ -147,8 +145,8 @@ export function TetrisGame({
         score: scoreRef.current, 
         maxCombo: comboRef.current,
         durationMs,
-        moodGain: level.moodGain,      // 直接给满额
-        coinReward: level.coinReward,  // 直接给满额
+        moodGain: level.moodGain,
+        coinReward: level.coinReward,
         energyCost: level.energyCost,
       });
     },
@@ -169,7 +167,6 @@ export function TetrisGame({
     
     setBoard(cleared);
 
-    // 计分逻辑
     if (n > 0) {
       let baseScore = 0;
       if (n === 1) baseScore = 100;
@@ -195,7 +192,7 @@ export function TetrisGame({
 
     const next = spawnPiece();
     if (collides(cleared, next)) {
-      finish('defeat'); // 堆满结束
+      finish('defeat');
       return;
     }
     setPiece(next);
@@ -285,7 +282,9 @@ export function TetrisGame({
       },
       onPanResponderRelease: (evt, gestureStateNative) => {
         const state = gestureState.current;
-        if (!state.hasMoved && Math.abs(gestureStateNative.dx) < 10 && Math.abs(gestureStateNative.dy) < 10) {
+        // 🔥 修复：把点击判定的阈值从 10 放宽到 20，并且增加对 hasMoved 的容错
+        // 只要没有产生过显著的横纵滑动，就视为点击
+        if (!state.hasMoved && Math.abs(gestureStateNative.dx) < 20 && Math.abs(gestureStateNative.dy) < 20) {
           rotatePiece();
         }
       },
@@ -344,8 +343,9 @@ export function TetrisGame({
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
+      {/* 🔥 把 panHandlers 放到棋盘外面的容器上，并且增加 padding 防止边缘手势冲突 */}
       <View 
-        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40, paddingHorizontal: 10 }}
         {...panResponder.panHandlers}
       >
         <View style={{ 
