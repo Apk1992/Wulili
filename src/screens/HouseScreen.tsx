@@ -24,7 +24,7 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
   const buyHouse = useWuliliStore((s) => s.buyHouse);
   const { season } = useSeason();
 
-  // ===== 统一弹窗状态 =====
+  // ===== 统一弹窗 =====
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogTitle, setDialogTitle] = useState<string>('雾璃');
@@ -73,7 +73,7 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
     setDialogVisible(false);
   };
 
-  // 🔥 动态生成图片 URL（与主页逻辑完全一致）
+  // 🔥 动态生成图片 URL
   const getHouseImageUri = (imagePath: string | null | undefined) => {
     if (!imagePath) return null;
     const seasonStr = season ?? 'autumn';
@@ -128,7 +128,7 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
               borderColor: '#334155',
               overflow: 'hidden',
             }}>
-              {/* 房屋预览图 */}
+              {/* 房屋预览图：强制深色底，防止白屏 */}
               <View style={{ height: 180, width: '100%', backgroundColor: '#0F172A' }}>
                 {imageUri ? (
                   <RemoteImage
@@ -156,6 +156,15 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
                     </View>
                   )}
                 </View>
+
+                {/* 🔥 调试用：显示请求的 URL，如果你看到这行字，说明 URL 拼接正确 */}
+                {imageUri && (
+                  <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4 }}>
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)' }} numberOfLines={1}>
+                      {imageUri}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {/* 卡片内容 */}
