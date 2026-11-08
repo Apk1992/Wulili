@@ -163,7 +163,7 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
                     </View>
                     <View style={{ backgroundColor: 'rgba(139,92,246,0.15)', alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginBottom: 8 }}>
                       <Text style={{ fontSize: 10, fontWeight: '700', color: '#A78BFA' }}>
-                        每月: {formatCoins(item.rentPrice)}
+                        每月物业费: {formatCoins(item.rentPrice)}
                       </Text>
                     </View>
                     <Text style={{ fontSize: 12, color: '#94A3B8', lineHeight: 18 }} numberOfLines={3}>
