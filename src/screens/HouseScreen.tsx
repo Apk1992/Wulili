@@ -22,7 +22,6 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
   const buyHouse = useWuliliStore((s) => s.buyHouse);
   const { season } = useSeason();
 
-  // ===== 统一弹窗 =====
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogText, setDialogText] = useState<string | null>('');
   const [dialogTitle, setDialogTitle] = useState<string>('雾璃');
@@ -71,15 +70,22 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
     setDialogVisible(false);
   };
 
-  // 🔥 动态生成图片 URL
-  const getHouseImageUri = (imagePath: string | null | undefined) => {
-    if (!imagePath) return null;
+  // 🔥 终极暴力获取图片 URL：不管有没有配置，都强行拼出正确的地址
+  const getHouseImageUri = (item: any) => {
     const seasonStr = season ?? 'autumn';
     const h = new Date().getHours();
     const isNight = h >= 18 || h < 6;
     const nightSuffix = isNight ? '_night' : '';
 
-    const baseName = imagePath.replace(/\.(png|jpg|jpeg|webp)$/i, '');
+    // 如果是默认出租屋，直接拼 living 背景图
+    if (item.id === 'default_room') {
+      return `${R2_BASE}/images/scenes/living_${seasonStr}${nightSuffix}.png`;
+    }
+
+    // 如果是其他房子
+    let baseName = item.image || `images/scenes/${item.id}`;
+    // 去掉后缀
+    baseName = baseName.replace(/\.(png|jpg|jpeg|webp)$/i, '');
     return `${R2_BASE}/${baseName}_${seasonStr}${nightSuffix}.png`;
   };
 
@@ -102,7 +108,6 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <ScreenContainer padded={false} edges={['bottom']}>
-      {/* 顶部金币栏 */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }}>
         <Text style={{ fontSize: 14, color: '#94A3B8' }}>当前金币</Text>
         <Text style={{ fontSize: 18, fontWeight: '700', color: '#3B82F6' }}>{formatCoins(coins)}</Text>
@@ -115,7 +120,7 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
         renderItem={({ item }) => {
           const isOwned = currentHouseId === item.id;
           const affordable = coins >= item.price;
-          const imageUri = getHouseImageUri(item.image);
+          const imageUri = getHouseImageUri(item);
 
           return (
             <View style={{
@@ -126,21 +131,20 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
               borderColor: '#334155',
               overflow: 'hidden',
             }}>
-              {/* 房屋预览图：原生 Image 确保底色深色 */}
-              <View style={{ height: 180, width: '100%', backgroundColor: '#0F172A' }}>
-                {imageUri ? (
-                  <Image
-                    source={{ uri: imageUri }}
-                    style={{ width: '100%', height: '100%' }}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                    <Ionicons name="home" size={48} color="#475569" />
-                  </View>
-                )}
+              {/* 房屋预览图 */}
+              <View style={{ height: 180, width: '100%', backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' }}>
+                <Image
+                  source={{ uri: imageUri }}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                  resizeMode="cover"
+                />
+                {/* 如果你依然看不到图，这行调试字会告诉你到底去哪找图了 */}
+                <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.8)', padding: 4, borderRadius: 4, maxWidth: '80%' }}>
+                  <Text style={{ color: '#00FF00', fontSize: 10 }} numberOfLines={2}>
+                    {imageUri}
+                  </Text>
+                </View>
 
-                {/* 标签 */}
                 <View style={{ position: 'absolute', top: 10, right: 10 }}>
                   {isOwned ? (
                     <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: '#2563EB' }}>
@@ -177,22 +181,24 @@ export function HouseScreen({ navigation }: Props): React.JSX.Element {
                     </Text>
                   </View>
 
-                  {/* 🔥 按钮：手写 Pressable，强制白字，杜绝 NativeWind 干扰 */}
+                  {/* 🔥 修复按钮颜色：金币不足时用红色边框和浅红字，购买时用高亮蓝色 */}
                   {!isOwned && (
                     <Pressable
                       onPress={() => handleBuyPress(item.id, item.price)}
                       disabled={!affordable}
                       style={({ pressed }) => ({
-                        width: 100,
-                        paddingVertical: 8,
+                        width: 100, 
+                        paddingVertical: 8, 
                         borderRadius: 8,
-                        backgroundColor: !affordable ? '#334155' : (pressed ? '#1D4ED8' : '#2563EB'),
-                        alignItems: 'center',
+                        backgroundColor: !affordable ? 'rgba(239,68,68,0.2)' : (pressed ? '#1D4ED8' : '#2563EB'),
+                        borderWidth: !affordable ? 1 : 0,
+                        borderColor: '#EF4444',
+                        alignItems: 'center', 
                         justifyContent: 'center',
                       })}
                     >
                       <Text style={{ 
-                        color: !affordable ? '#64748B' : '#FFFFFF', 
+                        color: !affordable ? '#F87171' : '#FFFFFF', 
                         fontSize: 14, 
                         fontWeight: '700' 
                       }}>
