@@ -6,7 +6,7 @@ import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 const COLS = 10;
 const ROWS = 20;
 
-type Cell = 0 | 1 | 2; // 1 = 固定方块, 2 = 影子
+type Cell = 0 | 1 | 2;
 type Board = Cell[][];
 
 interface ShapeDef {
@@ -15,13 +15,13 @@ interface ShapeDef {
 }
 
 const SHAPES: ShapeDef[] = [
-  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },            // I
-  { cells: [[1, 1], [1, 1]], color: '#FACC15' },          // O
-  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },    // T
-  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },    // L
-  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },    // J
-  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },    // S
-  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },    // Z
+  { cells: [[1, 1, 1, 1]], color: '#38BDF8' },
+  { cells: [[1, 1], [1, 1]], color: '#FACC15' },
+  { cells: [[0, 1, 0], [1, 1, 1]], color: '#A78BFA' },
+  { cells: [[1, 0, 0], [1, 1, 1]], color: '#FB923C' },
+  { cells: [[0, 0, 1], [1, 1, 1]], color: '#60A5FA' },
+  { cells: [[0, 1, 1], [1, 1, 0]], color: '#4ADE80' },
+  { cells: [[1, 1, 0], [0, 1, 1]], color: '#F87171' },
 ];
 
 function emptyBoard(): Board {
@@ -116,7 +116,6 @@ export function TetrisGame({
   const [startedAt] = useState(Date.now());
   const [finished, setFinished] = useState(false);
   
-  // 连击计时器
   const lastClearTimeRef = useRef<number>(0);
   const comboRef = useRef<number>(0);
 
@@ -130,23 +129,26 @@ export function TetrisGame({
   scoreRef.current = score;
   finishedRef.current = finished;
 
+  // 🔥 核心修复：不管是通关还是堆满，都按正常结算给奖励！
   const finish = useCallback(
     (result: 'victory' | 'defeat') => {
       if (finishedRef.current) return;
       finishedRef.current = true;
       setFinished(true);
+      
       const durationMs = Date.now() - startedAt;
+      
+      // 即使是 defeat（堆满），我们也当作正常结束发放基础奖励
       onComplete({
         minigameId,
         levelId: level.id,
         engine: 'tetris',
-        result,
-        score: scoreRef.current, // 分数直接传给结算
+        result: result, 
+        score: scoreRef.current, 
         maxCombo: comboRef.current,
         durationMs,
-        // 如果分数高，可以给额外的金币奖励（可选）
-        moodGain: result === 'victory' ? level.moodGain : 0,
-        coinReward: result === 'victory' ? level.coinReward : 0,
+        moodGain: level.moodGain,      // 直接给满额
+        coinReward: level.coinReward,  // 直接给满额
         energyCost: level.energyCost,
       });
     },
@@ -157,19 +159,17 @@ export function TetrisGame({
     if (finishedRef.current) return;
     const cur = pieceRef.current;
     
-    // 没碰到东西，继续下落
     if (!collides(boardRef.current, cur, 1, 0)) {
       setPiece({ ...cur, row: cur.row + 1 });
       return;
     }
 
-    // 已经落地，合并方块并消行
     const merged = mergePiece(boardRef.current, cur);
     const { board: cleared, cleared: n } = clearLines(merged);
     
     setBoard(cleared);
 
-    // 🔥 计分逻辑
+    // 计分逻辑
     if (n > 0) {
       let baseScore = 0;
       if (n === 1) baseScore = 100;
@@ -177,7 +177,6 @@ export function TetrisGame({
       else if (n === 3) baseScore = 500;
       else if (n >= 4) baseScore = 800;
 
-      // 连击判断（如果上次消行是在 1.5 秒以内）
       const now = Date.now();
       if (now - lastClearTimeRef.current < 1500) {
         comboRef.current += 1;
@@ -186,27 +185,22 @@ export function TetrisGame({
       }
       lastClearTimeRef.current = now;
 
-      // 加上连击加成 (每连击 +50 分)
       const comboBonus = comboRef.current * 50;
       
       setScore((prev) => prev + baseScore + comboBonus);
       setLines((prev) => prev + n);
     } else {
-      // 没有消行，连击中断
       comboRef.current = 0;
     }
 
-    // 生成下一个方块
     const next = spawnPiece();
-    // 🔥 如果新方块在顶部生成时就发生碰撞，游戏结束！
     if (collides(cleared, next)) {
-      finish('defeat');
+      finish('defeat'); // 堆满结束
       return;
     }
     setPiece(next);
   }, [finish]);
 
-  // 自动下落心跳
   useEffect(() => {
     if (finished) return;
     const id = setInterval(drop, level.dropIntervalMs);
@@ -232,7 +226,6 @@ export function TetrisGame({
     setTimeout(() => drop(), 0);
   }, [drop]);
 
-  // 手势管理（不变）
   const gestureState = useRef({
     lastDx: 0,
     hasMoved: false,
@@ -346,13 +339,11 @@ export function TetrisGame({
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       
-      {/* 顶部信息栏：显示分数和行数 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
         <Text style={{ color: '#38BDF8', fontSize: 22, fontWeight: '900' }}>分数 {score}</Text>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
-      {/* 棋盘操作区 */}
       <View 
         style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 }}
         {...panResponder.panHandlers}
@@ -365,7 +356,6 @@ export function TetrisGame({
           borderColor: '#334155',
           position: 'relative'
         }}>
-          {/* 背景网格 */}
           {Array.from({ length: ROWS }).map((_, r) => (
             <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
@@ -373,7 +363,6 @@ export function TetrisGame({
             <View key={`col-${c}`} style={{ position: 'absolute', top: 0, bottom: 0, left: c * CELL_SIZE, width: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
           ))}
 
-          {/* 方块与影子渲染 */}
           {displayBoard.map((row, ri) => (
             <View key={ri} style={{ flexDirection: 'row', position: 'absolute', top: ri * CELL_SIZE }}>
               {row.map((cell, ci) => {
@@ -420,7 +409,6 @@ export function TetrisGame({
         </View>
       </View>
 
-      {/* 结束游戏按钮 */}
       <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 60 }}>
         <Pressable
           onPress={() => finish('victory')}
