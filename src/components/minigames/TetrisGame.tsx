@@ -204,12 +204,28 @@ export function TetrisGame({
     return () => clearInterval(id);
   }, [drop, level.dropIntervalMs, finished]);
 
+  // 🔥 修复：加入“踢墙”机制和双次重试
   const rotatePiece = useCallback(() => {
     if (finishedRef.current) return;
     const cur = pieceRef.current;
     const rotated = rotate(cur.shape);
+    
+    // 1. 尝试原地旋转
     if (!collides(boardRef.current, cur, 0, 0, rotated)) {
       setPiece({ ...cur, shape: rotated });
+      return;
+    }
+    
+    // 2. 如果原地不能转，尝试向左踢一格再转（解决靠右墙转不动的问题）
+    if (!collides(boardRef.current, cur, 0, -1, rotated)) {
+      setPiece({ ...cur, shape: rotated, col: cur.col - 1 });
+      return;
+    }
+
+    // 3. 尝试向右踢一格再转
+    if (!collides(boardRef.current, cur, 0, 1, rotated)) {
+      setPiece({ ...cur, shape: rotated, col: cur.col + 1 });
+      return;
     }
   }, []);
 
@@ -282,8 +298,6 @@ export function TetrisGame({
       },
       onPanResponderRelease: (evt, gestureStateNative) => {
         const state = gestureState.current;
-        // 🔥 修复：把点击判定的阈值从 10 放宽到 20，并且增加对 hasMoved 的容错
-        // 只要没有产生过显著的横纵滑动，就视为点击
         if (!state.hasMoved && Math.abs(gestureStateNative.dx) < 20 && Math.abs(gestureStateNative.dy) < 20) {
           rotatePiece();
         }
@@ -343,9 +357,9 @@ export function TetrisGame({
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
-      {/* 🔥 把 panHandlers 放到棋盘外面的容器上，并且增加 padding 防止边缘手势冲突 */}
+      {/* 🔥 增加左右 padding 20，防止手指在屏幕最边缘时触发安卓系统的侧滑返回手势 */}
       <View 
-        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40, paddingHorizontal: 10 }}
+        style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40, paddingHorizontal: 20 }}
         {...panResponder.panHandlers}
       >
         <View style={{ 
