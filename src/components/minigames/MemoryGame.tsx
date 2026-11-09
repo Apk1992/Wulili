@@ -1,276 +1,227 @@
-// src/components/minigames/MemoryGame.tsx
-import React, { useEffect, useState } from 'react';
-import { Pressable, Text, View, Dimensions, ActivityIndicator } from 'react-native';
+// src/components/MiniGameLoader.tsx
+import React, { useState, useCallback } from 'react';
+import { Text, View, Pressable, ScrollView } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { shuffle } from '@/utils/random';
-import { resolveMinigameAsset } from '@/services/minigameService';
-import type {
-  MemoryCardDef,
-  MemoryLevelConfig,
-  MinigameOutcome,
-} from '@/types/minigame';
-import RemoteImage from '../RemoteImage';
+import LoadingView from './LoadingView';
+import ErrorView from './ErrorView';
+import EmptyView from './EmptyView';
+import MemoryGame from './minigames/MemoryGame';
+import RhythmGame from './minigames/RhythmGame';
+import TetrisGame from './minigames/TetrisGame';
+import { ActionDialogueModal } from './ActionDialogueModal';
+import { useMinigameLevelsR2 as useMinigameLevels } from '@/hooks/useMinigameLevelsR2';
+import { useMinigameStore } from '@/store/useMinigameStore';
+import { useDialogue } from '@/hooks/useDialogue';
+import { isMemoryLevel, isRhythmLevel, isTetrisLevel } from '@/utils/minigameGuards';
+import type { MinigameIndexEntry } from '@/types/config';
+import type { MinigameLevelConfig, MinigameOutcome } from '@/types/minigame';
 
-interface CardState {
-  key: string;
-  card: MemoryCardDef;
-  flipped: boolean;
-  matched: boolean;
+export interface MiniGameLoaderProps {
+  entry: MinigameIndexEntry;
+  onExit: () => void;
 }
 
-export interface ExtendedMemoryLevelConfig extends MemoryLevelConfig {
-  pairs?: number;
-  cardBack?: string;
-}
+export function MiniGameLoader({
+  entry,
+  onExit,
+}: MiniGameLoaderProps): React.JSX.Element {
+  const levelsQuery = useMinigameLevels(entry, true);
+  const [activeLevel, setActiveLevel] = useState<MinigameLevelConfig | null>(null);
+  const { speak } = useDialogue();
 
-export interface MemoryGameProps {
-  level: ExtendedMemoryLevelConfig;
-  minigameId: string;
-  assetFolder: string;
-  onComplete: (outcome: MinigameOutcome) => void;
-  onQuit: () => void;
-}
+  const finishSession = useMinigameStore((s) => s.finishSession);
+  const abortSession = useMinigameStore((s) => s.abortSession);
+  const startSession = useMinigameStore((s) => s.startSession);
 
-// 🔥 固定卡片大小，不管什么难度，牌都这么大！
-const FIXED_CARD_SIZE = 76;
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const [dialogText, setDialogText] = useState<string | null>('');
+  const [dialogIcon, setDialogIcon] = useState<string>('game-controller');
+  const [dialogTitle, setDialogTitle] = useState<string | undefined>('雾璃');
+  const [dialogMode, setDialogMode] = useState<'info' | 'quitConfirm' | 'result'>('info');
 
-export function MemoryGame({
-  level,
-  minigameId,
-  assetFolder,
-  onComplete,
-  onQuit,
-}: MemoryGameProps): React.JSX.Element {
-  const [cards, setCards] = useState<CardState[]>([]);
-  const [firstIndex, setFirstIndex] = useState<number | null>(null);
-  const [locked, setLocked] = useState<boolean>(false);
-  const [score, setScore] = useState<number>(0);
-  const [combo, setCombo] = useState<number>(0);
-  const [maxCombo, setMaxCombo] = useState<number>(0);
-  const [remainingSeconds, setRemainingSeconds] = useState<number>(
-    level.timeLimitSeconds || 60,
+  const showDialog = useCallback(
+    (text: string, icon: string = 'game-controller', title: string = '雾璃') => {
+      if (!text) return;
+      setDialogText(text);
+      setDialogIcon(icon);
+      setDialogTitle(title);
+      setDialogMode('info');
+      setDialogVisible(true);
+    }, [],
   );
+
+  const showQuitConfirm = useCallback(() => {
+    setDialogText('确定要退出吗？本局进度不会保存，且会消耗对应精力。');
+    setDialogIcon('exit-outline');
+    setDialogTitle('退出游戏');
+    setDialogMode('quitConfirm');
+    setDialogVisible(true);
+  }, []);
+
+  if (levelsQuery.isLoading) return <LoadingView message="正在加载关卡数据…" fullScreen />;
+  if (levelsQuery.isError) return <ErrorView title="加载失败" message="网络错误" onRetry={() => levelsQuery.refetch()} fullScreen />;
   
-  const [isLoadingPool, setIsLoadingPool] = useState(true);
+  const levels = levelsQuery.data ?? [];
+  if (levels.length === 0) return <EmptyView title="暂无关卡" message="暂无数据" icon="game-controller-outline" actionLabel="返回" onAction={onExit} fullScreen />;
 
-  const { width: SCREEN_WIDTH } = Dimensions.get('window');
-  const cols = level.columns || 3;
-
-  // 开局拉卡池
-  useEffect(() => {
-    let isMounted = true;
-    setIsLoadingPool(true);
-
-    (async () => {
-      let allCards: string[] = [];
-      try {
-        const url = resolveMinigameAsset('minigames/memory/cards.json');
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          if (Array.isArray(json.cards) && json.cards.length > 0) allCards = json.cards;
-        }
-      } catch (e) {}
-
-      if (!isMounted) return;
-
-      if (allCards.length === 0) {
-        allCards = ['card_a.png', 'card_b.png', 'card_c.png', 'card_d.png', 'card_e.png', 'card_f.png'];
-      }
-
-      const shuffledPool = shuffle(allCards);
-      const needPairs = level.pairs || Math.min(6, shuffledPool.length);
-      const selectedImages = shuffledPool.slice(0, needPairs);
-
-      const doubled: MemoryCardDef[] = [];
-      selectedImages.forEach((img, idx) => {
-        const def: MemoryCardDef = { id: `c${idx}`, pairKey: `pair_${idx}`, image: img };
-        doubled.push(def);
-        doubled.push({ ...def, id: `c${idx}-copy` });
-      });
-
-      const finalDeck = shuffle(doubled);
-      const initial: CardState[] = finalDeck.map((card, index) => ({
-        key: `${card.id}-${index}`,
-        card,
-        flipped: false,
-        matched: false,
-      }));
-
-      setCards(initial);
-      setFirstIndex(null);
-      setLocked(false);
-      setScore(0);
-      setCombo(0);
-      setMaxCombo(0);
-      setRemainingSeconds(level.timeLimitSeconds || 60);
-      setIsLoadingPool(false);
-    })();
-
-    return () => { isMounted = false; };
-  }, [level]);
-
-  useEffect(() => {
-    if (isLoadingPool || cards.length === 0) return;
-    const timer = setInterval(() => {
-      setRemainingSeconds((prev) => {
-        if (prev <= 1) { clearInterval(timer); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isLoadingPool, cards.length]);
-
-  useEffect(() => {
-    if (remainingSeconds === 0 && cards.length > 0 && !cards.every((c) => c.matched)) {
-      onComplete({
-        minigameId,
-        levelId: level.id,
-        engine: 'memory',
-        result: 'defeat',
-        score,
-        maxCombo,
-        durationMs: (level.timeLimitSeconds || 60) * 1000,
-        moodGain: level.moodGain,
-        coinReward: level.coinReward,
-        energyCost: level.energyCost,
-      });
-    }
-  }, [remainingSeconds, cards, level, minigameId, onComplete, score, maxCombo]);
-
-  const handleFlip = (index: number) => {
-    if (locked || isLoadingPool) return;
-    const target = cards[index];
-    if (!target || target.flipped || target.matched) return;
-
-    const nextCards = cards.slice();
-    nextCards[index] = { ...target, flipped: true };
-    setCards(nextCards);
-
-    if (firstIndex === null) {
-      setFirstIndex(index);
+  const handleStart = (level: MinigameLevelConfig) => {
+    const ok = startSession(entry.id, level.id, level.energyCost);
+    if (!ok) {
+      showDialog('雾璃现在太累了，先让她休息一下吧。', 'battery-half');
       return;
     }
-
-    setLocked(true);
-    const firstCard = cards[firstIndex];
-
-    if (firstCard && firstCard.card.pairKey === target.card.pairKey) {
-      setTimeout(() => {
-        const matched = nextCards.map((c, i) =>
-          i === firstIndex || i === index ? { ...c, matched: true } : c,
-        );
-        const newCombo = combo + 1;
-        setCards(matched);
-        setCombo(newCombo);
-        setMaxCombo((prev) => Math.max(prev, newCombo));
-        setScore((prev) => prev + 10 + newCombo * 2);
-        setFirstIndex(null);
-        setLocked(false);
-
-        if (matched.every((c) => c.matched)) {
-          onComplete({
-            minigameId,
-            levelId: level.id,
-            engine: 'memory',
-            result: 'victory',
-            score: score + 10 + newCombo * 2,
-            maxCombo: Math.max(maxCombo, newCombo),
-            durationMs: ((level.timeLimitSeconds || 60) - remainingSeconds) * 1000,
-            moodGain: level.moodGain,
-            coinReward: level.coinReward,
-            energyCost: level.energyCost,
-          });
-        }
-      }, 260);
-    } else {
-      setTimeout(() => {
-        const reverted = nextCards.map((c, i) =>
-          i === firstIndex || i === index ? { ...c, flipped: false } : c,
-        );
-        setCards(reverted);
-        setCombo(0);
-        setFirstIndex(null);
-        setLocked(false);
-      }, 700);
-    }
+    setActiveLevel(level);
   };
 
-  if (isLoadingPool) {
+  // 🔥 核心改动：收益结算判定
+  const handleComplete = (outcome: MinigameOutcome) => {
+    const isWin = outcome.result === 'victory';
+    
+    // 失败只能拿 10% 的收益，防止疯狂刷局
+    const finalMood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.1);
+    const finalCoins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.1);
+
+    // 把修改后的收益喂给底层 Store
+    finishSession({
+      ...outcome,
+      moodGain: finalMood,
+      coinReward: finalCoins,
+    });
+
+    setActiveLevel(null);
+
+    let wuliliLine = isWin ? '玩得很开心，谢谢你陪我。' : '唔……这次没发挥好，下次再来吧。';
+    try {
+      const line = speak({ action: 'entertain' });
+      if (line) {
+        const text = typeof line === 'string' ? line : (line as any)?.text;
+        if (text) wuliliLine = text;
+      }
+    } catch (e) {}
+
+    setDialogTitle(isWin ? '游戏胜利！' : '游戏结束');
+    setDialogIcon(isWin ? 'trophy' : 'game-controller');
+    setDialogText(
+      `“${wuliliLine}”\n\n【本局结算】\n消耗精力：${outcome.energyCost}\n心情变化：+${finalMood}\n金币收益：+${finalCoins}\n最终得分：${outcome.score}`
+    );
+    setDialogMode('result');
+    setDialogVisible(true);
+  };
+
+  const handleQuitConfirm = () => {
+    setDialogVisible(false);
+    abortSession();
+    setActiveLevel(null);
+    onExit();
+  };
+
+  const handleResultClose = () => {
+    setDialogVisible(false);
+    onExit();
+  };
+
+  const renderDialog = () => (
+    <ActionDialogueModal
+      visible={dialogVisible}
+      text={dialogText}
+      iconName={dialogIcon as any}
+      title={dialogTitle}
+      onClose={() => {
+        if (dialogMode === 'result') handleResultClose();
+        else if (dialogMode === 'quitConfirm') handleQuitConfirm(); // 如果是退出确认，点背景也退出
+        else setDialogVisible(false);
+      }}
+      confirmText={dialogMode === 'quitConfirm' || dialogMode === 'result' ? '确定' : undefined}
+      cancelText={dialogMode === 'quitConfirm' ? '继续玩' : undefined}
+      onConfirm={
+        dialogMode === 'quitConfirm' ? handleQuitConfirm : 
+        dialogMode === 'result' ? handleResultClose : undefined
+      }
+      onCancel={dialogMode === 'quitConfirm' ? () => setDialogVisible(false) : undefined}
+    />
+  );
+
+  if (activeLevel) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#38BDF8" />
-        <Text style={{ color: '#F8FAFC', marginTop: 16 }}>正在准备牌堆…</Text>
+      <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
+        {isMemoryLevel(activeLevel) && <MemoryGame level={activeLevel} minigameId={entry.id} assetFolder={entry.assetFolder} onComplete={handleComplete} onQuit={showQuitConfirm} />}
+        {isRhythmLevel(activeLevel) && <RhythmGame level={activeLevel} minigameId={entry.id} onComplete={handleComplete} onQuit={showQuitConfirm} />}
+        {isTetrisLevel(activeLevel) && <TetrisGame level={activeLevel} minigameId={entry.id} onComplete={handleComplete} onQuit={showQuitConfirm} />}
+        {renderDialog()}
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Ionicons name="time-outline" size={18} color="#EF4444" />
-          <Text style={{ color: '#EF4444', fontSize: 18, fontWeight: '700', marginLeft: 4 }}>{remainingSeconds}s</Text>
-        </View>
-        <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
-      </View>
-
-      {/* 🔥 棋盘区域：固定卡片大小，居中显示 */}
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 }}>
-        <View style={{ 
-          flexDirection: 'row', 
-          flexWrap: 'wrap', 
-          justifyContent: 'center', 
-          // 根据列数计算容器宽度
-          width: Math.min(SCREEN_WIDTH - 40, cols * (FIXED_CARD_SIZE + 8)),
-        }}>
-          {cards.map((card, index) => (
-            <MemoryCardView
-              key={card.key}
-              card={card}
-              assetFolder={assetFolder}
-              backImage={level.cardBack || 'card_back.png'}
-              width={FIXED_CARD_SIZE}
-              onPress={() => handleFlip(index)}
-            />
-          ))}
-        </View>
-      </View>
-
-      <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
-        <Pressable
-          onPress={onQuit}
-          style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: 'rgba(239,68,68,0.2)', borderWidth: 1, borderColor: '#EF4444' }}
-        >
-          <Text style={{ color: '#EF4444', fontSize: 16, fontWeight: '700' }}>退出游戏</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20 }}>
+        <Pressable onPress={onExit} style={{ padding: 8, marginLeft: -8 }}>
+          <Ionicons name="arrow-back" size={26} color="#F8FAFC" />
         </Pressable>
+        <Text style={{ color: '#F8FAFC', fontSize: 22, fontWeight: '700', marginLeft: 8 }}>
+          {entry.name}
+        </Text>
       </View>
+
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
+        <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 16 }}>
+          选择一个关卡开始游戏
+        </Text>
+        
+        {levels.map((level) => (
+          <View
+            key={level.id}
+            style={{
+              backgroundColor: '#1E293B',
+              borderRadius: 16,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: '#334155',
+              padding: 16,
+            }}
+          >
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700', marginBottom: 6 }}>
+                {level.title}
+              </Text>
+              <Text style={{ color: '#94A3B8', fontSize: 14, lineHeight: 20 }}>
+                {level.description}
+              </Text>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: '#334155', marginBottom: 12 }} />
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ color: '#F59E0B', fontSize: 13, marginRight: 12 }}>
+                  ⚡ 消耗 {level.energyCost}
+                </Text>
+                <Text style={{ color: '#10B981', fontSize: 13 }}>
+                  😊 心情 +{level.moodGain}
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={() => handleStart(level)}
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? '#1D4ED8' : '#2563EB',
+                  paddingHorizontal: 24,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  minWidth: 88,
+                  alignItems: 'center',
+                })}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '700' }}>开始</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+
+      {renderDialog()}
     </View>
   );
 }
 
-function MemoryCardView({ card, assetFolder, backImage, width, onPress }: { card: CardState; assetFolder: string; backImage: string; width: number; onPress: () => void; }) {
-  const visible = card.flipped || card.matched;
-  
-  const imageUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${card.card.image}` : card.card.image);
-  const backUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${backImage}` : backImage);
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{ width, height: width, margin: 4, borderRadius: 12, overflow: 'hidden' }}
-    >
-      {visible ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#2563EB' }}>
-          <RemoteImage uri={imageUrl} width={width - 8} height={width - 8} fallbackIcon="star" />
-        </View>
-      ) : (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(37,99,235,0.2)', borderWidth: 1, borderColor: 'rgba(37,99,235,0.4)' }}>
-          <RemoteImage uri={backUrl} width={width - 8} height={width - 8} fallbackIcon="help" />
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
-export default MemoryGame;
+export default MiniGameLoader;
