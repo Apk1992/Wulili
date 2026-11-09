@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View, Dimensions, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { shuffle } from '@/utils/random';
-import { resolveMinigameAsset, fetchMinigameLevels } from '@/services/minigameService';
+import { resolveMinigameAsset } from '@/services/minigameService';
 import type {
   MemoryCardDef,
   MemoryLevelConfig,
@@ -18,7 +18,6 @@ interface CardState {
   matched: boolean;
 }
 
-// 我们给 MemoryLevelConfig 扩展一下新字段（兼容你原来的类型）
 export interface ExtendedMemoryLevelConfig extends MemoryLevelConfig {
   pairs?: number;
   cardBack?: string;
@@ -46,22 +45,21 @@ export function MemoryGame({
   const [combo, setCombo] = useState<number>(0);
   const [maxCombo, setMaxCombo] = useState<number>(0);
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
-    level.timeLimitSeconds,
+    level.timeLimitSeconds || 60,
   );
   
-  // 新增：加载卡池状态
   const [isLoadingPool, setIsLoadingPool] = useState(true);
 
-  // 响应式尺寸
+  // 响应式尺寸（加上了安全性兜底）
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const TOP_UI_HEIGHT = 80;
   const BOTTOM_UI_HEIGHT = 80;
-  
   const availableWidth = SCREEN_WIDTH - 40;
   const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
   
   const cols = level.columns || 3;
-  const rows = Math.ceil((level.pairs || 3) * 2 / cols);
+  const safePairs = level.pairs || 3;
+  const rows = Math.ceil((safePairs * 2) / cols);
   const CARD_SIZE = Math.floor(Math.min(availableWidth / cols, availableHeight / rows) - 8);
 
   // 🔥 核心逻辑：开局从 R2 拉卡池，抽卡并洗牌
@@ -72,33 +70,33 @@ export function MemoryGame({
     (async () => {
       let allCards: string[] = [];
       
-      // 尝试从 R2 拉取卡片库
       try {
         const url = resolveMinigameAsset('minigames/memory/cards.json');
         const res = await fetch(url);
         if (res.ok) {
           const json = await res.json();
-          if (Array.isArray(json.cards)) allCards = json.cards;
+          if (Array.isArray(json.cards) && json.cards.length > 0) {
+            allCards = json.cards;
+          }
         }
       } catch (e) {
-        console.warn('拉取卡片池失败', e);
+        console.warn('拉取卡片池失败，将使用默认兜底卡牌', e);
       }
 
       if (!isMounted) return;
 
-      // 如果没拉到，或者卡池不够，给个兜底（防止白屏）
+      // 🔥 强兜底：如果 R2 没传 cards.json，或格式不对，强制用这 6 张
       if (allCards.length === 0) {
-        allCards = ['card_a.png', 'card_b.png', 'card_c.png', 'card_d.png', 'card_e.png', 'card_f.png'];
+        allCards = [
+          'card_a.png', 'card_b.png', 'card_c.png', 
+          'card_d.png', 'card_e.png', 'card_f.png'
+        ];
       }
 
-      // 1. 打乱卡池
       const shuffledPool = shuffle(allCards);
-      
-      // 2. 抽出本次关卡需要的对数（如果有填就按填的，没填就按卡池一半）
-      const needPairs = level.pairs || Math.floor(allCards.length / 2);
+      const needPairs = level.pairs || Math.min(6, shuffledPool.length);
       const selectedImages = shuffledPool.slice(0, needPairs);
 
-      // 3. 生成配对数据（一正一反）
       const doubled: MemoryCardDef[] = [];
       selectedImages.forEach((img, idx) => {
         const def: MemoryCardDef = {
@@ -110,7 +108,6 @@ export function MemoryGame({
         doubled.push({ ...def, id: `c${idx}-copy` });
       });
 
-      // 4. 打乱顺序并初始化状态
       const finalDeck = shuffle(doubled);
       const initial: CardState[] = finalDeck.map((card, index) => ({
         key: `${card.id}-${index}`,
@@ -125,14 +122,13 @@ export function MemoryGame({
       setScore(0);
       setCombo(0);
       setMaxCombo(0);
-      setRemainingSeconds(level.timeLimitSeconds);
+      setRemainingSeconds(level.timeLimitSeconds || 60);
       setIsLoadingPool(false);
     })();
 
     return () => { isMounted = false; };
   }, [level]);
 
-  // 倒计时逻辑
   useEffect(() => {
     if (isLoadingPool || cards.length === 0) return;
     const timer = setInterval(() => {
@@ -147,7 +143,6 @@ export function MemoryGame({
     return () => clearInterval(timer);
   }, [isLoadingPool, cards.length]);
 
-  // 超时结算
   useEffect(() => {
     if (remainingSeconds === 0 && cards.length > 0 && !cards.every((c) => c.matched)) {
       onComplete({
@@ -157,7 +152,7 @@ export function MemoryGame({
         result: 'defeat',
         score,
         maxCombo,
-        durationMs: level.timeLimitSeconds * 1000,
+        durationMs: (level.timeLimitSeconds || 60) * 1000,
         moodGain: level.moodGain,
         coinReward: level.coinReward,
         energyCost: level.energyCost,
@@ -165,7 +160,6 @@ export function MemoryGame({
     }
   }, [remainingSeconds, cards, level, minigameId, onComplete, score, maxCombo]);
 
-  // 点击翻牌逻辑
   const handleFlip = (index: number) => {
     if (locked || isLoadingPool) return;
     const target = cards[index];
@@ -204,7 +198,7 @@ export function MemoryGame({
             result: 'victory',
             score: score + 10 + newCombo * 2,
             maxCombo: Math.max(maxCombo, newCombo),
-            durationMs: (level.timeLimitSeconds - remainingSeconds) * 1000,
+            durationMs: ((level.timeLimitSeconds || 60) - remainingSeconds) * 1000,
             moodGain: level.moodGain,
             coinReward: level.coinReward,
             energyCost: level.energyCost,
@@ -224,7 +218,6 @@ export function MemoryGame({
     }
   };
 
-  // 如果还在拉卡池，显示 Loading
   if (isLoadingPool) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' }}>
@@ -236,7 +229,6 @@ export function MemoryGame({
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      {/* 顶部信息 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Ionicons name="time-outline" size={18} color="#EF4444" />
@@ -245,7 +237,6 @@ export function MemoryGame({
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
       </View>
 
-      {/* 卡片区域 */}
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: CARD_SIZE * cols + (cols * 8) }}>
           {cards.map((card, index) => (
@@ -261,7 +252,6 @@ export function MemoryGame({
         </View>
       </View>
 
-      {/* 底部退出 */}
       <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
         <Pressable
           onPress={onQuit}
