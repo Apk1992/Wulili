@@ -1,5 +1,5 @@
 // src/components/minigames/MemoryGame.tsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, Text, View, Dimensions, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { shuffle } from '@/utils/random';
@@ -31,6 +31,9 @@ export interface MemoryGameProps {
   onQuit: () => void;
 }
 
+// 🔥 固定卡片大小，不管什么难度，牌都这么大！
+const FIXED_CARD_SIZE = 76;
+
 export function MemoryGame({
   level,
   minigameId,
@@ -50,47 +53,29 @@ export function MemoryGame({
   
   const [isLoadingPool, setIsLoadingPool] = useState(true);
 
-  // 响应式尺寸（加上了安全性兜底）
-  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-  const TOP_UI_HEIGHT = 80;
-  const BOTTOM_UI_HEIGHT = 80;
-  const availableWidth = SCREEN_WIDTH - 40;
-  const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
-  
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
   const cols = level.columns || 3;
-  const safePairs = level.pairs || 3;
-  const rows = Math.ceil((safePairs * 2) / cols);
-  const CARD_SIZE = Math.floor(Math.min(availableWidth / cols, availableHeight / rows) - 8);
 
-  // 🔥 核心逻辑：开局从 R2 拉卡池，抽卡并洗牌
+  // 开局拉卡池
   useEffect(() => {
     let isMounted = true;
     setIsLoadingPool(true);
 
     (async () => {
       let allCards: string[] = [];
-      
       try {
         const url = resolveMinigameAsset('minigames/memory/cards.json');
         const res = await fetch(url);
         if (res.ok) {
           const json = await res.json();
-          if (Array.isArray(json.cards) && json.cards.length > 0) {
-            allCards = json.cards;
-          }
+          if (Array.isArray(json.cards) && json.cards.length > 0) allCards = json.cards;
         }
-      } catch (e) {
-        console.warn('拉取卡片池失败，将使用默认兜底卡牌', e);
-      }
+      } catch (e) {}
 
       if (!isMounted) return;
 
-      // 🔥 强兜底：如果 R2 没传 cards.json，或格式不对，强制用这 6 张
       if (allCards.length === 0) {
-        allCards = [
-          'card_a.png', 'card_b.png', 'card_c.png', 
-          'card_d.png', 'card_e.png', 'card_f.png'
-        ];
+        allCards = ['card_a.png', 'card_b.png', 'card_c.png', 'card_d.png', 'card_e.png', 'card_f.png'];
       }
 
       const shuffledPool = shuffle(allCards);
@@ -99,11 +84,7 @@ export function MemoryGame({
 
       const doubled: MemoryCardDef[] = [];
       selectedImages.forEach((img, idx) => {
-        const def: MemoryCardDef = {
-          id: `c${idx}`,
-          pairKey: `pair_${idx}`,
-          image: img,
-        };
+        const def: MemoryCardDef = { id: `c${idx}`, pairKey: `pair_${idx}`, image: img };
         doubled.push(def);
         doubled.push({ ...def, id: `c${idx}-copy` });
       });
@@ -133,10 +114,7 @@ export function MemoryGame({
     if (isLoadingPool || cards.length === 0) return;
     const timer = setInterval(() => {
       setRemainingSeconds((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(timer); return 0; }
         return prev - 1;
       });
     }, 1000);
@@ -237,15 +215,22 @@ export function MemoryGame({
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
       </View>
 
+      {/* 🔥 棋盘区域：固定卡片大小，居中显示 */}
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 }}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', width: CARD_SIZE * cols + (cols * 8) }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          flexWrap: 'wrap', 
+          justifyContent: 'center', 
+          // 根据列数计算容器宽度
+          width: Math.min(SCREEN_WIDTH - 40, cols * (FIXED_CARD_SIZE + 8)),
+        }}>
           {cards.map((card, index) => (
             <MemoryCardView
               key={card.key}
               card={card}
               assetFolder={assetFolder}
               backImage={level.cardBack || 'card_back.png'}
-              width={CARD_SIZE}
+              width={FIXED_CARD_SIZE}
               onPress={() => handleFlip(index)}
             />
           ))}
