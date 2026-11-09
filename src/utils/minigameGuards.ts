@@ -9,9 +9,10 @@ import type {
 // ===== 类型守卫 =====
 
 export function isMemoryLevel(level: MinigameLevelConfig): level is MemoryLevelConfig {
+  // 🔥 兼容老的 cards 数组 和 新的 pairs 动态卡池
   return (
-    'cards' in level &&
-    Array.isArray((level as MemoryLevelConfig).cards)
+    ('cards' in level && Array.isArray((level as MemoryLevelConfig).cards)) ||
+    ('pairs' in level && typeof (level as any).pairs === 'number')
   );
 }
 
@@ -33,31 +34,16 @@ export function isTetrisLevel(level: MinigameLevelConfig): level is TetrisLevelC
 
 // ===== 校验 =====
 
-/**
- * 校验任意输入是否是合法关卡（service 的 normalize 用）
- * - 只做最小必要字段检查，防止脏数据进 Store
- * - 三种引擎任一匹配即可
- */
 export function isValidLevelConfig(input: unknown): input is MinigameLevelConfig {
   if (typeof input !== 'object' || input === null) return false;
   const obj = input as Record<string, unknown>;
 
-  // 公共字段
   if (typeof obj.id !== 'string' || typeof obj.title !== 'string') return false;
 
-  // Memory
-  if (Array.isArray(obj.cards)) return true;
-
-  // Rhythm
-  if (Array.isArray(obj.beats)) return true;
-
-  // Tetris
-  if (
-    typeof obj.dropIntervalMs === 'number' &&
-    typeof obj.targetLines === 'number'
-  ) {
-    return true;
-  }
+  if (typeof obj.pairs === 'number') return true; // 新记忆翻牌
+  if (Array.isArray(obj.cards)) return true;      // 老记忆翻牌
+  if (Array.isArray(obj.beats)) return true;      // 节奏
+  if (typeof obj.dropIntervalMs === 'number' && typeof obj.targetLines === 'number') return true; // 俄罗斯方块
 
   return false;
 }
