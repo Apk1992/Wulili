@@ -1,6 +1,7 @@
 // src/components/minigames/TetrisGame.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, Text, View, Dimensions, PanResponder } from 'react-native';
+import { Pressable, Text, View, Dimensions, PanResponder, Animated } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { TetrisLevelConfig, MinigameOutcome } from '@/types/minigame';
 
 const COLS = 10;
@@ -116,6 +117,11 @@ export function TetrisGame({
   const [startedAt] = useState(Date.now());
   const [finished, setFinished] = useState(false);
   
+  // 🔥 最高分状态
+  const [highScore, setHighScore] = useState(0);
+  const [isNewRecord, setIsNewRecord] = useState(false);
+  const newRecordAnim = useRef(new Animated.Value(0)).current;
+
   const lastClearTimeRef = useRef<number>(0);
   const comboRef = useRef<number>(0);
 
@@ -129,6 +135,37 @@ export function TetrisGame({
   scoreRef.current = score;
   finishedRef.current = finished;
 
+  // 🔥 读取本关卡的专属最高分
+  useEffect(() => {
+    const loadHighScore = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(`@wulili/tetris_highscore_${level.id}`);
+        if (stored) setHighScore(parseInt(stored, 10));
+      } catch (e) {}
+    };
+    loadHighScore();
+  }, [level.id]);
+
+  // 🔥 破纪录特效动画
+  useEffect(() => {
+    if (isNewRecord) {
+      newRecordAnim.setValue(0);
+      Animated.sequence([
+        Animated.timing(newRecordAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.delay(1500),
+        Animated.timing(newRecordAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [isNewRecord, newRecordAnim]);
+
+  // 检查是否破纪录
+  useEffect(() => {
+    if (score > highScore && !finished) {
+      setHighScore(score);
+      if (!isNewRecord) setIsNewRecord(true);
+    }
+  }, [score, highScore, finished, isNewRecord]);
+
   const finish = useCallback(
     (result: 'victory' | 'defeat') => {
       if (finishedRef.current) return;
@@ -136,13 +173,19 @@ export function TetrisGame({
       setFinished(true);
       
       const durationMs = Date.now() - startedAt;
+      const currentScore = scoreRef.current;
+      
+      // 保存最终分数
+      if (currentScore > highScore) {
+        AsyncStorage.setItem(`@wulili/tetris_highscore_${level.id}`, currentScore.toString()).catch(() => {});
+      }
       
       onComplete({
         minigameId,
         levelId: level.id,
         engine: 'tetris',
         result: result, 
-        score: scoreRef.current, 
+        score: currentScore, 
         maxCombo: comboRef.current,
         durationMs,
         moodGain: level.moodGain,
@@ -150,7 +193,7 @@ export function TetrisGame({
         energyCost: level.energyCost,
       });
     },
-    [startedAt, minigameId, level, onComplete],
+    [startedAt, minigameId, level, onComplete, highScore],
   );
 
   const drop = useCallback(() => {
@@ -204,25 +247,18 @@ export function TetrisGame({
     return () => clearInterval(id);
   }, [drop, level.dropIntervalMs, finished]);
 
-  // 🔥 修复：加入“踢墙”机制和双次重试
   const rotatePiece = useCallback(() => {
     if (finishedRef.current) return;
     const cur = pieceRef.current;
     const rotated = rotate(cur.shape);
-    
-    // 1. 尝试原地旋转
     if (!collides(boardRef.current, cur, 0, 0, rotated)) {
       setPiece({ ...cur, shape: rotated });
       return;
     }
-    
-    // 2. 如果原地不能转，尝试向左踢一格再转（解决靠右墙转不动的问题）
     if (!collides(boardRef.current, cur, 0, -1, rotated)) {
       setPiece({ ...cur, shape: rotated, col: cur.col - 1 });
       return;
     }
-
-    // 3. 尝试向右踢一格再转
     if (!collides(boardRef.current, cur, 0, 1, rotated)) {
       setPiece({ ...cur, shape: rotated, col: cur.col + 1 });
       return;
@@ -352,23 +388,33 @@ export function TetrisGame({
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       
+      {/* 顶部状态栏 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
-        <Text style={{ color: '#38BDF8', fontSize: 22, fontWeight: '900' }}>分数 {score}</Text>
+        <View>
+          <Text style={{ color: '#38BDF8', fontSize: 22, fontWeight: '900' }}>分数 {score}</Text>
+          <Text style={{ color: '#64748B', fontSize: 12, marginTop: 4 }}>最高分 {highScore}</Text>
+        </View>
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>消行 {lines}</Text>
       </View>
 
-      {/* 🔥 增加左右 padding 20，防止手指在屏幕最边缘时触发安卓系统的侧滑返回手势 */}
+      {/* 破纪录弹字特效 */}
+      {isNewRecord && (
+        <Animated.View style={{
+          position: 'absolute', top: '30%', width: '100%', alignItems: 'center',
+          opacity: newRecordAnim, transform: [{ scale: newRecordAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.2] }) }]
+        }}>
+          <Text style={{ color: '#F59E0B', fontSize: 32, fontWeight: '900', textShadowColor: 'rgba(245,158,11,0.5)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 10 }}>
+            NEW RECORD!
+          </Text>
+        </Animated.View>
+      )}
+
       <View 
         style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40, paddingHorizontal: 20 }}
         {...panResponder.panHandlers}
       >
         <View style={{ 
-          width: BOARD_WIDTH, 
-          height: BOARD_HEIGHT, 
-          backgroundColor: '#1E293B', 
-          borderWidth: 1, 
-          borderColor: '#334155',
-          position: 'relative'
+          width: BOARD_WIDTH, height: BOARD_HEIGHT, backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', position: 'relative'
         }}>
           {Array.from({ length: ROWS }).map((_, r) => (
             <View key={`row-${r}`} style={{ position: 'absolute', top: r * CELL_SIZE, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />
@@ -384,38 +430,18 @@ export function TetrisGame({
                 if (!finished) {
                   for (let i = 0; i < piece.shape.length; i++) {
                     for (let j = 0; j < piece.shape[i].length; j++) {
-                      if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) {
-                        isPiece = true;
-                      }
+                      if (piece.shape[i][j] && piece.row + i === ri && piece.col + j === ci) isPiece = true;
                     }
                   }
                 }
-                
                 let color = 'transparent';
                 let isGhost = false;
-
-                if (isPiece) {
-                  color = piece.color;
-                } else if (cell === 2) {
-                  isGhost = true;
-                  color = 'rgba(255,255,255,0.1)';
-                } else if (cell === 1) {
-                  color = '#64748B';
-                }
+                if (isPiece) color = piece.color;
+                else if (cell === 2) { isGhost = true; color = 'rgba(255,255,255,0.1)'; }
+                else if (cell === 1) color = '#64748B';
 
                 return (
-                  <View
-                    key={ci}
-                    style={{
-                      position: 'absolute',
-                      left: ci * CELL_SIZE,
-                      width: CELL_SIZE,
-                      height: CELL_SIZE,
-                      backgroundColor: color,
-                      borderWidth: (cell === 1 || isPiece) ? 1 : (isGhost ? 1 : 0),
-                      borderColor: isGhost ? 'rgba(255,255,255,0.3)' : '#1E293B',
-                    }}
-                  />
+                  <View key={ci} style={{ position: 'absolute', left: ci * CELL_SIZE, width: CELL_SIZE, height: CELL_SIZE, backgroundColor: color, borderWidth: (cell === 1 || isPiece) ? 1 : (isGhost ? 1 : 0), borderColor: isGhost ? 'rgba(255,255,255,0.3)' : '#1E293B' }} />
                 );
               })}
             </View>
