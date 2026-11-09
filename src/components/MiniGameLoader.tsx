@@ -73,14 +73,23 @@ export function MiniGameLoader({
     setActiveLevel(level);
   };
 
+  // 🔥 核心改动：收益结算判定
   const handleComplete = (outcome: MinigameOutcome) => {
-    finishSession(outcome);
+    const isWin = outcome.result === 'victory';
+    
+    // 失败只能拿 10% 的收益，防止疯狂刷局
+    const finalMood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.1);
+    const finalCoins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.1);
+
+    // 把修改后的收益喂给底层 Store
+    finishSession({
+      ...outcome,
+      moodGain: finalMood,
+      coinReward: finalCoins,
+    });
+
     setActiveLevel(null);
 
-    const isWin = outcome.result === 'victory';
-    const mood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.3);
-    const coins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.2);
-    
     let wuliliLine = isWin ? '玩得很开心，谢谢你陪我。' : '唔……这次没发挥好，下次再来吧。';
     try {
       const line = speak({ action: 'entertain' });
@@ -93,7 +102,7 @@ export function MiniGameLoader({
     setDialogTitle(isWin ? '游戏胜利！' : '游戏结束');
     setDialogIcon(isWin ? 'trophy' : 'game-controller');
     setDialogText(
-      `“${wuliliLine}”\n\n【本局结算】\n消耗精力：${outcome.energyCost}\n心情变化：+${mood}\n金币收益：+${coins}\n最终得分：${outcome.score}`
+      `“${wuliliLine}”\n\n【本局结算】\n消耗精力：${outcome.energyCost}\n心情变化：+${finalMood}\n金币收益：+${finalCoins}\n最终得分：${outcome.score}`
     );
     setDialogMode('result');
     setDialogVisible(true);
@@ -119,6 +128,7 @@ export function MiniGameLoader({
       title={dialogTitle}
       onClose={() => {
         if (dialogMode === 'result') handleResultClose();
+        else if (dialogMode === 'quitConfirm') handleQuitConfirm(); // 如果是退出确认，点背景也退出
         else setDialogVisible(false);
       }}
       confirmText={dialogMode === 'quitConfirm' || dialogMode === 'result' ? '确定' : undefined}
@@ -167,11 +177,9 @@ export function MiniGameLoader({
               marginBottom: 16,
               borderWidth: 1,
               borderColor: '#334155',
-              // 🔥 使用内边距和分行布局来区分区域
               padding: 16,
             }}
           >
-            {/* 上半部分：标题与描述 */}
             <View style={{ marginBottom: 12 }}>
               <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700', marginBottom: 6 }}>
                 {level.title}
@@ -181,10 +189,8 @@ export function MiniGameLoader({
               </Text>
             </View>
 
-            {/* 🔥 分节线 */}
             <View style={{ height: 1, backgroundColor: '#334155', marginBottom: 12 }} />
 
-            {/* 下半部分：消耗、心情与按钮 */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Text style={{ color: '#F59E0B', fontSize: 13, marginRight: 12 }}>
