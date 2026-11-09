@@ -73,15 +73,29 @@ export function MiniGameLoader({
     setActiveLevel(level);
   };
 
-  // 🔥 核心改动：收益结算判定
+  // 🔥 核心：收益结算与防刷机制
   const handleComplete = (outcome: MinigameOutcome) => {
     const isWin = outcome.result === 'victory';
     
-    // 失败只能拿 10% 的收益，防止疯狂刷局
-    const finalMood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.1);
-    const finalCoins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.1);
+    // 1. 基础收益判定：失败（非通关）只拿 10%
+    let finalMood = isWin ? outcome.moodGain : Math.round(outcome.moodGain * 0.1);
+    let finalCoins = isWin ? outcome.coinReward : Math.round(outcome.coinReward * 0.1);
 
-    // 把修改后的收益喂给底层 Store
+    // 2. 针对俄罗斯方块的防刷分机制
+    if (outcome.engine === 'tetris') {
+      if (outcome.score < 50) {
+        // 秒退惩罚：分数极低，金币归零
+        finalCoins = 0;
+        finalMood = Math.round(outcome.moodGain * 0.1);
+      } else {
+        // 按分数比例发钱：假设 1000 分拿满额
+        const scoreRatio = Math.min(1, outcome.score / 1000);
+        finalCoins = Math.max(1, Math.round(outcome.coinReward * scoreRatio));
+        finalMood = outcome.moodGain;
+      }
+    }
+
+    // 真实写入底层 Store
     finishSession({
       ...outcome,
       moodGain: finalMood,
@@ -99,7 +113,9 @@ export function MiniGameLoader({
       }
     } catch (e) {}
 
-    setDialogTitle(isWin ? '游戏胜利！' : '游戏结束');
+    // 弹窗显示
+    const isTetrisBail = outcome.engine === 'tetris' && outcome.score < 50;
+    setDialogTitle(isTetrisBail ? '游戏结束 (秒退)' : (isWin ? '游戏胜利！' : '游戏结束'));
     setDialogIcon(isWin ? 'trophy' : 'game-controller');
     setDialogText(
       `“${wuliliLine}”\n\n【本局结算】\n消耗精力：${outcome.energyCost}\n心情变化：+${finalMood}\n金币收益：+${finalCoins}\n最终得分：${outcome.score}`
@@ -128,7 +144,7 @@ export function MiniGameLoader({
       title={dialogTitle}
       onClose={() => {
         if (dialogMode === 'result') handleResultClose();
-        else if (dialogMode === 'quitConfirm') handleQuitConfirm(); // 如果是退出确认，点背景也退出
+        else if (dialogMode === 'quitConfirm') handleQuitConfirm(); 
         else setDialogVisible(false);
       }}
       confirmText={dialogMode === 'quitConfirm' || dialogMode === 'result' ? '确定' : undefined}
