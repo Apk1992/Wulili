@@ -1,15 +1,15 @@
 // src/components/minigames/MemoryGame.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View, Dimensions } from 'react-native';
+import { Pressable, Text, View, Dimensions, ActivityIndicator } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import RemoteImage from '../RemoteImage';
 import { shuffle } from '@/utils/random';
-import { resolveMinigameAsset } from '@/services/minigameService';
+import { resolveMinigameAsset, fetchMinigameLevels } from '@/services/minigameService';
 import type {
   MemoryCardDef,
   MemoryLevelConfig,
   MinigameOutcome,
 } from '@/types/minigame';
+import RemoteImage from '../RemoteImage';
 
 interface CardState {
   key: string;
@@ -18,8 +18,14 @@ interface CardState {
   matched: boolean;
 }
 
+// 我们给 MemoryLevelConfig 扩展一下新字段（兼容你原来的类型）
+export interface ExtendedMemoryLevelConfig extends MemoryLevelConfig {
+  pairs?: number;
+  cardBack?: string;
+}
+
 export interface MemoryGameProps {
-  level: MemoryLevelConfig;
+  level: ExtendedMemoryLevelConfig;
   minigameId: string;
   assetFolder: string;
   onComplete: (outcome: MinigameOutcome) => void;
@@ -42,49 +48,93 @@ export function MemoryGame({
   const [remainingSeconds, setRemainingSeconds] = useState<number>(
     level.timeLimitSeconds,
   );
+  
+  // 新增：加载卡池状态
+  const [isLoadingPool, setIsLoadingPool] = useState(true);
 
-  // 响应式尺寸计算
+  // 响应式尺寸
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
   const TOP_UI_HEIGHT = 80;
   const BOTTOM_UI_HEIGHT = 80;
   
-  // 计算卡片大小
-  const availableWidth = SCREEN_WIDTH - 40; // 左右各留 20 padding
+  const availableWidth = SCREEN_WIDTH - 40;
   const availableHeight = SCREEN_HEIGHT - TOP_UI_HEIGHT - BOTTOM_UI_HEIGHT;
   
   const cols = level.columns || 3;
-  const rows = Math.ceil((level.cards.length * 2) / cols);
-  
-  // 根据宽高取最小值，保证不越界
+  const rows = Math.ceil((level.pairs || 3) * 2 / cols);
   const CARD_SIZE = Math.floor(Math.min(availableWidth / cols, availableHeight / rows) - 8);
 
-  const deck = useMemo(() => {
-    const doubled: MemoryCardDef[] = [];
-    for (const card of level.cards) {
-      doubled.push(card);
-      doubled.push({ ...card, id: `${card.id}-copy` });
-    }
-    return shuffle(doubled);
-  }, [level.cards]);
-
+  // 🔥 核心逻辑：开局从 R2 拉卡池，抽卡并洗牌
   useEffect(() => {
-    const initial: CardState[] = deck.map((card, index) => ({
-      key: `${card.id}-${index}`,
-      card,
-      flipped: false,
-      matched: false,
-    }));
-    setCards(initial);
-    setFirstIndex(null);
-    setLocked(false);
-    setScore(0);
-    setCombo(0);
-    setMaxCombo(0);
-    setRemainingSeconds(level.timeLimitSeconds);
-  }, [deck, level.timeLimitSeconds]);
+    let isMounted = true;
+    setIsLoadingPool(true);
 
+    (async () => {
+      let allCards: string[] = [];
+      
+      // 尝试从 R2 拉取卡片库
+      try {
+        const url = resolveMinigameAsset('minigames/memory/cards.json');
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.cards)) allCards = json.cards;
+        }
+      } catch (e) {
+        console.warn('拉取卡片池失败', e);
+      }
+
+      if (!isMounted) return;
+
+      // 如果没拉到，或者卡池不够，给个兜底（防止白屏）
+      if (allCards.length === 0) {
+        allCards = ['card_a.png', 'card_b.png', 'card_c.png', 'card_d.png', 'card_e.png', 'card_f.png'];
+      }
+
+      // 1. 打乱卡池
+      const shuffledPool = shuffle(allCards);
+      
+      // 2. 抽出本次关卡需要的对数（如果有填就按填的，没填就按卡池一半）
+      const needPairs = level.pairs || Math.floor(allCards.length / 2);
+      const selectedImages = shuffledPool.slice(0, needPairs);
+
+      // 3. 生成配对数据（一正一反）
+      const doubled: MemoryCardDef[] = [];
+      selectedImages.forEach((img, idx) => {
+        const def: MemoryCardDef = {
+          id: `c${idx}`,
+          pairKey: `pair_${idx}`,
+          image: img,
+        };
+        doubled.push(def);
+        doubled.push({ ...def, id: `c${idx}-copy` });
+      });
+
+      // 4. 打乱顺序并初始化状态
+      const finalDeck = shuffle(doubled);
+      const initial: CardState[] = finalDeck.map((card, index) => ({
+        key: `${card.id}-${index}`,
+        card,
+        flipped: false,
+        matched: false,
+      }));
+
+      setCards(initial);
+      setFirstIndex(null);
+      setLocked(false);
+      setScore(0);
+      setCombo(0);
+      setMaxCombo(0);
+      setRemainingSeconds(level.timeLimitSeconds);
+      setIsLoadingPool(false);
+    })();
+
+    return () => { isMounted = false; };
+  }, [level]);
+
+  // 倒计时逻辑
   useEffect(() => {
-    if (cards.length === 0) return;
+    if (isLoadingPool || cards.length === 0) return;
     const timer = setInterval(() => {
       setRemainingSeconds((prev) => {
         if (prev <= 1) {
@@ -95,8 +145,9 @@ export function MemoryGame({
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [cards.length]);
+  }, [isLoadingPool, cards.length]);
 
+  // 超时结算
   useEffect(() => {
     if (remainingSeconds === 0 && cards.length > 0 && !cards.every((c) => c.matched)) {
       onComplete({
@@ -114,8 +165,9 @@ export function MemoryGame({
     }
   }, [remainingSeconds, cards, level, minigameId, onComplete, score, maxCombo]);
 
+  // 点击翻牌逻辑
   const handleFlip = (index: number) => {
-    if (locked) return;
+    if (locked || isLoadingPool) return;
     const target = cards[index];
     if (!target || target.flipped || target.matched) return;
 
@@ -172,6 +224,16 @@ export function MemoryGame({
     }
   };
 
+  // 如果还在拉卡池，显示 Loading
+  if (isLoadingPool) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#38BDF8" />
+        <Text style={{ color: '#F8FAFC', marginTop: 16 }}>正在准备牌堆…</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
       {/* 顶部信息 */}
@@ -191,6 +253,7 @@ export function MemoryGame({
               key={card.key}
               card={card}
               assetFolder={assetFolder}
+              backImage={level.cardBack || 'card_back.png'}
               width={CARD_SIZE}
               onPress={() => handleFlip(index)}
             />
@@ -211,10 +274,11 @@ export function MemoryGame({
   );
 }
 
-function MemoryCardView({ card, assetFolder, width, onPress }: { card: CardState; assetFolder: string; width: number; onPress: () => void; }) {
+function MemoryCardView({ card, assetFolder, backImage, width, onPress }: { card: CardState; assetFolder: string; backImage: string; width: number; onPress: () => void; }) {
   const visible = card.flipped || card.matched;
+  
   const imageUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${card.card.image}` : card.card.image);
-  const backUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/card_back.png` : 'card_back.png');
+  const backUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${backImage}` : backImage);
 
   return (
     <Pressable
