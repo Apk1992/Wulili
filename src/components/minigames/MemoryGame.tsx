@@ -9,7 +9,6 @@ import type {
   MemoryLevelConfig,
   MinigameOutcome,
 } from '@/types/minigame';
-import RemoteImage from '../RemoteImage';
 
 interface CardState {
   key: string;
@@ -31,7 +30,6 @@ export interface MemoryGameProps {
   onQuit: () => void;
 }
 
-// 🔥 固定卡片大小，不管什么难度，牌都这么大！
 const FIXED_CARD_SIZE = 76;
 
 export function MemoryGame({
@@ -74,7 +72,6 @@ export function MemoryGame({
 
       if (!isMounted) return;
 
-      // 兜底：如果 R2 没传 cards.json
       if (allCards.length === 0) {
         allCards = ['card_a.png', 'card_b.png', 'card_c.png', 'card_d.png', 'card_e.png', 'card_f.png'];
       }
@@ -83,7 +80,6 @@ export function MemoryGame({
       const needPairs = level.pairs || Math.min(6, shuffledPool.length);
       const selectedImages = shuffledPool.slice(0, needPairs);
 
-      // 🔥 核心：发牌之前，先把所有正反面图片静默下载到本地缓存，防白屏闪烁！
       const backImg = level.cardBack || 'card_back.png';
       const urlsToPreload = selectedImages.map(img => 
         resolveMinigameAsset(assetFolder ? `${assetFolder}/${img}` : img)
@@ -92,7 +88,6 @@ export function MemoryGame({
         resolveMinigameAsset(assetFolder ? `${assetFolder}/${backImg}` : backImg)
       );
 
-      // 执行预加载，就算某张图 404 也不阻塞游戏
       await Promise.all(urlsToPreload.map(url => Image.prefetch(url).catch(() => {})));
 
       if (!isMounted) return;
@@ -155,7 +150,7 @@ export function MemoryGame({
     }
   }, [remainingSeconds, cards, level, minigameId, onComplete, score, maxCombo]);
 
-  // 翻牌逻辑
+  // 翻牌
   const handleFlip = (index: number) => {
     if (locked || isLoadingPool) return;
     const target = cards[index];
@@ -214,7 +209,6 @@ export function MemoryGame({
     }
   };
 
-  // 还在拉取/预加载时，显示 Loading
   if (isLoadingPool) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', alignItems: 'center' }}>
@@ -226,7 +220,6 @@ export function MemoryGame({
 
   return (
     <View style={{ flex: 1, backgroundColor: '#0F172A' }}>
-      {/* 顶部信息 */}
       <View style={{ position: 'absolute', top: 50, width: SCREEN_WIDTH, flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 30, zIndex: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Ionicons name="time-outline" size={18} color="#EF4444" />
@@ -235,12 +228,9 @@ export function MemoryGame({
         <Text style={{ color: '#F8FAFC', fontSize: 18, fontWeight: '700' }}>分数 {score}</Text>
       </View>
 
-      {/* 卡片区域：固定大小，居中显示 */}
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 40 }}>
         <View style={{ 
-          flexDirection: 'row', 
-          flexWrap: 'wrap', 
-          justifyContent: 'center', 
+          flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', 
           width: Math.min(SCREEN_WIDTH - 40, cols * (FIXED_CARD_SIZE + 8)),
         }}>
           {cards.map((card, index) => (
@@ -256,7 +246,6 @@ export function MemoryGame({
         </View>
       </View>
 
-      {/* 底部退出 */}
       <View style={{ position: 'absolute', bottom: 30, width: SCREEN_WIDTH, paddingHorizontal: 40 }}>
         <Pressable
           onPress={onQuit}
@@ -269,9 +258,12 @@ export function MemoryGame({
   );
 }
 
+// 🔥 彻底重写卡牌渲染：用原生的 Image 和 onLoad 控制，彻底消灭白块
 function MemoryCardView({ card, assetFolder, backImage, width, onPress }: { card: CardState; assetFolder: string; backImage: string; width: number; onPress: () => void; }) {
-  const visible = card.flipped || card.matched;
+  const [imgLoading, setImgLoading] = useState(true);
+  const [imgError, setImgError] = useState(false);
   
+  const visible = card.flipped || card.matched;
   const imageUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${card.card.image}` : card.card.image);
   const backUrl = resolveMinigameAsset(assetFolder ? `${assetFolder}/${backImage}` : backImage);
 
@@ -282,11 +274,25 @@ function MemoryCardView({ card, assetFolder, backImage, width, onPress }: { card
     >
       {visible ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1E293B', borderWidth: 2, borderColor: '#2563EB' }}>
-          <RemoteImage uri={imageUrl} width={width - 8} height={width - 8} fallbackIcon="star" />
+          {/* 如果图片还没加载完，显示深色底 + 加载圈 */}
+          {(imgLoading || imgError) && <ActivityIndicator size="small" color="#2563EB" style={{ position: 'absolute' }} />}
+          {imgError && <Ionicons name="help" size={width * 0.5} color="#475569" style={{ position: 'absolute' }} />}
+          
+          <Image
+            source={{ uri: imageUrl }}
+            style={{ width: width - 8, height: width - 8, borderRadius: 8, opacity: imgLoading ? 0 : 1 }}
+            onLoadStart={() => setImgLoading(true)}
+            onLoad={() => setImgLoading(false)}
+            onError={() => { setImgLoading(false); setImgError(true); }}
+          />
         </View>
       ) : (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(37,99,235,0.2)', borderWidth: 1, borderColor: 'rgba(37,99,235,0.4)' }}>
-          <RemoteImage uri={backUrl} width={width - 8} height={width - 8} fallbackIcon="help" />
+          <Image
+            source={{ uri: backUrl }}
+            style={{ width: width - 8, height: width - 8, borderRadius: 8 }}
+            resizeMode="contain"
+          />
         </View>
       )}
     </Pressable>
