@@ -117,10 +117,12 @@ export function TetrisGame({
   const [startedAt] = useState(Date.now());
   const [finished, setFinished] = useState(false);
   
-  // 🔥 最高分状态
   const [highScore, setHighScore] = useState(0);
   const [isNewRecord, setIsNewRecord] = useState(false);
   const newRecordAnim = useRef(new Animated.Value(0)).current;
+
+  // 🔥 用 Ref 实时同步最高分，防止闭包陷阱
+  const highScoreRef = useRef(0);
 
   const lastClearTimeRef = useRef<number>(0);
   const comboRef = useRef<number>(0);
@@ -135,18 +137,22 @@ export function TetrisGame({
   scoreRef.current = score;
   finishedRef.current = finished;
 
-  // 🔥 读取本关卡的专属最高分
+  // 读取历史最高分
   useEffect(() => {
     const loadHighScore = async () => {
       try {
         const stored = await AsyncStorage.getItem(`@wulili/tetris_highscore_${level.id}`);
-        if (stored) setHighScore(parseInt(stored, 10));
+        if (stored) {
+          const parsed = parseInt(stored, 10);
+          setHighScore(parsed);
+          highScoreRef.current = parsed;
+        }
       } catch (e) {}
     };
     loadHighScore();
   }, [level.id]);
 
-  // 🔥 破纪录特效动画
+  // 破纪录特效动画
   useEffect(() => {
     if (isNewRecord) {
       newRecordAnim.setValue(0);
@@ -158,13 +164,14 @@ export function TetrisGame({
     }
   }, [isNewRecord, newRecordAnim]);
 
-  // 检查是否破纪录
+  // 实时对比分数（触发特效和界面更新）
   useEffect(() => {
-    if (score > highScore && !finished) {
-      setHighScore(score);
+    if (score > highScoreRef.current && !finished) {
+      highScoreRef.current = score; // 实时更新 Ref
+      setHighScore(score);          // 更新界面
       if (!isNewRecord) setIsNewRecord(true);
     }
-  }, [score, highScore, finished, isNewRecord]);
+  }, [score, finished, isNewRecord]);
 
   const finish = useCallback(
     (result: 'victory' | 'defeat') => {
@@ -175,8 +182,9 @@ export function TetrisGame({
       const durationMs = Date.now() - startedAt;
       const currentScore = scoreRef.current;
       
-      // 保存最终分数
-      if (currentScore > highScore) {
+      // 🔥 修复保存逻辑：只要当前分数大于 0，且大于等于当前记录，就强制写入
+      if (currentScore > 0 && currentScore >= highScoreRef.current) {
+        highScoreRef.current = currentScore;
         AsyncStorage.setItem(`@wulili/tetris_highscore_${level.id}`, currentScore.toString()).catch(() => {});
       }
       
@@ -193,7 +201,7 @@ export function TetrisGame({
         energyCost: level.energyCost,
       });
     },
-    [startedAt, minigameId, level, onComplete, highScore],
+    [startedAt, minigameId, level, onComplete],
   );
 
   const drop = useCallback(() => {
