@@ -53,7 +53,7 @@ function isStreamingNow(): boolean {
   try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
-// 🔥 改用同步函数读取睡眠状态，绝对没有延迟
+// 🔥 同步读取睡眠状态
 export function isSleepingNow(): boolean {
   try { 
     const { getIsSleepingSync } = require('@/store/useSleepStore'); 
@@ -79,7 +79,7 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  // 🔥 核心物理锁：只要在睡觉，连下面的代码都不看，直接原样返回！
+  // 🔥 物理锁：只要在睡觉，绝不掉血
   if (isSleepingNow()) {
     return { ...state, lastTickAt: Date.now() };
   }
@@ -183,14 +183,14 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
         merged.menstrual = { cycleStartAt: Date.now(), cycleLengthDays: randomCycleLength(), medicineExpireAt: null };
       }
       const nextState = rollCycleIfNeeded(merged);
-      const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
       
-      const decayed = isSleepingNow() ? nextState : applyDecayToStats(nextState, elapsed);
-      
-      set({ state: decayed, hydrated: true });
-      await storageSet(STORAGE_KEYS.wuliliState, decayed);
+      // 🔥 核心修改：直接设置状态，绝不在这里计算时间差！
+      // 所有的离线衰减全部交给 useGameLoop 在应用启动/切回前台时处理。
+      set({ state: nextState, hydrated: true });
+      await storageSet(STORAGE_KEYS.wuliliState, nextState);
       return;
     }
+    
     const fresh: ExtendedWuliliState = {
       ...INITIAL_WULILI_STATE,
       currentHouseId: 'default_room',
