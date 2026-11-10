@@ -171,28 +171,18 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 专属睡眠循环：绝对不会被时间流逝干扰
+    // 🔥 专属睡眠逻辑：每 5 秒给 0.05 点精力
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
       if (!sleep.isSleeping) return;
 
-      const bonus = getBonus();
-      let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
+      const hoursPassed = deltaMs / (3600 * 1000);
       
-      const menstrualPenalty = getMenstrualPenalty();
-      recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
+      const energyGain = 36 * hoursPassed; // 每小时 36 点
+      const moodGain = 20 * hoursPassed;
+      const healthGain = 10 * hoursPassed;
 
-      // 如果你觉得还是慢，直接把 15 改成 20 或 30
-      const energyPerSec = (15 / 3600) * recoveryMultiplier;
-      const moodPerSec = (10 / 3600) * recoveryMultiplier;
-      const healthPerSec = (8 / 3600) * recoveryMultiplier;
-
-      const energyGain = energyPerSec * (deltaMs / 1000);
-      const moodGain = moodPerSec * (deltaMs / 1000);
-      const healthGain = healthPerSec * (deltaMs / 1000);
-
-      // 🔥 强制加血，不通过 addStats，避免任何装备穿脱造成的折扣
       useWuliliStore.setState((prev) => {
         const s = prev.state.stats;
         return {
@@ -214,7 +204,6 @@ export function useGameLoop(): UseGameLoopResult {
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
       
-      // 精力满了自动醒
       if (afterTick.stats.energy >= 100 || totalHours >= 24) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
@@ -230,7 +219,7 @@ export function useGameLoop(): UseGameLoopResult {
 
         const isSleeping = isSleepingNow();
         
-        // 🔥 核心互斥逻辑：睡觉时，只执行 processSleepTick，不执行任何时间衰减！
+        // 🔥 核心互斥逻辑
         if (!isSleeping) {
           useWuliliStore.getState().applyTimeDecay();
           processStreamTick(TICK_INTERVAL_MS);
@@ -261,19 +250,21 @@ export function useGameLoop(): UseGameLoopResult {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        // 离线回归处理
-        if (isSleepingNow()) {
-          const sleepStore = useSleepStore.getState();
-          const sleep = sleepStore.state;
-          if (sleep.isSleeping && sleep.lastTickAt) {
-            const elapsedMs = Date.now() - sleep.lastTickAt;
-            if (elapsedMs > 1000) {
-              processSleepTick(elapsedMs); // 离线时直接算睡眠
-            }
+        
+        const sleepStore = useSleepStore.getState();
+        const sleep = sleepStore.state;
+        
+        if (sleep.isSleeping && sleep.lastTickAt) {
+          // 睡觉离线，只加不减
+          const elapsedMs = Date.now() - sleep.lastTickAt;
+          if (elapsedMs > 1000) {
+            processSleepTick(elapsedMs);
           }
         } else {
-          useWuliliStore.getState().applyTimeDecay(); // 离线时算衰减
+          // 清醒离线，正常衰减
+          useWuliliStore.getState().applyTimeDecay();
         }
+
         tick();
         start();
       } else if (nextState === 'background' || nextState === 'inactive') {
