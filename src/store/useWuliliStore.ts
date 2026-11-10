@@ -78,6 +78,11 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
+  // 🔥 核心拦截：如果在睡眠状态，直接更新时间戳并返回，绝对不扣除任何数值！
+  if (isSleepingNow()) {
+    return { ...state, lastTickAt: Date.now() };
+  }
+
   // 正常衰减逻辑（仅在清醒时调用）
   const streaming = isStreamingNow();
   const bonus = getBonus();
@@ -179,7 +184,10 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       }
       const nextState = rollCycleIfNeeded(merged);
       const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
-      const decayed = applyDecayToStats(nextState, elapsed);
+      
+      // 🔥 如果在线下时是处于睡眠状态，不应该补扣精力
+      const decayed = isSleepingNow() ? nextState : applyDecayToStats(nextState, elapsed);
+      
       set({ state: decayed, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, decayed);
       return;
@@ -197,7 +205,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
-    // 🔥 绝对防御：如果在睡觉，直接跳过所有时间衰减！
+    // 🔥 绝对防御：如果在睡觉，连 applyDecayToStats 都不调用，直接跳过！
     if (isSleepingNow()) {
       const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
@@ -238,7 +246,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
         if (key === 'energy') d = d * (bonus.energyCostRate ?? 1);
       } else {
         if (key === 'mood') d = d * (bonus.moodRecoveryRate ?? 1);
-        // 正向加精力不乘任何装备系数
       }
       newStats[key] = clampStat(key, newStats[key] + d);
     });
