@@ -53,10 +53,11 @@ function isStreamingNow(): boolean {
   try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
+// 🔥 改用同步函数读取睡眠状态，绝对没有延迟
 export function isSleepingNow(): boolean {
   try { 
-    const { useSleepStore } = require('@/store/useSleepStore'); 
-    return useSleepStore.getState().state.isSleeping === true; 
+    const { getIsSleepingSync } = require('@/store/useSleepStore'); 
+    return getIsSleepingSync(); 
   } catch { return false; }
 }
 
@@ -78,12 +79,11 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  // 🔥 核心拦截：如果在睡眠状态，直接更新时间戳并返回，绝对不扣除任何数值！
+  // 🔥 核心物理锁：只要在睡觉，连下面的代码都不看，直接原样返回！
   if (isSleepingNow()) {
     return { ...state, lastTickAt: Date.now() };
   }
 
-  // 正常衰减逻辑（仅在清醒时调用）
   const streaming = isStreamingNow();
   const bonus = getBonus();
   const sleepDeprivation = computeSleepDeprivation(state.lastSleptAt, state.createdAt);
@@ -185,7 +185,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       const nextState = rollCycleIfNeeded(merged);
       const elapsed = (Date.now() - (nextState.lastTickAt ?? Date.now())) / HOUR_MS;
       
-      // 🔥 如果在线下时是处于睡眠状态，不应该补扣精力
       const decayed = isSleepingNow() ? nextState : applyDecayToStats(nextState, elapsed);
       
       set({ state: decayed, hydrated: true });
@@ -205,7 +204,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
-    // 🔥 绝对防御：如果在睡觉，连 applyDecayToStats 都不调用，直接跳过！
+    // 🔥 绝对防御
     if (isSleepingNow()) {
       const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
