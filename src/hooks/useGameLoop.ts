@@ -171,7 +171,7 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 恢复正常睡眠逻辑（带装备加成）
+    // 🔥 专属睡眠循环：绝对不会被时间流逝干扰
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
@@ -180,22 +180,19 @@ export function useGameLoop(): UseGameLoopResult {
       const bonus = getBonus();
       let recoveryMultiplier = bonus.sleepRecoveryRate ?? 1;
       
-      // 大姨妈惩罚（如果在经期且没吃药，恢复减半）
       const menstrualPenalty = getMenstrualPenalty();
       recoveryMultiplier *= 1 - menstrualPenalty * 0.4;
 
-      // 读取 sleepConfig 里的恢复速率（每小时恢复多少点）
-      // 假设 energyRecoveryPerHour 是 15，那么 1 小时能恢复 15 点。
-      const energyPerSec = (SLEEP_CONFIG.energyRecoveryPerHour / 3600) * recoveryMultiplier;
-      const moodPerSec = (SLEEP_CONFIG.moodRecoveryPerHour / 3600) * recoveryMultiplier;
-      const healthPerSec = (SLEEP_CONFIG.healthRecoveryPerHour / 3600) * recoveryMultiplier;
+      // 如果你觉得还是慢，直接把 15 改成 20 或 30
+      const energyPerSec = (15 / 3600) * recoveryMultiplier;
+      const moodPerSec = (10 / 3600) * recoveryMultiplier;
+      const healthPerSec = (8 / 3600) * recoveryMultiplier;
 
-      // 计算这 5 秒应该恢复多少
       const energyGain = energyPerSec * (deltaMs / 1000);
       const moodGain = moodPerSec * (deltaMs / 1000);
       const healthGain = healthPerSec * (deltaMs / 1000);
 
-      // 用 setState 强制加，防止被 addStats 里的负向逻辑干扰
+      // 🔥 强制加血，不通过 addStats，避免任何装备穿脱造成的折扣
       useWuliliStore.setState((prev) => {
         const s = prev.state.stats;
         return {
@@ -211,15 +208,14 @@ export function useGameLoop(): UseGameLoopResult {
         };
       });
 
-      // 累加睡眠时长
       sleepStore.tick(deltaMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
         (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
 
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
       
-      // 精力满了 或者 睡满 maxSleepHours（24小时），自动醒
-      if (afterTick.stats.energy >= 100 || totalHours >= SLEEP_CONFIG.maxSleepHours) {
+      // 精力满了自动醒
+      if (afterTick.stats.energy >= 100 || totalHours >= 24) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
       }
@@ -232,15 +228,15 @@ export function useGameLoop(): UseGameLoopResult {
         void checkMonthlyRent();
         checkTravelStress();
 
-        const wuliliStore = useWuliliStore.getState();
+        const isSleeping = isSleepingNow();
         
-        // 如果在睡觉，跳过正常的时间衰减
-        if (!isSleepingNow()) {
-          wuliliStore.applyTimeDecay();
+        // 🔥 核心互斥逻辑：睡觉时，只执行 processSleepTick，不执行任何时间衰减！
+        if (!isSleeping) {
+          useWuliliStore.getState().applyTimeDecay();
+          processStreamTick(TICK_INTERVAL_MS);
+        } else {
+          processSleepTick(TICK_INTERVAL_MS);
         }
-        
-        processStreamTick(TICK_INTERVAL_MS);
-        processSleepTick(TICK_INTERVAL_MS);
       } catch {}
     };
 
@@ -265,26 +261,19 @@ export function useGameLoop(): UseGameLoopResult {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        const streamStore = useStreamStore.getState();
-        const stream = streamStore.state;
-        if (stream.isStreaming && stream.lastTickAt) {
-          const elapsedMs = Date.now() - stream.lastTickAt;
-          if (elapsedMs > 1000) {
-            const cappedMs = Math.min(elapsedMs, STREAM_CONFIG.maxOfflineSeconds * 1000);
-            processStreamTick(cappedMs);
+        // 离线回归处理
+        if (isSleepingNow()) {
+          const sleepStore = useSleepStore.getState();
+          const sleep = sleepStore.state;
+          if (sleep.isSleeping && sleep.lastTickAt) {
+            const elapsedMs = Date.now() - sleep.lastTickAt;
+            if (elapsedMs > 1000) {
+              processSleepTick(elapsedMs); // 离线时直接算睡眠
+            }
           }
+        } else {
+          useWuliliStore.getState().applyTimeDecay(); // 离线时算衰减
         }
-
-        const sleepStore = useSleepStore.getState();
-        const sleep = sleepStore.state;
-        if (sleep.isSleeping && sleep.lastTickAt) {
-          const elapsedMs = Date.now() - sleep.lastTickAt;
-          if (elapsedMs > 1000) {
-            const cappedMs = Math.min(elapsedMs, SLEEP_CONFIG.maxOfflineSeconds * 1000);
-            processSleepTick(cappedMs);
-          }
-        }
-
         tick();
         start();
       } else if (nextState === 'background' || nextState === 'inactive') {
