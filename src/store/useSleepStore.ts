@@ -1,3 +1,4 @@
+// src/store/useSleepStore.ts
 import { create } from 'zustand';
 import { storageGet, storageSet } from '@/utils/storage';
 
@@ -36,6 +37,9 @@ const EMPTY: SleepState = {
   totalSeconds: 0,
 };
 
+// 🔥 用一个模块级变量记录真实状态，彻底杜绝异步读取延迟
+let currentSleepState: SleepState = EMPTY;
+
 function persist(state: SleepState): void {
   void storageSet(STORAGE_KEY, state);
 }
@@ -48,6 +52,7 @@ export const useSleepStore = create<SleepStore>((set, get) => ({
     const stored = await storageGet<SleepState>(STORAGE_KEY);
     if (stored && typeof stored === 'object') {
       const merged: SleepState = { ...EMPTY, ...stored };
+      currentSleepState = merged; // 🔥 同步更新模块变量
       set({ state: merged, hydrated: true });
       return;
     }
@@ -61,6 +66,7 @@ export const useSleepStore = create<SleepStore>((set, get) => ({
       lastTickAt: Date.now(),
       totalSeconds: 0,
     };
+    currentSleepState = next; // 🔥 立即同步
     set({ state: next });
     persist(next);
   },
@@ -87,6 +93,7 @@ export const useSleepStore = create<SleepStore>((set, get) => ({
       lastTickAt: Date.now(),
       totalSeconds: current.totalSeconds + deltaSec,
     };
+    currentSleepState = next; // 🔥 立即同步
     set({ state: next });
     persist(next);
   },
@@ -94,13 +101,21 @@ export const useSleepStore = create<SleepStore>((set, get) => ({
   stop: () => {
     const current = get().state;
     const total = Math.round(current.totalSeconds);
+    currentSleepState = EMPTY; // 🔥 立即同步
     set({ state: EMPTY });
     persist(EMPTY);
     return total;
   },
 
   reset: () => {
+    currentSleepState = EMPTY;
     set({ state: EMPTY });
     persist(EMPTY);
   },
 }));
+
+// 🔥 新增导出：提供一个绝对同步的瞬时读取方法，供 WuliliStore 和 GameLoop 调用
+export function getIsSleepingSync(): boolean {
+  // 优先从同步变量读，防止 React 渲染延迟
+  return currentSleepState.isSleeping === true;
+}
