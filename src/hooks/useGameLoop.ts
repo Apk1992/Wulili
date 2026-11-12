@@ -171,7 +171,7 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 专属睡眠逻辑：每 5 秒给 0.05 点精力
+    // 常驻前台时的 5 秒加血
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
@@ -179,9 +179,10 @@ export function useGameLoop(): UseGameLoopResult {
 
       const hoursPassed = deltaMs / (3600 * 1000);
       
-      const energyGain = 36 * hoursPassed; // 每小时 36 点
-      const moodGain = 20 * hoursPassed;
-      const healthGain = 10 * hoursPassed;
+      // 每小时 15 点精力（8 小时 120 点，足够回满）
+      const energyGain = 15 * hoursPassed;
+      const moodGain = 10 * hoursPassed;
+      const healthGain = 5 * hoursPassed;
 
       useWuliliStore.setState((prev) => {
         const s = prev.state.stats;
@@ -204,7 +205,7 @@ export function useGameLoop(): UseGameLoopResult {
       const afterTick = useWuliliStore.getState().state;
       const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
       
-      if (afterTick.stats.energy >= 100 || totalHours >= 24) {
+      if (afterTick.stats.energy >= 100 || totalHours >= 8) {
         sleepStore.stop();
         useWuliliStore.getState().markInteraction('sleep');
       }
@@ -219,7 +220,7 @@ export function useGameLoop(): UseGameLoopResult {
 
         const isSleeping = isSleepingNow();
         
-        // 🔥 核心互斥逻辑
+        // 🔥 互斥逻辑：睡觉只加血，不扣血
         if (!isSleeping) {
           useWuliliStore.getState().applyTimeDecay();
           processStreamTick(TICK_INTERVAL_MS);
@@ -254,14 +255,46 @@ export function useGameLoop(): UseGameLoopResult {
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
         
+        // 🔥 离线恢复逻辑：把后台挂起的时间，按真实数学差值补回来！
         if (sleep.isSleeping && sleep.lastTickAt) {
-          // 睡觉离线，只加不减
           const elapsedMs = Date.now() - sleep.lastTickAt;
+          
           if (elapsedMs > 1000) {
-            processSleepTick(elapsedMs);
+            const hoursPassed = elapsedMs / (3600 * 1000);
+            
+            // 每小时加 15 点精力
+            const energyGain = 15 * hoursPassed;
+            const moodGain = 10 * hoursPassed;
+            const healthGain = 5 * hoursPassed;
+
+            useWuliliStore.setState((prev) => {
+              const s = prev.state.stats;
+              return {
+                state: {
+                  ...prev.state,
+                  stats: {
+                    ...s,
+                    energy: Math.min(100, s.energy + energyGain),
+                    mood: Math.min(100, s.mood + moodGain),
+                    health: Math.min(100, s.health + healthGain),
+                  },
+                },
+              };
+            });
+
+            // 更新睡眠时长
+            sleepStore.tick(elapsedMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
+              (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
+              
+            // 自动叫醒判断
+            const afterTick = useWuliliStore.getState().state;
+            if (afterTick.stats.energy >= 100 || (sleep.totalSeconds + elapsedMs/1000) / 3600 >= 8) {
+               sleepStore.stop();
+               useWuliliStore.getState().markInteraction('sleep');
+            }
           }
         } else {
-          // 清醒离线，正常衰减
+          // 如果没在睡觉，正常结算离线的衰减
           useWuliliStore.getState().applyTimeDecay();
         }
 
@@ -279,4 +312,4 @@ export function useGameLoop(): UseGameLoopResult {
   }, []);
 
   return { isRunning: runningRef.current };
-}
+    }
