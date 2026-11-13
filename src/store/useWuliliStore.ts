@@ -53,7 +53,6 @@ function isStreamingNow(): boolean {
   try { const { useStreamStore } = require('@/store/useStreamStore'); return useStreamStore.getState().state.isStreaming === true; } catch { return false; }
 }
 
-// 🔥 同步读取睡眠状态
 export function isSleepingNow(): boolean {
   try { 
     const { getIsSleepingSync } = require('@/store/useSleepStore'); 
@@ -79,7 +78,6 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  // 🔥 物理锁：只要在睡觉，绝不掉血
   if (isSleepingNow()) {
     return { ...state, lastTickAt: Date.now() };
   }
@@ -184,8 +182,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       }
       const nextState = rollCycleIfNeeded(merged);
       
-      // 🔥 核心修改：直接设置状态，绝不在这里计算时间差！
-      // 所有的离线衰减全部交给 useGameLoop 在应用启动/切回前台时处理。
       set({ state: nextState, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, nextState);
       return;
@@ -204,7 +200,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
-    // 🔥 绝对防御
     if (isSleepingNow()) {
       const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
@@ -221,6 +216,18 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       if (rolled !== current) { set({ state: rolled }); void storageSet(STORAGE_KEYS.wuliliState, rolled); }
       return;
     }
+
+    // 🔥 终极冷启动保护：
+    // 如果发现这次跳动的时间超过了 0.5 小时（30分钟），说明玩家之前是把 App 关了。
+    // 为了防止冷启动时的并发加载导致误判（比如以为没在睡觉），对于超过半小时的静置，
+    // 我们强制不扣除精力，只刷新时间戳！
+    if (elapsed > 0.5) {
+      const safeState = { ...rolled, lastTickAt: Date.now() };
+      set({ state: safeState });
+      void storageSet(STORAGE_KEYS.wuliliState, safeState);
+      return;
+    }
+
     const next = applyDecayToStats(rolled, elapsed);
     set({ state: next });
     void storageSet(STORAGE_KEYS.wuliliState, next);
@@ -444,4 +451,4 @@ function rollCycleIfNeeded(state: ExtendedWuliliState): ExtendedWuliliState {
 
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
-}
+                                                                                    }
