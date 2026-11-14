@@ -186,12 +186,42 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 恢复正常叫醒逻辑
+  // 🔥 终极叫醒结算逻辑：按真实睡的时间，一次性补满！
   const handleWakeUp = useCallback(() => {
-    stopSleep();
+    // 1. 计算真实睡了多久（秒）
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
-    showDialog(`雾璃睡了 ${formatSleepDuration(totalSec)}，精力恢复了一些。`, 'sunny');
+    const hoursSlept = totalSec / 3600;
+
+    // 2. 计算应恢复的属性（每小时恢复 15 点精力，10 点心情，5 点健康）
+    const energyGain = hoursSlept * 15;
+    const moodGain = hoursSlept * 10;
+    const healthGain = hoursSlept * 5;
+
+    // 3. 强制一次性写入，无视任何后台拦截！
+    useWuliliStore.setState((prev) => {
+      const s = prev.state.stats;
+      return {
+        state: {
+          ...prev.state,
+          stats: {
+            ...s,
+            energy: Math.min(100, s.energy + energyGain),
+            mood: Math.min(100, s.mood + moodGain),
+            health: Math.min(100, s.health + healthGain),
+          },
+        },
+      };
+    });
+
+    // 4. 停止睡眠计时器
+    stopSleep();
+
+    // 5. 弹窗提示，让玩家看到明显的收益
+    showDialog(
+      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n精力 +${Math.round(energyGain)}\n心情 +${Math.round(moodGain)}\n健康 +${Math.round(healthGain)}`,
+      'sunny'
+    );
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog]);
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
