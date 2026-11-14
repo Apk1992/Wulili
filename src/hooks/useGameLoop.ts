@@ -171,44 +171,14 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 常驻前台时的 5 秒加血
+    // 🔥 定时器现在只负责“清醒”的状态。睡觉全部交给叫醒时结算
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
       if (!sleep.isSleeping) return;
 
-      const hoursPassed = deltaMs / (3600 * 1000);
-      
-      // 每小时 15 点精力（8 小时 120 点，足够回满）
-      const energyGain = 15 * hoursPassed;
-      const moodGain = 10 * hoursPassed;
-      const healthGain = 5 * hoursPassed;
-
-      useWuliliStore.setState((prev) => {
-        const s = prev.state.stats;
-        return {
-          state: {
-            ...prev.state,
-            stats: {
-              ...s,
-              energy: Math.min(100, s.energy + energyGain),
-              mood: Math.min(100, s.mood + moodGain),
-              health: Math.min(100, s.health + healthGain),
-            },
-          },
-        };
-      });
-
       sleepStore.tick(deltaMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
         (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
-
-      const afterTick = useWuliliStore.getState().state;
-      const totalHours = (sleep.totalSeconds + deltaMs / 1000) / 3600;
-      
-      if (afterTick.stats.energy >= 100 || totalHours >= 8) {
-        sleepStore.stop();
-        useWuliliStore.getState().markInteraction('sleep');
-      }
     };
 
     const tick = () => {
@@ -220,7 +190,6 @@ export function useGameLoop(): UseGameLoopResult {
 
         const isSleeping = isSleepingNow();
         
-        // 🔥 互斥逻辑：睡觉只加血，不扣血
         if (!isSleeping) {
           useWuliliStore.getState().applyTimeDecay();
           processStreamTick(TICK_INTERVAL_MS);
@@ -251,50 +220,17 @@ export function useGameLoop(): UseGameLoopResult {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
         
-        // 🔥 离线恢复逻辑：把后台挂起的时间，按真实数学差值补回来！
+        // 如果在睡觉，只累加时间，不扣血
         if (sleep.isSleeping && sleep.lastTickAt) {
           const elapsedMs = Date.now() - sleep.lastTickAt;
-          
           if (elapsedMs > 1000) {
-            const hoursPassed = elapsedMs / (3600 * 1000);
-            
-            // 每小时加 15 点精力
-            const energyGain = 15 * hoursPassed;
-            const moodGain = 10 * hoursPassed;
-            const healthGain = 5 * hoursPassed;
-
-            useWuliliStore.setState((prev) => {
-              const s = prev.state.stats;
-              return {
-                state: {
-                  ...prev.state,
-                  stats: {
-                    ...s,
-                    energy: Math.min(100, s.energy + energyGain),
-                    mood: Math.min(100, s.mood + moodGain),
-                    health: Math.min(100, s.health + healthGain),
-                  },
-                },
-              };
-            });
-
-            // 更新睡眠时长
             sleepStore.tick(elapsedMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
               (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
-              
-            // 自动叫醒判断
-            const afterTick = useWuliliStore.getState().state;
-            if (afterTick.stats.energy >= 100 || (sleep.totalSeconds + elapsedMs/1000) / 3600 >= 8) {
-               sleepStore.stop();
-               useWuliliStore.getState().markInteraction('sleep');
-            }
           }
         } else {
-          // 如果没在睡觉，正常结算离线的衰减
           useWuliliStore.getState().applyTimeDecay();
         }
 
@@ -312,4 +248,4 @@ export function useGameLoop(): UseGameLoopResult {
   }, []);
 
   return { isRunning: runningRef.current };
-    }
+}
