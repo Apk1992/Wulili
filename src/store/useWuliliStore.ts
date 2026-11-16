@@ -78,6 +78,7 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
+  // 🔥 物理锁：如果在睡觉，绝不执行任何数值扣除！直接返回原状态并刷新时间戳。
   if (isSleepingNow()) {
     return { ...state, lastTickAt: Date.now() };
   }
@@ -94,6 +95,7 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const menstrualPenalty = inPeriod ? (medicineActive ? 0.3 : 1.0) : 0;
 
   const hungerDecay = 3.2 * hours;
+  // 🔥 清醒时，精力正常流失
   const energyDecay = streaming ? 0 : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
   const moodDecayBase = streaming ? 0 : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier * (1 + menstrualPenalty * 1.0);
 
@@ -182,6 +184,8 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       }
       const nextState = rollCycleIfNeeded(merged);
       
+      // 🔥 修复：冷启动时，如果之前在睡觉，我们直接返回不扣血；
+      // 如果清醒，交给 useGameLoop 的离线结算去处理，这里绝对不算，防止双重扣血。
       set({ state: nextState, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, nextState);
       return;
@@ -200,6 +204,7 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
+    // 🔥 绝对防御：在睡觉，绝对不扣血
     if (isSleepingNow()) {
       const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
@@ -214,17 +219,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
     
     if (elapsed < 0.0005) {
       if (rolled !== current) { set({ state: rolled }); void storageSet(STORAGE_KEYS.wuliliState, rolled); }
-      return;
-    }
-
-    // 🔥 终极冷启动保护：
-    // 如果发现这次跳动的时间超过了 0.5 小时（30分钟），说明玩家之前是把 App 关了。
-    // 为了防止冷启动时的并发加载导致误判（比如以为没在睡觉），对于超过半小时的静置，
-    // 我们强制不扣除精力，只刷新时间戳！
-    if (elapsed > 0.5) {
-      const safeState = { ...rolled, lastTickAt: Date.now() };
-      set({ state: safeState });
-      void storageSet(STORAGE_KEYS.wuliliState, safeState);
       return;
     }
 
@@ -451,4 +445,4 @@ function rollCycleIfNeeded(state: ExtendedWuliliState): ExtendedWuliliState {
 
 export function pickRandomIllnessSeverity(): number {
   return clamp(randomFloat(0.8, 2.2), 0, 5);
-                                                                                    }
+}
