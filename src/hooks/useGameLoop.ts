@@ -171,7 +171,6 @@ export function useGameLoop(): UseGameLoopResult {
       }
     };
 
-    // 🔥 定时器现在只负责“清醒”的状态。睡觉全部交给叫醒时结算
     const processSleepTick = (deltaMs: number) => {
       const sleepStore = useSleepStore.getState();
       const sleep = sleepStore.state;
@@ -219,18 +218,33 @@ export function useGameLoop(): UseGameLoopResult {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const prev = appStateRef.current;
       appStateRef.current = nextState;
+      
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
+        // 🔥 核心修复 1：从后台切回来时，强制结算直播的离线收益
+        const streamStore = useStreamStore.getState();
+        const stream = streamStore.state;
+        
+        if (stream.isStreaming && stream.lastTickAt) {
+          const elapsedMs = Date.now() - stream.lastTickAt;
+          // 补偿时间（最多补偿 8 小时，防止玩家改系统时间作弊）
+          const cappedMs = Math.min(elapsedMs, 8 * 3600 * 1000);
+          
+          if (cappedMs > 1000) {
+            processStreamTick(cappedMs);
+          }
+        }
+
+        // 🔥 核心修复 2：睡眠离线恢复计算
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
         
-        // 如果在睡觉，只累加时间，不扣血
         if (sleep.isSleeping && sleep.lastTickAt) {
           const elapsedMs = Date.now() - sleep.lastTickAt;
           if (elapsedMs > 1000) {
-            sleepStore.tick(elapsedMs, { energy: 0, mood: 0, health: 0 }, () => {}, 
-              (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
+            processSleepTick(elapsedMs);
           }
-        } else {
+        } else if (!stream.isStreaming) {
+          // 如果既没睡觉，也没在直播，就正常计算时间流逝
           useWuliliStore.getState().applyTimeDecay();
         }
 
