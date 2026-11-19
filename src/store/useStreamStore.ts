@@ -1,3 +1,4 @@
+// src/store/useStreamStore.ts
 import { create } from 'zustand';
 import { storageGet, storageSet } from '@/utils/storage';
 
@@ -37,6 +38,9 @@ const EMPTY: StreamState = {
   totalSeconds: 0,
 };
 
+// 🔥 模块级同步变量（防止异步 State 读取延迟）
+let currentStreamState: StreamState = EMPTY;
+
 function persist(state: StreamState): void {
   void storageSet(STORAGE_KEY, state);
 }
@@ -48,10 +52,8 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
   hydrate: async () => {
     const stored = await storageGet<StreamState>(STORAGE_KEY);
     if (stored && typeof stored === 'object') {
-      const merged: StreamState = {
-        ...EMPTY,
-        ...stored,
-      };
+      const merged: StreamState = { ...EMPTY, ...stored };
+      currentStreamState = merged;
       set({ state: merged, hydrated: true });
       return;
     }
@@ -66,6 +68,7 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
       accumulatedCoins: 0,
       totalSeconds: 0,
     };
+    currentStreamState = next;
     set({ state: next });
     persist(next);
   },
@@ -100,6 +103,7 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
       accumulatedCoins: current.accumulatedCoins + earned,
       totalSeconds: current.totalSeconds + deltaSec,
     };
+    currentStreamState = next;
     set({ state: next });
     persist(next);
   },
@@ -110,6 +114,7 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
       ...current,
       accumulatedCoins: current.accumulatedCoins + coins,
     };
+    currentStreamState = next;
     set({ state: next });
     persist(next);
   },
@@ -117,13 +122,20 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
   stop: () => {
     const current = get().state;
     const total = Math.round(current.accumulatedCoins);
+    currentStreamState = EMPTY;
     set({ state: EMPTY });
     persist(EMPTY);
     return total;
   },
 
   reset: () => {
+    currentStreamState = EMPTY;
     set({ state: EMPTY });
     persist(EMPTY);
   },
 }));
+
+// 🔥 导出同步读取，方便后台补算
+export function getStreamStateSync(): StreamState {
+  return currentStreamState;
+}
