@@ -6,7 +6,7 @@ const STORAGE_KEY = '@wulili/stream-state';
 
 export interface StreamState {
   isStreaming: boolean;
-  startedAt: number | null;
+  startedAt: number | null; // 🔥 核心：记录绝对的开播时间点
   lastTickAt: number | null;
   accumulatedCoins: number;
   totalSeconds: number;
@@ -38,11 +38,11 @@ const EMPTY: StreamState = {
   totalSeconds: 0,
 };
 
-// 🔥 模块级同步变量（防止异步 State 读取延迟）
 let currentStreamState: StreamState = EMPTY;
 
+// 同步强制写入（无视异步排队，尽最大可能防丢）
 function persist(state: StreamState): void {
-  void storageSet(STORAGE_KEY, state);
+  storageSet(STORAGE_KEY, state);
 }
 
 export const useStreamStore = create<StreamStore>((set, get) => ({
@@ -61,10 +61,11 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
   },
 
   start: () => {
+    const now = Date.now();
     const next: StreamState = {
       isStreaming: true,
-      startedAt: Date.now(),
-      lastTickAt: Date.now(),
+      startedAt: now, // 🔥 记录绝对时间
+      lastTickAt: now,
       accumulatedCoins: 0,
       totalSeconds: 0,
     };
@@ -135,7 +136,6 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
   },
 }));
 
-// 🔥 导出同步读取，方便后台补算
 export function getStreamStateSync(): StreamState {
   return currentStreamState;
 }
