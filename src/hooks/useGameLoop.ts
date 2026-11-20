@@ -162,7 +162,7 @@ export function useGameLoop(): UseGameLoopResult {
       );
 
       const afterTick = useWuliliStore.getState().state;
-      // 🔥 如果精力低于下限，强制下播
+      // 直播自动下播保护
       if (afterTick.stats.energy < STREAM_CONFIG.autoStopEnergy || afterTick.stats.health < STREAM_CONFIG.autoStopHealth) {
         const earned = streamStore.stop();
         if (earned > 0) {
@@ -190,22 +190,16 @@ export function useGameLoop(): UseGameLoopResult {
 
         const isSleeping = isSleepingNow();
         
-        // 🔥 修复：睡觉了，绝对不能直播！
+        // 睡觉和直播互斥
         if (isSleeping) {
-          // 如果发现处于睡眠状态但还在直播，强制下播！
           const streamStore = useStreamStore.getState();
           if (streamStore.state.isStreaming) {
             const earned = streamStore.stop();
-            if (earned > 0) {
-              useWuliliStore.getState().addCoins(earned);
-            }
+            if (earned > 0) useWuliliStore.getState().addCoins(earned);
           }
           processSleepTick(TICK_INTERVAL_MS);
         } else {
-          // 醒着的时候，正常衰减时间
           useWuliliStore.getState().applyTimeDecay();
-          
-          // 如果醒着且在直播，跑直播逻辑
           if (useStreamStore.getState().state.isStreaming) {
             processStreamTick(TICK_INTERVAL_MS);
           }
@@ -239,15 +233,22 @@ export function useGameLoop(): UseGameLoopResult {
         const stream = streamStore.state;
         const isSleeping = isSleepingNow();
 
-        // 🔥 离线结算：如果切回来发现在直播，且没有在睡觉，补算直播时间和收益
-        if (stream.isStreaming && stream.lastTickAt && !isSleeping) {
-          const elapsedMs = Date.now() - stream.lastTickAt;
-          const cappedMs = Math.min(elapsedMs, 8 * 3600 * 1000); 
-          if (cappedMs > 1000) {
-            processStreamTick(cappedMs);
+        // 🔥 核心补算逻辑：对比“开始直播的时间”和“现在的时间”！
+        if (stream.isStreaming && stream.startedAt && !isSleeping) {
+          // 真实流逝的时间
+          const realElapsedMs = Date.now() - stream.startedAt;
+          // 已经结算过的时间
+          const recordedMs = stream.totalSeconds * 1000;
+          
+          if (realElapsedMs - recordedMs > 5000) {
+            // 计算差了多少时间，最大补 8 小时
+            const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
+            // 强行补齐这段时间的收益和消耗
+            processStreamTick(missingMs);
           }
         }
 
+        // 睡眠补算
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
         if (sleep.isSleeping && sleep.lastTickAt) {
@@ -273,4 +274,4 @@ export function useGameLoop(): UseGameLoopResult {
   }, []);
 
   return { isRunning: runningRef.current };
-}
+      }
