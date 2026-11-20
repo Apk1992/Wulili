@@ -17,6 +17,7 @@ import { STRESS_START_DAYS, STRESS_MAX_DAYS } from '@/data/travelConfig';
 
 const TICK_INTERVAL_MS = 5000;
 const ONE_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+const ABS_START_KEY = '@wulili/stream_abs_start_time';
 
 export interface UseGameLoopResult {
   isRunning: boolean;
@@ -227,45 +228,42 @@ export function useGameLoop(): UseGameLoopResult {
       appStateRef.current = nextState;
       
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        const streamStore = useStreamStore.getState();
-        const stream = streamStore.state;
-        const isSleeping = isSleepingNow();
-
-        // 🔥 核心修复：强制物理对齐
-        if (stream.isStreaming && !isSleeping) {
-          // 如果有 startedAt，直接用当前时间减去开始时间算出绝对真实流逝
-          if (stream.startedAt) {
-            const realElapsedMs = Date.now() - stream.startedAt;
-            const recordedMs = stream.totalSeconds * 1000;
+        
+        // 🔥 终极补算：直接从硬盘读时间锚点！
+        AsyncStorage.getItem(ABS_START_KEY).then((storedStartTime) => {
+          if (storedStartTime) {
+            const startTime = parseInt(storedStartTime, 10);
+            const realElapsedMs = Date.now() - startTime;
+            const streamStore = useStreamStore.getState();
             
-            // 真实时间多出来很多，说明断过了
-            if (realElapsedMs - recordedMs > 10000) {
-              const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
-              processStreamTick(missingMs);
-            }
-          } else {
-            // 如果 startedAt 丢了，只能根据 lastTickAt 尽力补算
-            if (stream.lastTickAt) {
-              const elapsedMs = Date.now() - stream.lastTickAt;
-              const cappedMs = Math.min(elapsedMs, 8 * 3600 * 1000); 
-              if (cappedMs > 1000) processStreamTick(cappedMs);
+            if (streamStore.state.isStreaming) {
+              const recordedMs = streamStore.state.totalSeconds * 1000;
+              // 如果真实流逝时间大于记录时间的 10 秒，说明 App 被杀过！
+              if (realElapsedMs - recordedMs > 10000) {
+                const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
+                processStreamTick(missingMs);
+              }
             }
           }
-        }
 
-        const sleepStore = useSleepStore.getState();
-        const sleep = sleepStore.state;
-        if (sleep.isSleeping && sleep.lastTickAt) {
-          const elapsedMs = Date.now() - sleep.lastTickAt;
-          if (elapsedMs > 1000) {
-            processSleepTick(elapsedMs);
+          // 睡眠补算
+          const isSleeping = isSleepingNow();
+          const sleepStore = useSleepStore.getState();
+          const sleep = sleepStore.state;
+          
+          if (sleep.isSleeping && sleep.lastTickAt) {
+            const elapsedMs = Date.now() - sleep.lastTickAt;
+            if (elapsedMs > 1000) {
+              processSleepTick(elapsedMs);
+            }
+          } else if (!useStreamStore.getState().state.isStreaming) {
+            useWuliliStore.getState().applyTimeDecay();
           }
-        } else if (!stream.isStreaming) {
-          useWuliliStore.getState().applyTimeDecay();
-        }
 
-        tick();
-        start();
+          tick();
+          start();
+        });
+        
       } else if (nextState === 'background' || nextState === 'inactive') {
         stop();
       }
