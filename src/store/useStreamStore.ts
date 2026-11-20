@@ -1,12 +1,14 @@
 // src/store/useStreamStore.ts
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { storageGet, storageSet } from '@/utils/storage';
 
 const STORAGE_KEY = '@wulili/stream-state';
+const ABS_START_KEY = '@wulili/stream_abs_start_time'; // 🔥 独立的绝对时间锚点
 
 export interface StreamState {
   isStreaming: boolean;
-  startedAt: number | null; // 🔥 核心：记录绝对的开播时间点
+  startedAt: number | null;
   lastTickAt: number | null;
   accumulatedCoins: number;
   totalSeconds: number;
@@ -40,9 +42,8 @@ const EMPTY: StreamState = {
 
 let currentStreamState: StreamState = EMPTY;
 
-// 同步强制写入（无视异步排队，尽最大可能防丢）
 function persist(state: StreamState): void {
-  storageSet(STORAGE_KEY, state);
+  void storageSet(STORAGE_KEY, state);
 }
 
 export const useStreamStore = create<StreamStore>((set, get) => ({
@@ -64,7 +65,7 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     const now = Date.now();
     const next: StreamState = {
       isStreaming: true,
-      startedAt: now, // 🔥 记录绝对时间
+      startedAt: now,
       lastTickAt: now,
       accumulatedCoins: 0,
       totalSeconds: 0,
@@ -72,6 +73,9 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     currentStreamState = next;
     set({ state: next });
     persist(next);
+
+    // 🔥 强行写入绝对时间，绝不丢失
+    AsyncStorage.setItem(ABS_START_KEY, now.toString()).catch(() => {});
   },
 
   tick: (
@@ -126,6 +130,9 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     currentStreamState = EMPTY;
     set({ state: EMPTY });
     persist(EMPTY);
+    
+    // 🔥 下播时清理时间锚点
+    AsyncStorage.removeItem(ABS_START_KEY).catch(() => {});
     return total;
   },
 
@@ -133,9 +140,6 @@ export const useStreamStore = create<StreamStore>((set, get) => ({
     currentStreamState = EMPTY;
     set({ state: EMPTY });
     persist(EMPTY);
+    AsyncStorage.removeItem(ABS_START_KEY).catch(() => {});
   },
 }));
-
-export function getStreamStateSync(): StreamState {
-  return currentStreamState;
-}
