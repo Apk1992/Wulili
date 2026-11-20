@@ -162,6 +162,7 @@ export function useGameLoop(): UseGameLoopResult {
       );
 
       const afterTick = useWuliliStore.getState().state;
+      // 🔥 如果精力低于下限，强制下播
       if (afterTick.stats.energy < STREAM_CONFIG.autoStopEnergy || afterTick.stats.health < STREAM_CONFIG.autoStopHealth) {
         const earned = streamStore.stop();
         if (earned > 0) {
@@ -189,11 +190,25 @@ export function useGameLoop(): UseGameLoopResult {
 
         const isSleeping = isSleepingNow();
         
-        if (!isSleeping) {
-          useWuliliStore.getState().applyTimeDecay();
-          processStreamTick(TICK_INTERVAL_MS);
-        } else {
+        // 🔥 修复：睡觉了，绝对不能直播！
+        if (isSleeping) {
+          // 如果发现处于睡眠状态但还在直播，强制下播！
+          const streamStore = useStreamStore.getState();
+          if (streamStore.state.isStreaming) {
+            const earned = streamStore.stop();
+            if (earned > 0) {
+              useWuliliStore.getState().addCoins(earned);
+            }
+          }
           processSleepTick(TICK_INTERVAL_MS);
+        } else {
+          // 醒着的时候，正常衰减时间
+          useWuliliStore.getState().applyTimeDecay();
+          
+          // 如果醒着且在直播，跑直播逻辑
+          if (useStreamStore.getState().state.isStreaming) {
+            processStreamTick(TICK_INTERVAL_MS);
+          }
         }
       } catch {}
     };
@@ -220,31 +235,27 @@ export function useGameLoop(): UseGameLoopResult {
       appStateRef.current = nextState;
       
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        // 🔥 核心修复 1：从后台切回来时，强制结算直播的离线收益
         const streamStore = useStreamStore.getState();
         const stream = streamStore.state;
-        
-        if (stream.isStreaming && stream.lastTickAt) {
+        const isSleeping = isSleepingNow();
+
+        // 🔥 离线结算：如果切回来发现在直播，且没有在睡觉，补算直播时间和收益
+        if (stream.isStreaming && stream.lastTickAt && !isSleeping) {
           const elapsedMs = Date.now() - stream.lastTickAt;
-          // 补偿时间（最多补偿 8 小时，防止玩家改系统时间作弊）
-          const cappedMs = Math.min(elapsedMs, 8 * 3600 * 1000);
-          
+          const cappedMs = Math.min(elapsedMs, 8 * 3600 * 1000); 
           if (cappedMs > 1000) {
             processStreamTick(cappedMs);
           }
         }
 
-        // 🔥 核心修复 2：睡眠离线恢复计算
         const sleepStore = useSleepStore.getState();
         const sleep = sleepStore.state;
-        
         if (sleep.isSleeping && sleep.lastTickAt) {
           const elapsedMs = Date.now() - sleep.lastTickAt;
           if (elapsedMs > 1000) {
             processSleepTick(elapsedMs);
           }
         } else if (!stream.isStreaming) {
-          // 如果既没睡觉，也没在直播，就正常计算时间流逝
           useWuliliStore.getState().applyTimeDecay();
         }
 
