@@ -181,17 +181,40 @@ export function useGameLoop(): UseGameLoopResult {
         (seconds) => useWuliliStore.getState().addSleepSeconds(seconds));
     };
 
-    const tick = () => {
+    // 🔥 核心修改：把补算逻辑放进 tick 里，每次心跳都查一遍！
+    const tick = async () => {
       if (!runningRef.current) return;
       try {
         checkTravelFinished();
         void checkMonthlyRent();
         checkTravelStress();
 
+        const streamStore = useStreamStore.getState();
         const isSleeping = isSleepingNow();
-        
+
+        // 🔥 暴力防断线补算检查
+        if (!isSleeping) {
+          const storedStartTime = await AsyncStorage.getItem(ABS_START_KEY);
+          if (storedStartTime && streamStore.state.isStreaming) {
+            const startTime = parseInt(storedStartTime, 10);
+            const realElapsedMs = Date.now() - startTime;
+            const recordedMs = streamStore.state.totalSeconds * 1000;
+
+            // 如果真实时间比记录的多了 10 秒以上，说明被杀过！
+            if (realElapsedMs - recordedMs > 10000) {
+              const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
+              
+              useWuliliStore.setState((prev) => ({
+                state: { ...prev.state, lastEventMessage: `补算成功：恢复了 ${(missingMs/3600000).toFixed(1)} 小时的直播收益` }
+              }));
+
+              processStreamTick(missingMs);
+              return; // 补算完直接返回，避免重复加血
+            }
+          }
+        }
+
         if (isSleeping) {
-          const streamStore = useStreamStore.getState();
           if (streamStore.state.isStreaming) {
             const earned = streamStore.stop();
             if (earned > 0) useWuliliStore.getState().addCoins(earned);
@@ -199,11 +222,13 @@ export function useGameLoop(): UseGameLoopResult {
           processSleepTick(TICK_INTERVAL_MS);
         } else {
           useWuliliStore.getState().applyTimeDecay();
-          if (useStreamStore.getState().state.isStreaming) {
+          if (streamStore.state.isStreaming) {
             processStreamTick(TICK_INTERVAL_MS);
           }
         }
-      } catch {}
+      } catch (e) {
+        console.log('Tick Error:', e);
+      }
     };
 
     const start = () => {
@@ -228,48 +253,8 @@ export function useGameLoop(): UseGameLoopResult {
       appStateRef.current = nextState;
       
       if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
-        
-        // 🔥 终极补算：直接从硬盘读时间锚点！
-        AsyncStorage.getItem(ABS_START_KEY).then((storedStartTime) => {
-          if (storedStartTime) {
-            const startTime = parseInt(storedStartTime, 10);
-            const realElapsedMs = Date.now() - startTime;
-            const streamStore = useStreamStore.getState();
-            
-            if (streamStore.state.isStreaming) {
-              const recordedMs = streamStore.state.totalSeconds * 1000;
-              // 如果真实流逝时间大于记录时间的 10 秒，说明 App 被杀过！
-              if (realElapsedMs - recordedMs > 10000) {
-                const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
-                
-                // 🔥 强制在屏幕上弹出一个提示，让你知道补算代码跑了！
-                useWuliliStore.setState((prev) => ({
-                  state: { ...prev.state, lastEventMessage: `系统提示：检测到断线！正在补算 ${(missingMs/3600000).toFixed(1)} 小时的直播收益...` }
-                }));
-
-                processStreamTick(missingMs);
-              }
-            }
-          }
-
-          // 睡眠补算
-          const isSleeping = isSleepingNow();
-          const sleepStore = useSleepStore.getState();
-          const sleep = sleepStore.state;
-          
-          if (sleep.isSleeping && sleep.lastTickAt) {
-            const elapsedMs = Date.now() - sleep.lastTickAt;
-            if (elapsedMs > 1000) {
-              processSleepTick(elapsedMs);
-            }
-          } else if (!useStreamStore.getState().state.isStreaming) {
-            useWuliliStore.getState().applyTimeDecay();
-          }
-
-          tick();
-          start();
-        });
-        
+        tick();
+        start();
       } else if (nextState === 'background' || nextState === 'inactive') {
         stop();
       }
