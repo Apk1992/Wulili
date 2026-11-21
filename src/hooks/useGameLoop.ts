@@ -241,6 +241,12 @@ export function useGameLoop(): UseGameLoopResult {
               // 如果真实流逝时间大于记录时间的 10 秒，说明 App 被杀过！
               if (realElapsedMs - recordedMs > 10000) {
                 const missingMs = Math.min(realElapsedMs - recordedMs, 8 * 3600 * 1000);
+                
+                // 🔥 强制在屏幕上弹出一个提示，让你知道补算代码跑了！
+                useWuliliStore.setState((prev) => ({
+                  state: { ...prev.state, lastEventMessage: `系统提示：检测到断线！正在补算 ${(missingMs/3600000).toFixed(1)} 小时的直播收益...` }
+                }));
+
                 processStreamTick(missingMs);
               }
             }
