@@ -78,7 +78,6 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const hours = clamp(elapsedHours, 0, 24 * 7);
   if (hours <= 0) return state;
 
-  // 🔥 物理锁：如果在睡觉，绝不执行任何数值扣除！直接返回原状态并刷新时间戳。
   if (isSleepingNow()) {
     return { ...state, lastTickAt: Date.now() };
   }
@@ -95,7 +94,6 @@ function applyDecayToStats(state: WuliliState, elapsedHours: number): WuliliStat
   const menstrualPenalty = inPeriod ? (medicineActive ? 0.3 : 1.0) : 0;
 
   const hungerDecay = 3.2 * hours;
-  // 🔥 清醒时，精力正常流失
   const energyDecay = streaming ? 0 : 2.6 * hours * bonus.energyCostRate * (1 + menstrualPenalty * 0.5);
   const moodDecayBase = streaming ? 0 : 1.6 * hours * bonus.moodDecayRate * sleepDeprivation.moodDecayMultiplier * (1 + menstrualPenalty * 1.0);
 
@@ -184,8 +182,6 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
       }
       const nextState = rollCycleIfNeeded(merged);
       
-      // 🔥 修复：冷启动时，如果之前在睡觉，我们直接返回不扣血；
-      // 如果清醒，交给 useGameLoop 的离线结算去处理，这里绝对不算，防止双重扣血。
       set({ state: nextState, hydrated: true });
       await storageSet(STORAGE_KEYS.wuliliState, nextState);
       return;
@@ -204,8 +200,16 @@ export const useWuliliStore = create<WuliliStore>((set, get) => ({
   persist: async () => { await storageSet(STORAGE_KEYS.wuliliState, get().state); },
 
   applyTimeDecay: () => {
-    // 🔥 绝对防御：在睡觉，绝对不扣血
-    if (isSleepingNow()) {
+    // 🔥 绝对防漏锁：只要底层检测到睡眠，或者UI显示在睡眠，绝不扣血！
+    let currentSleeping = isSleepingNow();
+    try {
+       const { useSleepStore } = require('@/store/useSleepStore');
+       if (useSleepStore.getState().state.isSleeping) {
+         currentSleeping = true;
+       }
+    } catch {}
+
+    if (currentSleeping) {
       const current = get().state;
       const sleepingState = { ...current, lastTickAt: Date.now() };
       set({ state: sleepingState });
