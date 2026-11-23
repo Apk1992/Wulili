@@ -50,6 +50,9 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [now, setNow] = useState<number>(Date.now());
   const [pokeMood, setPokeMood] = useState<Mood | null>(null);
   const pokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // 🔥 新增：记录睡前精力，防止被后台扣光
+  const [energyBeforeSleep, setEnergyBeforeSleep] = useState<number | null>(null);
 
   // ===== 统一业务弹窗 =====
   const [dialogVisible, setDialogVisible] = useState(false);
@@ -182,47 +185,53 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (isStreaming) return showDialog('要先下播才能睡觉哦。', 'videocam');
     if (isSleeping) return handleWakeUp();
     if (!canStartSleep(energy)) return showDialog('雾璃现在精力充沛，不需要睡觉呢。', 'moon');
+    
+    // 🔥 核心：在睡前记录下真实的初始精力
+    setEnergyBeforeSleep(energy);
+    
     startSleep();
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 精确按比例恢复，睡多久加多少
+  // 🔥 重写叫醒逻辑：直接强行覆盖，无视被偷扣的数值！
   const handleWakeUp = useCallback(() => {
-    // 1. 计算真实睡了多久（秒）
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
     const hoursSlept = totalSec / 3600;
 
-    // 2. 设定恢复比例（每小时 12.5 点精力，8小时正好满）
+    // 每小时恢复 12.5 点
     const energyGain = hoursSlept * 12.5;
     const moodGain = hoursSlept * 10;
     const healthGain = hoursSlept * 5;
 
-    // 3. 将真实恢复量写入状态
     useWuliliStore.setState((prev) => {
       const s = prev.state.stats;
+      
+      // 🔥 用睡前记录的基础值加上恢复量，绝不使用被后台扣光的当前值！
+      const baseEnergy = energyBeforeSleep !== null ? energyBeforeSleep : s.energy;
+      const baseMood = s.mood; // 心情暂时用当前值
+
       return {
         state: {
           ...prev.state,
           stats: {
             ...s,
-            energy: Math.min(100, s.energy + energyGain),
-            mood: Math.min(100, s.mood + moodGain),
+            energy: Math.min(100, baseEnergy + energyGain),
+            mood: Math.min(100, baseMood + moodGain),
             health: Math.min(100, s.health + healthGain),
           },
         },
       };
     });
 
-    // 4. 停止睡眠计时器
     stopSleep();
+    setEnergyBeforeSleep(null); // 结算完清空
 
-    // 5. 弹窗显示实际恢复
     showDialog(
       `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n精力 +${Math.round(energyGain)}\n心情 +${Math.round(moodGain)}`,
       'sunny'
     );
-  }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog]);
+  }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog, energyBeforeSleep]);
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
   const sleepElapsedMs = isSleeping && sleepStartedAt ? now - sleepStartedAt : 0;
