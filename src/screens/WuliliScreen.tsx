@@ -51,7 +51,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [pokeMood, setPokeMood] = useState<Mood | null>(null);
   const pokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // 🔥 新增：记录睡前精力，防止被后台扣光
+  // 记录睡前精力
   const [energyBeforeSleep, setEnergyBeforeSleep] = useState<number | null>(null);
 
   // ===== 统一业务弹窗 =====
@@ -186,14 +186,14 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (isSleeping) return handleWakeUp();
     if (!canStartSleep(energy)) return showDialog('雾璃现在精力充沛，不需要睡觉呢。', 'moon');
     
-    // 🔥 核心：在睡前记录下真实的初始精力
+    // 🔥 记录睡前真实的精力值
     setEnergyBeforeSleep(energy);
     
     startSleep();
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 重写叫醒逻辑：直接强行覆盖，无视被偷扣的数值！
+  // 🔥 终极叫醒逻辑：绝对补差法
   const handleWakeUp = useCallback(() => {
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
@@ -207,17 +207,23 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.setState((prev) => {
       const s = prev.state.stats;
       
-      // 🔥 用睡前记录的基础值加上恢复量，绝不使用被后台扣光的当前值！
+      // 🔥 核心：拿睡前记录的基础值，而不是被扣干了的当前值
       const baseEnergy = energyBeforeSleep !== null ? energyBeforeSleep : s.energy;
-      const baseMood = s.mood; // 心情暂时用当前值
+      
+      let finalEnergy = Math.min(100, baseEnergy + energyGain);
+      
+      // 🔥 暴力兜底：只要睡了 7 小时以上，且睡前极累（<20），直接强制 100！
+      if (hoursSlept >= 7 && baseEnergy < 20) {
+        finalEnergy = 100;
+      }
 
       return {
         state: {
           ...prev.state,
           stats: {
             ...s,
-            energy: Math.min(100, baseEnergy + energyGain),
-            mood: Math.min(100, baseMood + moodGain),
+            energy: finalEnergy,
+            mood: Math.min(100, s.mood + moodGain),
             health: Math.min(100, s.health + healthGain),
           },
         },
@@ -225,10 +231,10 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     });
 
     stopSleep();
-    setEnergyBeforeSleep(null); // 结算完清空
+    setEnergyBeforeSleep(null);
 
     showDialog(
-      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n精力 +${Math.round(energyGain)}\n心情 +${Math.round(moodGain)}`,
+      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n${hoursSlept >= 7 && (energyBeforeSleep ?? 0) < 20 ? '她睡得很沉，精力完全恢复了！' : `精力 +${Math.round(energyGain)}`}\n心情 +${Math.round(moodGain)}`,
       'sunny'
     );
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog, energyBeforeSleep]);
