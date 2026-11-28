@@ -51,7 +51,7 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
   const [pokeMood, setPokeMood] = useState<Mood | null>(null);
   const pokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // 记录睡前精力
+  // 记录睡前真实的精力值
   const [energyBeforeSleep, setEnergyBeforeSleep] = useState<number | null>(null);
 
   // ===== 统一业务弹窗 =====
@@ -186,20 +186,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (isSleeping) return handleWakeUp();
     if (!canStartSleep(energy)) return showDialog('雾璃现在精力充沛，不需要睡觉呢。', 'moon');
     
-    // 🔥 记录睡前真实的精力值
+    // 记录睡前真实精力
     setEnergyBeforeSleep(energy);
     
     startSleep();
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 终极叫醒逻辑：绝对补差法
+  // 🔥 终极叫醒逻辑：不讲理直接覆盖
   const handleWakeUp = useCallback(() => {
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
     const hoursSlept = totalSec / 3600;
 
-    // 每小时恢复 12.5 点
+    // 计算理论恢复量（用于显示）
     const energyGain = hoursSlept * 12.5;
     const moodGain = hoursSlept * 10;
     const healthGain = hoursSlept * 5;
@@ -207,13 +207,13 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     useWuliliStore.setState((prev) => {
       const s = prev.state.stats;
       
-      // 🔥 核心：拿睡前记录的基础值，而不是被扣干了的当前值
+      // 睡前基础精力（如果没有记录，用当前的）
       const baseEnergy = energyBeforeSleep !== null ? energyBeforeSleep : s.energy;
       
       let finalEnergy = Math.min(100, baseEnergy + energyGain);
       
-      // 🔥 暴力兜底：只要睡了 7 小时以上，且睡前极累（<20），直接强制 100！
-      if (hoursSlept >= 7 && baseEnergy < 20) {
+      // 🔥 暴力防偷跑锁：只要睡够 6 小时，且睡前精力低（<50），直接强制 100！
+      if (hoursSlept >= 6 && baseEnergy < 50) {
         finalEnergy = 100;
       }
 
@@ -225,16 +225,20 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
             energy: finalEnergy,
             mood: Math.min(100, s.mood + moodGain),
             health: Math.min(100, s.health + healthGain),
+            // 🔥 顺手把饥饿度保底拉到 20，防止底层判定“极度饥饿”疯狂扣血
+            hunger: Math.max(20, s.hunger),
           },
         },
       };
     });
 
+    // 停止睡眠，清理状态
     stopSleep();
     setEnergyBeforeSleep(null);
 
+    // 显示弹窗
     showDialog(
-      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n${hoursSlept >= 7 && (energyBeforeSleep ?? 0) < 20 ? '她睡得很沉，精力完全恢复了！' : `精力 +${Math.round(energyGain)}`}\n心情 +${Math.round(moodGain)}`,
+      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n${hoursSlept >= 6 && (energyBeforeSleep ?? 0) < 50 ? '她睡得很饱，精力全满！' : `精力 +${Math.round(energyGain)}`}\n心情 +${Math.round(moodGain)}`,
       'sunny'
     );
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog, energyBeforeSleep]);
