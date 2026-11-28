@@ -186,61 +186,60 @@ export function WuliliScreen({ navigation }: Props): React.JSX.Element {
     if (isSleeping) return handleWakeUp();
     if (!canStartSleep(energy)) return showDialog('雾璃现在精力充沛，不需要睡觉呢。', 'moon');
     
-    // 记录睡前真实精力
     setEnergyBeforeSleep(energy);
-    
     startSleep();
     useWuliliStore.getState().markInteraction('sleep');
   }, [isTraveling, isStreaming, isSleeping, energy, startSleep, showDialog]);
 
-  // 🔥 终极叫醒逻辑：不讲理直接覆盖
+  // 🔥 绝对时间锁叫醒逻辑
   const handleWakeUp = useCallback(() => {
     const sleepElapsedMs = isSleeping && sleepStartedAt ? Date.now() - sleepStartedAt : 0;
     const totalSec = sleepTotalSeconds + sleepElapsedMs / 1000;
     const hoursSlept = totalSec / 3600;
 
-    // 计算理论恢复量（用于显示）
     const energyGain = hoursSlept * 12.5;
     const moodGain = hoursSlept * 10;
     const healthGain = hoursSlept * 5;
 
-    useWuliliStore.setState((prev) => {
-      const s = prev.state.stats;
-      
-      // 睡前基础精力（如果没有记录，用当前的）
-      const baseEnergy = energyBeforeSleep !== null ? energyBeforeSleep : s.energy;
-      
-      let finalEnergy = Math.min(100, baseEnergy + energyGain);
-      
-      // 🔥 暴力防偷跑锁：只要睡够 6 小时，且睡前精力低（<50），直接强制 100！
-      if (hoursSlept >= 6 && baseEnergy < 50) {
-        finalEnergy = 100;
-      }
-
-      return {
-        state: {
-          ...prev.state,
-          stats: {
-            ...s,
-            energy: finalEnergy,
-            mood: Math.min(100, s.mood + moodGain),
-            health: Math.min(100, s.health + healthGain),
-            // 🔥 顺手把饥饿度保底拉到 20，防止底层判定“极度饥饿”疯狂扣血
-            hunger: Math.max(20, s.hunger),
-          },
-        },
-      };
-    });
-
-    // 停止睡眠，清理状态
     stopSleep();
-    setEnergyBeforeSleep(null);
 
-    // 显示弹窗
-    showDialog(
-      `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n${hoursSlept >= 6 && (energyBeforeSleep ?? 0) < 50 ? '她睡得很饱，精力全满！' : `精力 +${Math.round(energyGain)}`}\n心情 +${Math.round(moodGain)}`,
-      'sunny'
-    );
+    // 延迟一帧写入，绝对错开底层的心跳计算
+    setTimeout(() => {
+      useWuliliStore.setState((prev) => {
+        const s = prev.state.stats;
+        const baseEnergy = energyBeforeSleep !== null ? energyBeforeSleep : s.energy;
+        
+        let finalEnergy = Math.min(100, baseEnergy + energyGain);
+        
+        // 强制兜底：睡满 6 小时且睡前极累，强制 100
+        if (hoursSlept >= 6 && baseEnergy < 50) {
+          finalEnergy = 100;
+        }
+
+        return {
+          state: {
+            ...prev.state,
+            // 🔥 核心：强行重置底层的计时器，告诉系统“刚刚才结算过”，防止切回前台补扣时间！
+            lastTickAt: Date.now(),
+            stats: {
+              ...s,
+              energy: finalEnergy,
+              mood: Math.min(100, s.mood + moodGain),
+              health: Math.min(100, s.health + healthGain),
+              // 🔥 强行保底饥饿度，防止因饿极扣血
+              hunger: Math.max(50, s.hunger), 
+            },
+          },
+        };
+      });
+
+      setEnergyBeforeSleep(null);
+
+      showDialog(
+        `雾璃睡了 ${formatSleepDuration(totalSec)}。\n\n${hoursSlept >= 6 && (energyBeforeSleep ?? 0) < 50 ? '她睡得很饱，精力全满！' : `精力 +${Math.round(energyGain)}`}\n心情 +${Math.round(moodGain)}`,
+        'sunny'
+      );
+    }, 50);
   }, [isSleeping, sleepStartedAt, sleepTotalSeconds, stopSleep, showDialog, energyBeforeSleep]);
 
   const streamElapsedMs = isStreaming && streamStartedAt ? now - streamStartedAt : 0;
